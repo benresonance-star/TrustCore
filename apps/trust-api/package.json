@@ -1,0 +1,36 @@
+{
+  "name": "@trust-core/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "db:migrate": "tsx src/admin.ts migrate",
+    "db:provision": "tsx src/admin.ts provision",
+    "db:seed-demo": "tsx src/admin.ts seed-demo",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:docker": "vitest run tests/docker.integration.test.ts -t \"proves live health\"",
+    "test:interruption:docker": "vitest run tests/docker.integration.test.ts -t \"terminates and restarts\""
+  },
+  "dependencies": {
+    "@trust-core/fixtures-ivans-diary": "workspace:*",
+    "@trust-core/identity": "workspace:*",
+    "@trust-core/operations": "workspace:*",
+    "@trust-core/persistence-postgres": "workspace:*",
+    "@trust-core/protocol": "workspace:*",
+    "@trust-core/schema-registry": "workspace:*",
+    "@trust-core/storage-minio": "workspace:*",
+    "@trust-core/verification": "workspace:*",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1102.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,0 +1,6 @@
+export const uploadCheckpoints=["authorised","temporary_upload_created","bytes_received","hash_verified","immutable_object_committed","metadata_committed","audit_committed","completed"] as const;
+export type UploadCheckpoint=typeof uploadCheckpoints[number];
+export interface CheckpointStore { completed(operationId:string):Promise<readonly UploadCheckpoint[]>; markCompleted(operationId:string,checkpoint:UploadCheckpoint):Promise<void>; }
+export interface FailureInjector { before(checkpoint:UploadCheckpoint):Promise<void>; }
+export class DurableCheckpointRunner { constructor(private readonly store:CheckpointStore,private readonly injector:FailureInjector){ }async run(operationId:string,effects:Readonly<Record<UploadCheckpoint,()=>Promise<void>>>):Promise<void>{const completed=new Set(await this.store.completed(operationId));for(const checkpoint of uploadCheckpoints){if(completed.has(checkpoint))continue;await this.injector.before(checkpoint);await effects[checkpoint]();await this.store.markCompleted(operationId,checkpoint);}} }
+export class FailOnceAt implements FailureInjector { private failed=false;constructor(private readonly target:UploadCheckpoint){}async before(checkpoint:UploadCheckpoint){if(!this.failed&&checkpoint===this.target){this.failed=true;throw new Error(`Injected failure before ${checkpoint}`);}} }

@@ -1,0 +1,1 @@
+{"root":["./src/fixture-gateway.ts","./src/http-gateway.ts","./src/model.ts","./src/test-setup.ts","./src/app.tsx","./src/main.tsx","./tests/app.test.tsx","./vite.config.ts"],"version":"5.9.3"}

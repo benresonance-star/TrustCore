@@ -1,0 +1,6 @@
+{
+  "name":"@trust-core/verification","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts",
+  "scripts":{"typecheck":"tsc --noEmit","test":"vitest run"},
+  "dependencies":{"@trust-core/core":"workspace:*","@trust-core/storage":"workspace:*"},
+  "devDependencies":{"@types/node":"^24.0.0","typescript":"^5.9.0","vitest":"^3.2.0"}
+}

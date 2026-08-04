@@ -1,0 +1,17 @@
+{
+  "name": "@trust-core/storage-minio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:docker": "vitest run tests/minio-storage.test.ts -t \"MinioObjectStorage live contract\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1102.0",
+    "@aws-sdk/lib-storage": "^3.1101.0",
+    "@trust-core/storage": "workspace:*"
+  }
+}
