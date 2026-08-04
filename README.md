@@ -2,10 +2,12 @@
 
 Trust Core is an application-independent continuity, history, integrity, recovery and portability platform.
 
-This repository is implementing Release 0.1: the central trust loop. Checkpoint
-0.1K has passed its real PostgreSQL/MinIO Docker integration gate, including
-least-privilege RLS, full-byte verification, worker retry/quarantine, and
-actual API process termination and restart at all eight ingest checkpoints.
+Release 0.1, the central trust loop, is complete at checkpoint 0.1L. Its
+real-service proof includes least-privilege PostgreSQL RLS, immutable MinIO
+storage, five-level verification, public contracts/OpenAPI/TypeScript SDK,
+Ivan's Diary and WeSketch fixtures, live Control Centre API paths, worker
+retry/quarantine, and actual API process termination and restart at all eight
+ingest checkpoints.
 
 ## Commands
 
@@ -15,11 +17,21 @@ distribution does not include Corepack, replace `pnpm` below with
 
 ```powershell
 pnpm install --frozen-lockfile
+pnpm lint
+pnpm check:openapi
 pnpm typecheck
 pnpm test
 pnpm --filter @trust-core/control-centre build
+pnpm --filter @trust-core/sdk test
+pnpm --filter @trust-core/fixtures-wesketch test
 pnpm trust:test
 ```
+
+`pnpm generate:openapi` regenerates `contracts/openapi.json` from the shared
+Release 0.1 route and schema contracts. `pnpm check:openapi` fails when the
+generated artifact drifts. The SDK and WeSketch commands above run their
+focused contract/fixture suites; applications must use `@trust-core/sdk` or
+the public HTTP API rather than importing server packages.
 
 The source-only checkpoint deliberately prints `TRUST TEST CANDIDATE: PASS
 (service adapters; Docker gate pending)`. Only `pnpm trust:test:docker` can
@@ -76,24 +88,38 @@ it exits non-zero and writes sanitized JSON and Markdown diagnostics under
 `reports/`. See [the Docker gate runbook](docs/docker-gate-runbook.md) for
 exact start, diagnosis, restart, and narrowly scoped cleanup procedures.
 
-The verified 0.1K gate used Docker Desktop 4.84.0, Linux engine 29.6.2,
-PostgreSQL 18, and MinIO `RELEASE.2025-04-22T22-12-26Z`. It completed in
-18.724 seconds. The imported source snapshot has no commit yet, so the report
-records an uncommitted source snapshot rather than inventing a commit hash.
+The latest verified 0.1L report records `win32 x64`, Node `v25.2.1`, Docker
+Linux engine `29.6.2`, PostgreSQL 18 and MinIO
+`RELEASE.2025-04-22T22-12-26Z`. It completed in 30.856 seconds and records
+repository HEAD `3ce47f9271c39e01741fad2de34ff20fe4c85521`.
 
 With `DATABASE_URL` present the API reports `mode: live` and reads PostgreSQL. Without it, the API deliberately reports `mode: fixture`.
 
-Live mutation routes also require `TRUST_ADMIN_TOKEN`. The bootstrap-token exchange is a controlled development boundary, not the final production identity system; OIDC/passkey authentication, credential rotation and privileged-session controls remain a later security checkpoint.
+Live mutation routes also require `TRUST_ADMIN_TOKEN`. The bootstrap-token
+exchange is a controlled development boundary, not the ordinary production
+identity system. The provider-neutral OIDC/PKCE implementation is complete;
+integration against a real external organisation identity provider, plus
+production credential-rotation drills, remains post-0.1 operational hardening.
 
 To exercise the real HTTP gateway during local development, run the API and set `VITE_TRUST_API_BASE=/api` plus `VITE_TRUST_WORKSPACE_ID=<workspace UUID>` when starting the Control Centre. Without `VITE_TRUST_API_BASE`, the UI deliberately uses synthetic fixture data for safe visual exploration.
 
-For production, configure `TRUST_OIDC_*` and apply migration `0004`. The Control Centre redirects to the organisation identity provider using authorization code flow with S256 PKCE. Trust Core validates issuer, audience, signature, algorithm, subject, nonce, one-use state and a separate browser-binding cookie before creating a hashed, shared PostgreSQL session. Passkeys and MFA belong at the identity provider.
+For production, configure `TRUST_OIDC_*` and apply all ordered migrations
+(`0004` introduced the identity tables). The Control Centre redirects to the
+organisation identity provider using authorization code flow with S256 PKCE.
+Trust Core validates issuer, audience, signature, algorithm, subject, nonce,
+one-use state and a separate browser-binding cookie before creating a hashed,
+shared PostgreSQL session. Passkeys and MFA belong at the identity provider.
 
 The bootstrap-token flow remains available for controlled local development and emergency design work. It must not be the ordinary production sign-in path.
 
 The Control Centre uses its typed fixture adapter unless
 `VITE_TRUST_API_BASE` is set. Its HTTP gateway uses the authenticated live
-history, revision, deletion, restoration, and verification command routes.
+snapshot, health, history, restoration and verification routes through the
+public TypeScript SDK.
+
+Vercel hosts only the static Control Centre SPA. It does not host the Trust API,
+worker, PostgreSQL or canonical object storage; configure the SPA to reach
+separately operated Trust Core services.
 
 ## Synthetic Ivan fixture
 

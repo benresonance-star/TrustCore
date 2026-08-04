@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 export interface AuditEventBody {
   id: string;
   workspaceId: string;
-  actorType: "user" | "service" | "system";
+  actorType: "user" | "service" | "application" | "system";
   actorId: string;
   action: string;
   subjectKind: string;

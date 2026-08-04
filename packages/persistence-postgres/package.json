@@ -12,14 +12,21 @@
   "dependencies": {
     "@trust-core/audit": "workspace:*",
     "@trust-core/core": "workspace:*",
-    "@trust-core/fixtures-ivans-diary": "workspace:*",
     "@trust-core/identity": "workspace:*",
     "@trust-core/operations": "workspace:*",
+    "@trust-core/policy": "workspace:*",
     "@trust-core/protocol": "workspace:*",
     "@trust-core/reconciliation": "workspace:*",
     "@trust-core/schema-registry": "workspace:*",
     "@trust-core/verification": "workspace:*",
     "pg": "^8.16.0"
   },
-  "devDependencies": { "@types/node": "^24.0.0", "@types/pg": "^8.15.0", "typescript": "^5.9.0", "vitest": "^3.2.0" }
+  "devDependencies": {
+    "@trust-core/fixtures-ivans-diary": "workspace:*",
+    "@trust-core/fixtures-wesketch": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
 }

@@ -1,4 +1,4 @@
-# Checkpoint 0.1K — Release 0.1 Docker integration proof
+# Checkpoint 0.1L — Release 0.1 completion
 
 ## Implemented
 
@@ -51,7 +51,6 @@
 - bounded JSON request ingestion for command routes;
 - interactive Control Centre recovery bin using the same gateway contract as the live API;
 - visible restoration confirmation explaining that prior history remains preserved;
-- twenty-six backend tests and four Control Centre interaction tests.
 - real HTTP Control Centre gateway for snapshot, history and restoration commands;
 - administrator bootstrap-token exchange into a short-lived server-side session;
 - `HttpOnly`, `SameSite=Strict` session cookies with `Secure` enabled in production;
@@ -63,7 +62,6 @@
 - global administrator sign-in UI plus re-authentication when a recovery session expires;
 - no-store response policy for authentication and Trust API responses;
 - successful local end-to-end session → history → restore → refreshed-history proof;
-- twenty-eight backend tests and four Control Centre interaction tests.
 - reusable provider-neutral identity package separated from application and storage concerns;
 - OpenID Connect authorization-code flow with S256 PKCE;
 - cryptographically random, one-use state and nonce validation;
@@ -76,7 +74,6 @@
 - federated sign-in and callback routes plus a Control Centre organisation-identity action;
 - safe relative return-path enforcement preventing open redirects;
 - passkeys and MFA delegated to the configured organisation identity provider;
-- thirty backend tests and four Control Centre interaction tests.
 - reusable verification package with explicit metadata and full-blob levels;
 - streaming SHA-256 and byte-count recomputation without loading canonical objects into memory;
 - critical detection for missing/inaccessible objects, length mismatches, hash mismatches and stream failure;
@@ -87,7 +84,6 @@
 - authenticated verification command API with owner/admin/auditor policy;
 - live PostgreSQL plus S3-compatible verification adapter wiring;
 - interactive full-verification action and result summary in Control Centre Health;
-- thirty-two backend tests and five Control Centre interaction tests.
 - reusable reconciliation package separated from storage and PostgreSQL adapters;
 - leased outbox claiming with `FOR UPDATE SKIP LOCKED` for safe concurrent workers;
 - lease ownership checks preventing stale workers from completing another worker's event;
@@ -100,28 +96,55 @@
 - workspace-isolated reconciliation incident records;
 - durable checkpoint runner covering every upload stage;
 - failure injection before all eight upload checkpoints with successful idempotent resumption;
-- thirty-eight backend tests and five Control Centre interaction tests.
+- shared Release 0.1 transport contracts with stable routes, schemas, operation
+  identifiers, error codes and durable operation states;
+- a generated OpenAPI 3.1 artifact checked against those actual transport
+  contracts;
+- a handwritten `@trust-core/sdk` facade that keeps applications on the public
+  HTTP surface and out of server internals;
+- scoped policy evaluation for users, services and registered applications,
+  including dataset/application assignments, capability checks, infrastructure
+  separation and time-limited break-glass grants;
+- all five verification levels: metadata, full blob, resource, dataset and
+  workspace;
+- public workspace, application, schema, dataset, resource, relation, upload,
+  operation, audit, verification and service-health queries and commands;
+- a materially different WeSketch schema and deterministic fixture preserving
+  canvas, layer, mask, prompt, generated-image and placement lineage;
+- live Control Centre reads and commands routed through the public TypeScript
+  SDK, with fixture mode retained for safe visual exploration;
+- contract, compatibility, retention, trust-boundary, threat-model,
+  identity-provider and recovery documentation;
+- CI quality gates for lint, strict typecheck, tests, production build,
+  generated OpenAPI drift and the source Trust Test, plus a scheduled/main
+  Docker gate with sanitized report artifacts.
 
-## Verified
+## Fresh Release 0.1 verification
 
-- TypeScript strict checks pass for all implemented packages.
-- Unit tests pass.
-- Trust-loop checkpoint test passes.
-- Control Centre production build passes.
-- Every synthetic Ivan canonical payload validates against its published schema.
-- PostgreSQL persistence contracts, transactions and failure rollback pass tests.
-- History tests prove stale writers cannot leave orphan revisions.
-- Recovery tests prove deleted content is restored as a new, traceable revision.
-- Object tests prove identical bytes deduplicate and failed verification leaves no blob record.
-- API tests prove missing credentials, wrong-workspace access, insufficient roles and malformed commands are rejected.
-- Control Centre tests prove an administrator can open History and restore a recoverable item as a new revision.
-- Session tests prove invalid bootstrap credentials, missing CSRF, revoked sessions and unauthenticated live snapshots are rejected.
-- The HTTP proof restored the sole recoverable fixture as revision 18 and confirmed the recovery bin changed from one item to zero.
-- OIDC tests prove PKCE, one-use state, browser binding, nonce validation, claim denial, hashed sessions and replay rejection.
-- Verification tests prove clean metadata/full checks and critical reporting for corrupted or missing bytes.
-- Control Centre tests prove administrators can initiate full verification and see objects, streamed bytes and issue counts.
-- Reconciliation tests prove retry, quarantine, safe cleanup, missing-object incidents and retention of unattached immutable bytes.
-- Failure-injection tests prove simulated interruption at every upload checkpoint resumes without repeating completed effects.
+The completion gates were rerun on 2026-08-04 after the Release 0.1 contract,
+SDK, policy, verification, WeSketch, live UI, CI and documentation work:
+
+- `pnpm lint`: PASS;
+- `pnpm check:openapi`: PASS; regeneration produced no OpenAPI drift;
+- `pnpm typecheck`: PASS across workspace projects with strict TypeScript
+  checks;
+- `pnpm test`: PASS; Docker-dependent suites were intentionally skipped by the
+  source-only invocation and then exercised by the Docker gate;
+- `pnpm --filter @trust-core/control-centre build`: PASS, with 1,584 modules
+  transformed into the production SPA bundle;
+- `pnpm trust:test`: `TRUST TEST CANDIDATE: PASS (service adapters; Docker gate
+  pending)`;
+- `pnpm trust:test:docker`: 13 PostgreSQL tests and 5 live MinIO contract tests
+  PASS, the
+  live API integration PASS, all eight interruption/restart checkpoints PASS,
+  and final `TRUST TEST: PASS`.
+
+The live API proof covered health, idempotent object ingest, upload creation and
+completion, operation lookup, full-blob verification, scoped resource and
+dataset verification, persisted report lookup, authenticated public reads,
+revision creation, logical deletion and append-only restoration. It also read
+both Ivan's Diary and WeSketch through the public SDK and proved WeSketch
+revision/blob lineage against real PostgreSQL and MinIO.
 
 ## Docker integration proof
 
@@ -133,7 +156,7 @@
   `RELEASE.2025-04-16T18-13-26Z`;
 - health-based Compose startup, idempotent private bucket initialization,
   persistent named volumes and scoped reset/stop commands;
-- migrations `0001` through `0006` applied on a clean PostgreSQL database,
+- migrations `0001` through `0010` applied on a clean PostgreSQL database,
   rerun idempotently and rejected after checksum tampering;
 - real constraint, foreign-key, revision immutability, blob-coordinate
   immutability and schema-package immutability assertions;
@@ -141,7 +164,7 @@
   audit reader/writer and backup/restore roles;
 - real runtime RLS cross-workspace denial and a dedicated worker role that can
   claim cross-workspace outbox work without dataset access;
-- five live MinIO contract tests covering streaming, hashes, immutable commit,
+- live MinIO contract tests covering streaming, hashes, immutable commit,
   deduplication, retry, read/head, missing objects, denial/outage, temporary
   cleanup and overwrite refusal;
 - live authenticated API proof for ingest, full-byte verification,
@@ -153,18 +176,18 @@
   event;
 - sanitized JSON and Markdown Docker-gate reports.
 
-The Release 0.1 Docker gate completed in 18.724 seconds and printed
-`TRUST TEST: PASS`. The source-only `pnpm trust:test` command deliberately
-retains its weaker `TRUST TEST CANDIDATE` marker.
+The latest generated Release 0.1 Docker report records a 27.216-second run on
+`win32 x64`, Node `v25.2.1` and Docker Linux engine `29.6.2`. It printed
+`TRUST TEST: PASS`. The working tree contains uncommitted changes, so the
+report's source-revision metadata is not presented as current committed-HEAD
+evidence.
+The source-only `pnpm trust:test` command deliberately retains its weaker
+`TRUST TEST CANDIDATE` marker.
 
-## Remaining work outside this Docker gate
+## Remaining post-0.1 operational hardening
 
-- a real organisation identity-provider integration test (provider
-  configuration is not available in this workspace);
-- identity-provider administration runbook, emergency-access policy,
-  credential-rotation drill and long-lived session rotation;
-- production backup/restore and credential-rotation drills;
-- Release 0.2 archive/export/import proof.
-
-The tested source is an uncommitted imported snapshot because the supplied
-checkpoint contained no Git history. No commit was created during this run.
+- integrate organisation identity against a real external OIDC provider tenant
+  and verify its production claim mapping, MFA/passkey and session behavior;
+- execute production backup/restore and credential-rotation drills in the
+  target operating environment;
+- implement and prove Release 0.2 archive/export/import portability.

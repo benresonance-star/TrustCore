@@ -1,97 +1,930 @@
-import type { AuthenticatedActor, ControlCentreSnapshot, DeleteResourceCommand, DeleteResourceResult, HealthResponse, HistorySnapshot, RestoreResourceCommand, RevisionCommand, RevisionCommandResult, RunVerificationCommand, TrustAction, VerificationRunResult } from "@trust-core/protocol";
-import type { PublishedSchemaPackage } from "@trust-core/schema-registry";
+import { verificationLevels } from "@trust-core/protocol";
+import type {
+  ApiErrorResponse,
+  ApplicationRegistration,
+  AuthenticatedActor,
+  CompleteUploadCommand,
+  ControlCentreSnapshot,
+  CreateUploadCommand,
+  DeleteResourceCommand,
+  DeleteResourceResult,
+  HealthResponse,
+  HistorySnapshot,
+  PublicErrorCode,
+  RegisterApplicationCommand,
+  RestoreResourceCommand,
+  RevisionCommand,
+  RevisionCommandResult,
+  RunVerificationCommand,
+  TrustAction,
+  UploadSession,
+  VerificationRunResult,
+} from "@trust-core/protocol";
 import type { ObjectIngestResult } from "@trust-core/operations";
+import { evaluatePolicy } from "@trust-core/policy";
+import type { PolicyScope } from "@trust-core/policy";
+import type { PublishedSchemaPackage } from "@trust-core/schema-registry";
 
-export type ApiAction = TrustAction | "object:ingest";
-export interface ObjectIngestCommand { workspaceId: string; idempotencyKey: string; mediaType: string; bytesBase64: string; }
-
+export type ApiAction = TrustAction;
+export interface ObjectIngestCommand {
+  workspaceId: string;
+  idempotencyKey: string;
+  mediaType: string;
+  bytesBase64: string;
+}
 export interface SnapshotProvider {
   getSnapshot(): Promise<ControlCentreSnapshot>;
 }
-
 export interface SchemaProvider {
   listSchemas(): Promise<readonly PublishedSchemaPackage[]>;
   getSchema(key: string): Promise<PublishedSchemaPackage | undefined>;
 }
-
 export interface ApiResult {
   status: number;
-  body: HealthResponse | ControlCentreSnapshot | readonly PublishedSchemaPackage[] | PublishedSchemaPackage | HistorySnapshot | RevisionCommandResult | DeleteResourceResult | VerificationRunResult | ObjectIngestResult | { error: string; detail?: string };
+  body: unknown;
+}
+export interface ApiRequest {
+  headers?: Readonly<Record<string, string | undefined>>;
+  body?: unknown;
 }
 
-export interface ApiRequest { headers?: Readonly<Record<string, string | undefined>>; body?: unknown; }
 export interface CommandProvider {
-  getHistory(workspaceId: string): Promise<HistorySnapshot>;
-  createRevision(resourceId: string, actor: AuthenticatedActor, command: RevisionCommand): Promise<RevisionCommandResult>;
-  deleteResource(resourceId: string, actor: AuthenticatedActor, command: DeleteResourceCommand): Promise<DeleteResourceResult>;
-  restoreResource(resourceId: string, actor: AuthenticatedActor, command: RestoreResourceCommand): Promise<RevisionCommandResult>;
-  runVerification(actor:AuthenticatedActor,command:RunVerificationCommand):Promise<VerificationRunResult>;
-  ingestObject?(actor: AuthenticatedActor, command: ObjectIngestCommand): Promise<ObjectIngestResult>;
+  listWorkspaces(workspaceId: string): Promise<unknown>;
+  listApplications(workspaceId: string): Promise<unknown>;
+  registerApplication(
+    actor: AuthenticatedActor,
+    command: RegisterApplicationCommand,
+  ): Promise<ApplicationRegistration>;
+  listDatasets(workspaceId: string): Promise<unknown>;
+  getDataset(
+    workspaceId: string,
+    datasetId: string,
+  ): Promise<unknown | undefined>;
+  listResources(workspaceId: string, datasetId?: string): Promise<unknown>;
+  getResource(
+    workspaceId: string,
+    resourceId: string,
+  ): Promise<unknown | undefined>;
+  getRevisionGraph(
+    workspaceId: string,
+    resourceId: string,
+  ): Promise<unknown | undefined>;
+  listRelations(workspaceId: string, datasetId?: string): Promise<unknown>;
+  listDeletedResources(
+    workspaceId: string,
+    datasetId?: string,
+  ): Promise<unknown>;
+  getHistory(workspaceId: string, datasetId?: string): Promise<HistorySnapshot>;
+  listAuditEvents(workspaceId: string, datasetId?: string): Promise<unknown>;
+  createRevision(
+    resourceId: string,
+    actor: AuthenticatedActor,
+    command: RevisionCommand,
+  ): Promise<RevisionCommandResult>;
+  deleteResource(
+    resourceId: string,
+    actor: AuthenticatedActor,
+    command: DeleteResourceCommand,
+  ): Promise<DeleteResourceResult>;
+  restoreResource(
+    resourceId: string,
+    actor: AuthenticatedActor,
+    command: RestoreResourceCommand,
+  ): Promise<RevisionCommandResult>;
+  runVerification(
+    actor: AuthenticatedActor,
+    command: RunVerificationCommand,
+  ): Promise<VerificationRunResult>;
+  listVerificationReports(workspaceId: string): Promise<unknown>;
+  getVerificationReport(
+    workspaceId: string,
+    reportId: string,
+  ): Promise<unknown | undefined>;
+  getOperation(
+    workspaceId: string,
+    operationId: string,
+  ): Promise<unknown | undefined>;
+  getStorageHealth(workspaceId: string): Promise<unknown>;
+  getBackupHealth(workspaceId: string): Promise<unknown>;
+  createUpload(
+    actor: AuthenticatedActor,
+    command: CreateUploadCommand,
+  ): Promise<UploadSession>;
+  getUpload(
+    workspaceId: string,
+    uploadId: string,
+    actor: AuthenticatedActor,
+  ): Promise<UploadSession | undefined>;
+  completeUpload(
+    uploadId: string,
+    actor: AuthenticatedActor,
+    command: CompleteUploadCommand,
+  ): Promise<UploadSession>;
+  ingestObject?(
+    actor: AuthenticatedActor,
+    command: ObjectIngestCommand,
+  ): Promise<ObjectIngestResult>;
 }
-export interface AccessGateway { authenticate(bearerToken: string): Promise<AuthenticatedActor | undefined>; authenticateSession?(sessionId: string, csrfToken: string | undefined, mutation: boolean): Promise<AuthenticatedActor | undefined>; allows(actor: AuthenticatedActor, action: ApiAction, workspaceId: string): boolean; }
 
-const permissions: Readonly<Record<ApiAction, readonly AuthenticatedActor["roles"][number][]>> = {
-  "control:read": ["owner", "admin", "auditor"], "history:read": ["owner", "admin", "recovery_operator", "auditor"], "revision:create": ["owner", "admin", "editor"],
-  "resource:delete": ["owner", "admin"], "resource:restore": ["owner", "admin", "recovery_operator"],
-  "verification:run": ["owner","admin","auditor"],
-  "object:ingest": ["owner", "admin", "editor"],
-};
-export function roleAllows(actor: AuthenticatedActor, action: ApiAction, workspaceId: string): boolean { return actor.workspaceIds.includes(workspaceId) && actor.roles.some((role) => permissions[action].includes(role)); }
+export interface AuthorizationScope extends PolicyScope {
+  requestId?: string;
+  applicationScopeAllowed?: boolean;
+}
+export interface AccessGateway {
+  authenticate(bearerToken: string): Promise<AuthenticatedActor | undefined>;
+  authenticateSession?(
+    sessionId: string,
+    csrfToken: string | undefined,
+    mutation: boolean,
+  ): Promise<AuthenticatedActor | undefined>;
+  allows(
+    actor: AuthenticatedActor,
+    action: ApiAction,
+    scope: AuthorizationScope,
+  ): boolean | Promise<boolean>;
+}
 
-export function createApi(provider: SnapshotProvider, schemas: SchemaProvider, clock: () => Date = () => new Date(), mode: "fixture" | "live" = "fixture", commands?: CommandProvider, access?: AccessGateway) {
-  return async function route(method: string, pathname: string, request: ApiRequest = {}): Promise<ApiResult> {
-    if (pathname === "/health" && method === "GET") {
-      return { status: 200, body: { service: "trust-api", status: "ok", mode, checkedAt: clock().toISOString() } };
-    }
-    if (pathname === "/v1/control-centre/snapshot" && method === "GET") {
-      return mode === "fixture" ? { status: 200, body: await provider.getSnapshot() } : secured("control:read", request, commands, access, () => provider.getSnapshot());
-    }
-    if (pathname === "/v1/schemas" && method === "GET") return { status: 200, body: await schemas.listSchemas() };
-    if (pathname.startsWith("/v1/schemas/") && method === "GET") {
-      const key = decodeURIComponent(pathname.slice("/v1/schemas/".length));
-      const schema = await schemas.getSchema(key);
-      return schema ? { status: 200, body: schema } : { status: 404, body: { error: "schema_not_found" } };
-    }
-    const revisionMatch = pathname.match(/^\/v1\/resources\/([^/]+)\/revisions$/);
-    const deleteMatch = pathname.match(/^\/v1\/resources\/([^/]+)\/delete$/);
-    const restoreMatch = pathname.match(/^\/v1\/resources\/([^/]+)\/restore$/);
-    if (pathname === "/v1/history" && method === "GET") return secured("history:read", request, commands, access, (workspaceId) => commands!.getHistory(workspaceId));
-    if (revisionMatch && method === "POST") return secured("revision:create", request, commands, access, (_workspaceId, actor) => commands!.createRevision(decodeURIComponent(revisionMatch[1]!), actor, request.body as RevisionCommand));
-    if (deleteMatch && method === "POST") return secured("resource:delete", request, commands, access, (_workspaceId, actor) => commands!.deleteResource(decodeURIComponent(deleteMatch[1]!), actor, request.body as DeleteResourceCommand));
-    if (restoreMatch && method === "POST") return secured("resource:restore", request, commands, access, (_workspaceId, actor) => commands!.restoreResource(decodeURIComponent(restoreMatch[1]!), actor, request.body as RestoreResourceCommand));
-    if(pathname==="/v1/verification/runs"&&method==="POST")return secured("verification:run",request,commands,access,(_workspaceId,actor)=>commands!.runVerification(actor,request.body as RunVerificationCommand));
-    if(pathname==="/v1/objects/ingest"&&method==="POST")return secured("object:ingest",request,commands,access,(_workspaceId,actor)=>commands!.ingestObject!(actor,request.body as ObjectIngestCommand));
-    if (method !== "GET") return { status: 405, body: { error: "method_not_allowed" } };
-    return { status: 404, body: { error: "not_found" } };
+export function roleAllows(
+  actor: AuthenticatedActor,
+  action: ApiAction,
+  scope: string | AuthorizationScope,
+): boolean {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
+  return evaluatePolicy({
+    principal: {
+      id: actor.id,
+      type: "user",
+      roles: actor.roles,
+      workspaceIds: actor.workspaceIds,
+    },
+    action,
+    scope: { workspaceId },
+  }).allowed;
+}
+
+export function createApi(
+  provider: SnapshotProvider,
+  schemas: SchemaProvider,
+  clock: () => Date = () => new Date(),
+  mode: "fixture" | "live" = "fixture",
+  commands?: CommandProvider,
+  access?: AccessGateway,
+) {
+  return async function route(
+    method: string,
+    pathname: string,
+    request: ApiRequest = {},
+  ): Promise<ApiResult> {
+    if (pathname === "/health" && method === "GET")
+      return {
+        status: 200,
+        body: {
+          service: "trust-api",
+          status: "ok",
+          mode,
+          checkedAt: clock().toISOString(),
+        } satisfies HealthResponse,
+      };
+
+    const datasetMatch = match(pathname, /^\/v1\/datasets\/([^/]+)$/);
+    const resourceMatch = match(pathname, /^\/v1\/resources\/([^/]+)$/);
+    const revisionGraphMatch = match(
+      pathname,
+      /^\/v1\/resources\/([^/]+)\/revision-graph$/,
+    );
+    const revisionMatch = match(
+      pathname,
+      /^\/v1\/resources\/([^/]+)\/revisions$/,
+    );
+    const deleteMatch = match(pathname, /^\/v1\/resources\/([^/]+)\/delete$/);
+    const restoreMatch = match(pathname, /^\/v1\/resources\/([^/]+)\/restore$/);
+    const schemaMatch = match(pathname, /^\/v1\/schemas\/(.+)$/);
+    const reportMatch = match(
+      pathname,
+      /^\/v1\/verification\/reports\/([^/]+)$/,
+    );
+    const operationMatch = match(pathname, /^\/v1\/operations\/([^/]+)$/);
+    const uploadMatch = match(pathname, /^\/v1\/uploads\/([^/]+)$/);
+    const uploadCompleteMatch = match(
+      pathname,
+      /^\/v1\/uploads\/([^/]+)\/complete$/,
+    );
+
+    if (pathname === "/v1/workspaces" && method === "GET")
+      return secured(
+        "workspace:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.listWorkspaces(workspaceId),
+      );
+    if (pathname === "/v1/applications" && method === "GET")
+      return secured(
+        "workspace:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.listApplications(workspaceId),
+      );
+    if (pathname === "/v1/applications" && method === "POST")
+      return secured(
+        "workspace:manage",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.registerApplication(
+            actor,
+            request.body as RegisterApplicationCommand,
+          ),
+        validApplication,
+      );
+    if (pathname === "/v1/schemas" && method === "GET")
+      return secured(
+        "workspace:read",
+        method,
+        request,
+        commands,
+        access,
+        async () => schemas.listSchemas(),
+      );
+    if (schemaMatch && method === "GET")
+      return secured(
+        "workspace:read",
+        method,
+        request,
+        commands,
+        access,
+        async () =>
+          found(
+            await schemas.getSchema(schemaMatch),
+            "SCHEMA_NOT_FOUND",
+            "The requested schema package was not found.",
+          ),
+      );
+    if (pathname === "/v1/datasets" && method === "GET")
+      return secured(
+        "dataset:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.listDatasets(workspaceId),
+      );
+    if (datasetMatch && method === "GET")
+      return secured(
+        "dataset:read",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId) =>
+          found(
+            await commands!.getDataset(workspaceId, datasetMatch),
+            "DATASET_NOT_FOUND",
+            "The requested dataset was not found.",
+          ),
+        undefined,
+        { datasetId: datasetMatch },
+      );
+    if (pathname === "/v1/resources" && method === "GET")
+      return secured(
+        "resource:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) =>
+          commands!.listResources(
+            workspaceId,
+            request.headers?.["x-trust-dataset-id"],
+          ),
+      );
+    if (resourceMatch && method === "GET")
+      return secured(
+        "resource:read",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId) =>
+          found(
+            await commands!.getResource(workspaceId, resourceMatch),
+            "RESOURCE_NOT_FOUND",
+            "The requested resource was not found.",
+          ),
+        undefined,
+        resourceScope(commands, resourceMatch),
+      );
+    if (revisionGraphMatch && method === "GET")
+      return secured(
+        "resource:read",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId) =>
+          found(
+            await commands!.getRevisionGraph(workspaceId, revisionGraphMatch),
+            "RESOURCE_NOT_FOUND",
+            "The requested resource was not found.",
+          ),
+        undefined,
+        resourceScope(commands, revisionGraphMatch),
+      );
+    if (revisionMatch && method === "POST")
+      return secured(
+        "revision:create",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.createRevision(
+            revisionMatch,
+            actor,
+            request.body as RevisionCommand,
+          ),
+        validRevision,
+        resourceScope(commands, revisionMatch),
+      );
+    if (deleteMatch && method === "POST")
+      return secured(
+        "resource:delete",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.deleteResource(
+            deleteMatch,
+            actor,
+            request.body as DeleteResourceCommand,
+          ),
+        validDelete,
+        resourceScope(commands, deleteMatch),
+      );
+    if (restoreMatch && method === "POST")
+      return secured(
+        "resource:restore",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.restoreResource(
+            restoreMatch,
+            actor,
+            request.body as RestoreResourceCommand,
+          ),
+        validRestore,
+        resourceScope(commands, restoreMatch),
+      );
+    if (pathname === "/v1/deleted-resources" && method === "GET")
+      return secured(
+        "history:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) =>
+          commands!.listDeletedResources(
+            workspaceId,
+            request.headers?.["x-trust-dataset-id"],
+          ),
+      );
+    if (pathname === "/v1/relations" && method === "GET")
+      return secured(
+        "relation:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) =>
+          commands!.listRelations(
+            workspaceId,
+            request.headers?.["x-trust-dataset-id"],
+          ),
+      );
+    if (pathname === "/v1/history" && method === "GET")
+      return secured(
+        "history:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) =>
+          commands!.getHistory(
+            workspaceId,
+            request.headers?.["x-trust-dataset-id"],
+          ),
+      );
+    if (pathname === "/v1/audit/events" && method === "GET")
+      return secured(
+        "audit:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) =>
+          commands!.listAuditEvents(
+            workspaceId,
+            request.headers?.["x-trust-dataset-id"],
+          ),
+      );
+    if (pathname === "/v1/verification/runs" && method === "POST")
+      return secured(
+        "verification:run",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.runVerification(
+            actor,
+            request.body as RunVerificationCommand,
+          ),
+        validVerification,
+        verificationAuthorizationScope(commands, request.body),
+      );
+    if (pathname === "/v1/verification/reports" && method === "GET")
+      return secured(
+        "verification:run",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.listVerificationReports(workspaceId),
+      );
+    if (reportMatch && method === "GET")
+      return secured(
+        "verification:run",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId) =>
+          found(
+            await commands!.getVerificationReport(workspaceId, reportMatch),
+            "VERIFICATION_REPORT_NOT_FOUND",
+            "The requested verification report was not found.",
+          ),
+        undefined,
+        verificationReportScope(commands, reportMatch),
+      );
+    if (operationMatch && method === "GET")
+      return secured(
+        "health:read",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId) =>
+          found(
+            await commands!.getOperation(workspaceId, operationMatch),
+            "OPERATION_NOT_FOUND",
+            "The requested operation was not found.",
+          ),
+      );
+    if (pathname === "/v1/health/storage" && method === "GET")
+      return secured(
+        "health:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.getStorageHealth(workspaceId),
+      );
+    if (pathname === "/v1/health/backup" && method === "GET")
+      return secured(
+        "health:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.getBackupHealth(workspaceId),
+      );
+    if (pathname === "/v1/uploads" && method === "POST")
+      return secured(
+        "object:ingest",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.createUpload(actor, request.body as CreateUploadCommand),
+        validCreateUpload,
+        { applicationScopeAllowed: true },
+      );
+    if (uploadMatch && method === "GET")
+      return secured(
+        "object:ingest",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId, actor) =>
+          found(
+            await commands!.getUpload(workspaceId, uploadMatch, actor),
+            "OPERATION_NOT_FOUND",
+            "The requested upload session was not found.",
+          ),
+        undefined,
+        { applicationScopeAllowed: true },
+      );
+    if (uploadCompleteMatch && method === "POST")
+      return secured(
+        "object:ingest",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.completeUpload(
+            uploadCompleteMatch,
+            actor,
+            request.body as CompleteUploadCommand,
+          ),
+        validCompleteUpload,
+        { applicationScopeAllowed: true },
+      );
+    if (pathname === "/v1/objects/ingest" && method === "POST")
+      return secured(
+        "object:ingest",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.ingestObject!(actor, request.body as ObjectIngestCommand),
+        validObjectIngest,
+        { applicationScopeAllowed: true },
+        true,
+      );
+    if (pathname === "/v1/control-centre/snapshot" && method === "GET")
+      return secured("control:read", method, request, commands, access, () =>
+        provider.getSnapshot(),
+      );
+
+    if (method !== "GET")
+      return failure(
+        405,
+        "METHOD_NOT_ALLOWED",
+        "The HTTP method is not supported for this route.",
+        request,
+      );
+    return failure(
+      404,
+      "NOT_FOUND",
+      "The requested route was not found.",
+      request,
+    );
   };
 }
 
-async function secured(action: ApiAction, request: ApiRequest, commands: CommandProvider | undefined, access: AccessGateway | undefined, execute: (workspaceId: string, actor: AuthenticatedActor) => Promise<ControlCentreSnapshot | HistorySnapshot | RevisionCommandResult | DeleteResourceResult | VerificationRunResult | ObjectIngestResult>): Promise<ApiResult> {
-  if (!commands || !access) return { status: 501, body: { error: "command_boundary_unavailable" } };
-  if (action === "object:ingest" && !commands.ingestObject) return { status: 501, body: { error: "command_boundary_unavailable" } };
+async function secured(
+  action: ApiAction,
+  method: string,
+  request: ApiRequest,
+  commands: CommandProvider | undefined,
+  access: AccessGateway | undefined,
+  execute: (workspaceId: string, actor: AuthenticatedActor) => Promise<unknown>,
+  validate?: (body: unknown) => boolean,
+  extraScope:
+    | Partial<AuthorizationScope>
+    | ((workspaceId: string) => Promise<Partial<AuthorizationScope>>) = {},
+  needsIngest = false,
+): Promise<ApiResult> {
+  if (!commands || !access || (needsIngest && !commands.ingestObject))
+    return failure(
+      501,
+      "COMMAND_BOUNDARY_UNAVAILABLE",
+      "The command boundary is not configured.",
+      request,
+    );
   const authorization = request.headers?.authorization;
   const sessionId = cookieValue(request.headers?.cookie, "trust_session");
-  const mutation = action !== "history:read" && action !== "control:read";
-  const actor = authorization?.startsWith("Bearer ") ? await access.authenticate(authorization.slice(7)) : sessionId && access.authenticateSession ? await access.authenticateSession(sessionId, request.headers?.["x-trust-csrf"], mutation) : undefined;
-  if (!authorization && !sessionId) return { status: 401, body: { error: "authentication_required" } };
-  if (!actor) return { status: 401, body: { error: "invalid_credentials" } };
-  const workspaceId = bodyWorkspace(request.body) ?? request.headers?.["x-trust-workspace-id"];
-  if (!workspaceId) return { status: 400, body: { error: "workspace_required" } };
-  if (!access.allows(actor, action, workspaceId)) return { status: 403, body: { error: "permission_denied" } };
-  if (!validCommand(action, request.body)) return { status: 400, body: { error: "invalid_command" } };
-  try { return { status: 200, body: await execute(workspaceId, actor) }; }
-  catch (error) { const conflict = (error as { code?: string }).code === "BASE_REVISION_CONFLICT"; return { status: conflict ? 409 : 422, body: { error: conflict ? "revision_conflict" : "command_rejected", detail: error instanceof Error ? error.message : undefined } }; }
+  if (!authorization && !sessionId)
+    return failure(
+      401,
+      "AUTHENTICATION_REQUIRED",
+      "Authentication is required.",
+      request,
+    );
+  const mutation = method !== "GET";
+  const actor = authorization?.startsWith("Bearer ")
+    ? await access.authenticate(authorization.slice(7))
+    : sessionId && access.authenticateSession
+      ? await access.authenticateSession(
+          sessionId,
+          request.headers?.["x-trust-csrf"],
+          mutation,
+        )
+      : undefined;
+  if (!actor)
+    return failure(
+      401,
+      "INVALID_CREDENTIALS",
+      "The supplied credentials are invalid or expired.",
+      request,
+    );
+  const workspaceId =
+    bodyWorkspace(request.body) ?? request.headers?.["x-trust-workspace-id"];
+  if (!workspaceId)
+    return failure(
+      400,
+      "WORKSPACE_REQUIRED",
+      "A workspace context is required.",
+      request,
+    );
+  const resolvedScope =
+    typeof extraScope === "function"
+      ? await extraScope(workspaceId)
+      : extraScope;
+  const scope = { ...requestScope(workspaceId, request), ...resolvedScope };
+  if (!(await access.allows(actor, action, scope)))
+    return failure(
+      403,
+      "PERMISSION_DENIED",
+      "The actor is not permitted to perform this action.",
+      request,
+    );
+  if (validate && !validate(request.body))
+    return failure(
+      400,
+      "INVALID_COMMAND",
+      "The request body is not valid for this command.",
+      request,
+    );
+  try {
+    return { status: 200, body: await execute(workspaceId, actor) };
+  } catch (error) {
+    if (error instanceof ApiRouteError)
+      return failure(error.status, error.code, error.message, request);
+    const code = (error as { code?: string }).code;
+    if (code === "BASE_REVISION_CONFLICT")
+      return failure(
+        409,
+        "REVISION_CONFLICT",
+        "The resource head changed before this command could be applied.",
+        request,
+      );
+    if (code === "IDEMPOTENCY_CONFLICT")
+      return failure(
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "The idempotency key was already used for a different request.",
+        request,
+      );
+    if (code === "INVALID_COMMAND")
+      return failure(
+        400,
+        "INVALID_COMMAND",
+        "The request body is not valid for this command.",
+        request,
+      );
+    if (code === "REQUEST_TOO_LARGE")
+      return failure(
+        413,
+        "REQUEST_TOO_LARGE",
+        "The request body exceeds the allowed size.",
+        request,
+      );
+    if (code === "OPERATION_NOT_FOUND")
+      return failure(
+        404,
+        "OPERATION_NOT_FOUND",
+        "The requested operation was not found.",
+        request,
+      );
+    return failure(
+      422,
+      "COMMAND_REJECTED",
+      "The command was rejected.",
+      request,
+    );
+  }
 }
-function bodyWorkspace(body: unknown): string | undefined { if (!body || typeof body !== "object") return undefined; const value = (body as { workspaceId?: unknown }).workspaceId; return typeof value === "string" && value ? value : undefined; }
-function cookieValue(header:string|undefined,name:string):string|undefined{return header?.split(";").map(item=>item.trim().split("=")).find(([key])=>key===name)?.[1];}
-function validCommand(action: ApiAction, body: unknown): boolean {
-  if (action === "history:read" || action === "control:read") return true;
-  if (!body || typeof body !== "object" || !bodyWorkspace(body)) return false;
-  const value = body as Record<string, unknown>;
-  if (action === "resource:restore") return value.changeNote === undefined || typeof value.changeNote === "string";
-  if(action==="verification:run")return value.level==="metadata"||value.level==="full_blob";
-  if(action==="object:ingest")return typeof value.idempotencyKey==="string"&&value.idempotencyKey.length>0&&typeof value.mediaType==="string"&&value.mediaType.length>0&&typeof value.bytesBase64==="string"&&value.bytesBase64.length>0;
-  if (!(value.expectedRevisionId === null || typeof value.expectedRevisionId === "string")) return false;
-  if (action === "resource:delete") return value.recoverUntil === null || typeof value.recoverUntil === "string";
-  return typeof value.schemaPackageId === "string" && typeof value.schemaVersion === "string" && !!value.canonicalPayload && typeof value.canonicalPayload === "object" && !Array.isArray(value.canonicalPayload);
+
+class ApiRouteError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: PublicErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+function found<T>(
+  value: T | undefined,
+  code: PublicErrorCode,
+  message: string,
+): T {
+  if (value === undefined) throw new ApiRouteError(404, code, message);
+  return value;
+}
+function match(pathname: string, pattern: RegExp): string | undefined {
+  const value = pathname.match(pattern)?.[1];
+  return value ? decodeURIComponent(value) : undefined;
+}
+function bodyWorkspace(body: unknown): string | undefined {
+  if (!record(body)) return undefined;
+  return nonEmpty(body.workspaceId) ? body.workspaceId : undefined;
+}
+function requestScope(
+  workspaceId: string,
+  request: ApiRequest,
+): AuthorizationScope {
+  const requestId = request.headers?.["x-request-id"];
+  return {
+    workspaceId,
+    ...(requestId ? { requestId } : {}),
+  };
+}
+function resourceScope(
+  commands: CommandProvider | undefined,
+  resourceId: string,
+): (workspaceId: string) => Promise<Partial<AuthorizationScope>> {
+  return async (workspaceId) => {
+    const resource = (await commands?.getResource(workspaceId, resourceId)) as
+      { datasetId?: unknown } | undefined;
+    return resource && nonEmpty(resource.datasetId)
+      ? { datasetId: resource.datasetId }
+      : {};
+  };
+}
+function cookieValue(
+  header: string | undefined,
+  name: string,
+): string | undefined {
+  return header
+    ?.split(";")
+    .map((item) => item.trim().split("="))
+    .find(([key]) => key === name)?.[1];
+}
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+function validWorkspaceBody(body: unknown): body is Record<string, unknown> {
+  return record(body) && nonEmpty(body.workspaceId);
+}
+function validApplication(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.namespace) &&
+    nonEmpty(body.name) &&
+    nonEmpty(body.applicationVersion) &&
+    nonEmpty(body.idempotencyKey) &&
+    Array.isArray(body.schemaPackageIds) &&
+    body.schemaPackageIds.every(nonEmpty) &&
+    Array.isArray(body.capabilities) &&
+    body.capabilities.every(nonEmpty)
+  );
+}
+function validRevision(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    (body.expectedRevisionId === null || nonEmpty(body.expectedRevisionId)) &&
+    nonEmpty(body.schemaPackageId) &&
+    nonEmpty(body.schemaVersion) &&
+    record(body.canonicalPayload) &&
+    (body.changeNote === undefined || typeof body.changeNote === "string")
+  );
+}
+function validDelete(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    (body.expectedRevisionId === null || nonEmpty(body.expectedRevisionId)) &&
+    (body.recoverUntil === null ||
+      (nonEmpty(body.recoverUntil) &&
+        Number.isFinite(Date.parse(body.recoverUntil)))) &&
+    (body.reason === undefined || typeof body.reason === "string")
+  );
+}
+function validRestore(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    (body.changeNote === undefined || typeof body.changeNote === "string")
+  );
+}
+function validVerification(body: unknown): boolean {
+  if (
+    !validWorkspaceBody(body) ||
+    !nonEmpty(body.level) ||
+    !verificationLevels.includes(
+      body.level as (typeof verificationLevels)[number],
+    )
+  )
+    return false;
+  const scope = body.scope;
+  switch (body.level) {
+    case "metadata":
+    case "full_blob":
+    case "workspace":
+      return (
+        scope === undefined ||
+        (record(scope) &&
+          scope.kind === "workspace" &&
+          scope.id === body.workspaceId)
+      );
+    case "resource":
+    case "dataset":
+      return record(scope) && scope.kind === body.level && nonEmpty(scope.id);
+    default:
+      return false;
+  }
+}
+function validObjectIngest(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.idempotencyKey) &&
+    nonEmpty(body.mediaType) &&
+    validBase64(body.bytesBase64)
+  );
+}
+function validCreateUpload(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.idempotencyKey) &&
+    nonEmpty(body.mediaType) &&
+    Number.isSafeInteger(body.expectedByteLength) &&
+    Number(body.expectedByteLength) >= 0 &&
+    Number(body.expectedByteLength) <= 750_000 &&
+    typeof body.expectedSha256 === "string" &&
+    /^[a-f0-9]{64}$/.test(body.expectedSha256) &&
+    (body.expiresInSeconds === undefined ||
+      (Number.isSafeInteger(body.expiresInSeconds) &&
+        Number(body.expiresInSeconds) >= 60 &&
+        Number(body.expiresInSeconds) <= 86400))
+  );
+}
+function validCompleteUpload(body: unknown): boolean {
+  return validWorkspaceBody(body) && validBase64(body.bytesBase64);
+}
+function validBase64(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 1_400_000 &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      value,
+    )
+  );
+}
+function failure(
+  status: number,
+  code: PublicErrorCode,
+  message: string,
+  request: ApiRequest,
+): ApiResult {
+  const requestId = request.headers?.["x-request-id"];
+  const body: ApiErrorResponse = {
+    code,
+    message,
+    ...(requestId ? { requestId } : {}),
+  };
+  return { status, body };
+}
+function verificationAuthorizationScope(
+  commands: CommandProvider | undefined,
+  body: unknown,
+): (workspaceId: string) => Promise<Partial<AuthorizationScope>> {
+  return async (workspaceId) => {
+    if (!record(body) || !record(body.scope) || !nonEmpty(body.scope.id))
+      return {};
+    if (body.scope.kind === "dataset")
+      return { datasetId: body.scope.id };
+    if (body.scope.kind !== "resource") return {};
+    const resource = (await commands?.getResource(
+      workspaceId,
+      body.scope.id,
+    )) as { datasetId?: unknown } | undefined;
+    return resource && nonEmpty(resource.datasetId)
+      ? { datasetId: resource.datasetId }
+      : {};
+  };
+}
+
+function verificationReportScope(
+  commands: CommandProvider | undefined,
+  reportId: string,
+): (workspaceId: string) => Promise<Partial<AuthorizationScope>> {
+  return async (workspaceId) => {
+    const report = (await commands?.getVerificationReport(
+      workspaceId,
+      reportId,
+    )) as { scope?: unknown } | undefined;
+    if (!report || !record(report.scope)) return {};
+    if (report.scope.kind === "dataset" && nonEmpty(report.scope.id))
+      return { datasetId: report.scope.id };
+    if (report.scope.kind !== "resource" || !nonEmpty(report.scope.id))
+      return {};
+    return resourceScope(commands, report.scope.id)(workspaceId);
+  };
 }

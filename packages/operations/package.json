@@ -4,6 +4,13 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
-  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "dependencies": { "@trust-core/core": "workspace:*", "@trust-core/storage": "workspace:*" }
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@trust-core/core": "workspace:*",
+    "@trust-core/protocol": "workspace:*",
+    "@trust-core/storage": "workspace:*"
+  }
 }

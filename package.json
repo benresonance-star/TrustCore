@@ -5,8 +5,12 @@
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "format": "prettier --write \"apps/trust-control-centre/**/*.{ts,tsx,css,json}\" \"packages/sdk-typescript/**/*.{ts,json}\" \"package.json\" \"pnpm-{lock,workspace}.yaml\" \"tsconfig.base.json\" \".github/workflows/*.yml\"",
+    "lint": "prettier --check \"apps/trust-control-centre/**/*.{ts,tsx,css,json}\" \"packages/sdk-typescript/**/*.{ts,json}\" \"package.json\" \"pnpm-{lock,workspace}.yaml\" \"tsconfig.base.json\" \".github/workflows/*.yml\"",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
+    "generate:openapi": "pnpm --filter @trust-core/protocol generate:openapi",
+    "check:openapi": "pnpm generate:openapi && git diff --exit-code -- contracts/openapi.json",
     "trust:test": "vitest run tests/trust-test.test.ts",
     "infra:start": "docker compose up -d postgres minio && docker compose run --rm minio-init",
     "infra:wait": "docker compose up -d --wait postgres minio && docker compose run --rm minio-init",
@@ -24,6 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }

@@ -1,0 +1,23 @@
+{
+  "name": "@trust-core/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@trust-core/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@trust-core/fixtures-ivans-diary": "workspace:*",
+    "@trust-core/fixtures-wesketch": "workspace:*",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

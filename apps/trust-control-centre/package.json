@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@trust-core/protocol": "workspace:*",
+    "@trust-core/sdk": "workspace:*",
     "@vitejs/plugin-react": "^5.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.1.0",

@@ -2,12 +2,12 @@
 
 ## Current implementation specification for Codex
 
-**Specification version:** 1.1  
-**Current source checkpoint:** 0.1K  
-**Date:** 2026-08-04  
-**Audience:** Codex agents and human maintainers  
-**Status:** Release 0.1 Docker integration gate passed; remaining public-contract and operational hardening is tracked below  
-**Source package:** `trust-core-platform-checkpoint-0.1j.zip`
+- **Specification version:** 1.2
+- **Current source checkpoint:** 0.1L
+- **Date:** 2026-08-04
+- **Audience:** Codex agents and human maintainers
+- **Status:** Release 0.1 complete; post-0.1 operational hardening and Release 0.2 portability are tracked separately
+- **Docker report source revision:** recorded in the generated report; the current working tree is uncommitted
 
 ---
 
@@ -220,7 +220,7 @@ Avoid initially:
 
 ---
 
-# 8. Current checkpoint 0.1K
+# 8. Current checkpoint 0.1L
 
 ## 8.1 Implemented and locally verified
 
@@ -235,7 +235,7 @@ The current source includes:
 - immutable-object ingestion service with hashing, byte-length checks and workspace deduplication;
 - upload state-machine transitions;
 - append-only SHA-256 audit chain;
-- PostgreSQL migrations `0001` through `0006`;
+- PostgreSQL migrations `0001` through `0010`;
 - PostgreSQL metadata schema, constraints, RLS policies and outbox foundation;
 - schema registry with immutable namespace/name/version identity and digest validation;
 - `app/ivans-diary/1.0.0` synthetic schema and fixture;
@@ -270,24 +270,36 @@ The current source includes:
 - authenticated durable object-ingest API with persisted idempotency checkpoints;
 - transactional blob metadata, audit and outbox persistence;
 - real API termination and restart proof;
+- shared Release 0.1 route, schema, operation-state and stable error-code contracts;
+- generated OpenAPI 3.1 with an enforced no-drift check;
+- handwritten `@trust-core/sdk` public TypeScript facade;
+- scoped policy assignments for user, service and registered-application principals;
+- application capability checks, infrastructure/content separation and time-limited break-glass grants;
+- metadata, full-blob, resource, dataset and workspace verification;
+- public queries and commands for workspaces, applications, schemas, datasets, resources, relations, uploads, operations, history, audit, verification and service health;
+- materially different WeSketch schema and deterministic canvas/lineage fixture;
+- live PostgreSQL/MinIO proof reading both Ivan's Diary and WeSketch through the public SDK;
 - Control Centre sections for Home, Datasets, Flow, Health, History and Access;
-- interactive recovery and full-verification fixture workflows;
+- interactive recovery and verification fixture workflows plus live SDK-backed snapshot, health, history, restoration and verification paths;
 - React-Flow-style system topology;
+- compatibility, retention, trust-boundary, threat-model, identity-provider and recovery documentation;
+- CI quality and generated-contract gates, with scheduled/main Docker integration and sanitized report artifacts;
 - strict TypeScript checks;
-- 42 source-level backend tests and 5 Control Centre interaction tests;
+- all source-level workspace tests passing;
 - successful Control Centre production build.
 
 ## 8.2 Current test status
 
 ```text
-42 source-level backend tests: PASS
-5 Control Centre interaction tests: PASS
-TypeScript strict checks: PASS
-Control Centre production build: PASS
+Lint/format gate: PASS
+Generated OpenAPI drift: PASS
+TypeScript strict checks across 18 projects: PASS
+All source-level workspace tests: PASS
+Control Centre production build (1,584 modules): PASS
 TRUST TEST CANDIDATE: PASS (service adapters; Docker gate pending)
-Docker PostgreSQL proof: 9 PASS
+Docker PostgreSQL proof: 13 PASS
 Docker MinIO contract proof: 5 PASS
-Docker live API proof: PASS
+Docker live API route/upload/scoped-verification/dual-fixture proof: PASS
 Docker process interruption checkpoints: 8 PASS
 TRUST TEST: PASS
 ```
@@ -298,29 +310,29 @@ process interruption against real services. Reports are written to
 `reports/release-0.1-docker-gate.json` and
 `reports/release-0.1-docker-gate.md`.
 
-## 8.3 Implemented foundations that are not yet end-to-end
+The latest generated Docker report records a 27.216-second run on `win32 x64`,
+Node `v25.2.1` and Docker Linux engine `29.6.2`. The working tree contains
+uncommitted changes, so the report's source-revision metadata is not presented
+as current committed-HEAD evidence.
 
-The following exist but must not be described as complete production capabilities:
+## 8.3 Remaining post-0.1 operational hardening
 
-| Foundation | Present | Missing end-to-end work |
-|---|---:|---|
-| Immutable ingestion | Live durable API and Docker proof | Public SDK/OpenAPI surface |
-| PostgreSQL | Real migration, RLS, role and concurrency proof | Production backup/restore drill |
-| MinIO | Real contract and failure suite | Production-provider operational drill |
-| History/recovery | Real API/DB proof | Broader Control Centre live coverage |
-| Verification | Real metadata/full-blob MinIO proof | Resource/dataset/workspace operational runs |
-| Outbox worker | Transactional enqueue, leases, retry and quarantine proof | Multi-host production soak |
-| OIDC | Standards implementation | Real provider tenant and claim integration test |
-| Control Centre | Navigable UI and gateway | Full live query/command coverage and content-access separation |
-| Failure recovery | Real process termination and restart at eight checkpoints | Host/storage disaster drill |
+Release 0.1 is complete. These deployment exercises remain distinct from its
+implemented product scope and local real-service gate:
+
+- integrate organisation identity against a real external OIDC provider tenant
+  and verify production claim mapping, MFA/passkey and session behavior;
+- execute production backup/restore and credential-rotation drills in the
+  target operating environment;
+- implement and prove Release 0.2 archive/export/import portability.
 
 ---
 
-# 9. Current gaps inside Release 0.1
+# 9. Release 0.1 completion checklist
 
-Repository inspection and the 0.1K Docker gate produced this status:
+Repository inspection and the verified 0.1L completion gates produced this status:
 
-1. [x] Run migrations `0001–0006` against clean PostgreSQL.
+1. [x] Run migrations `0001–0010` against clean PostgreSQL.
 2. [x] Provision separate migration, runtime, worker, verification, audit and backup test roles.
 3. [x] Prove real RLS isolation and cross-workspace substitution denial.
 4. [x] Run MinIO storage contracts with streamed bytes and failure cases.
@@ -331,19 +343,19 @@ Repository inspection and the 0.1K Docker gate produced this status:
 9. [x] Run competing real outbox workers and prove single event completion.
 10. [x] Terminate and restart the API process at each cross-store ingest checkpoint and prove recovery.
 11. [x] Run full-byte verification against real MinIO bytes.
-12. [ ] Extend verification into resource, dataset and workspace operational runs.
-13. [ ] Complete any public Release 0.1 API commands/queries beyond the Docker Trust Test surface.
-14. [ ] Generate OpenAPI 3.1 from actual contracts.
-15. [ ] Add the handwritten TypeScript SDK facade so apps do not import server packages.
-16. [ ] Add a second materially different application schema fixture, preferably WeSketch.
-17. [ ] Complete policy boundaries beyond the current role-capability map where required.
-18. [ ] Complete remaining ADR and error-code contracts; the threat model and Docker runbook now exist.
-19. [ ] Add CI for format/lint, typecheck, tests and the service-adapter candidate.
+12. [x] Extend verification into resource, dataset and workspace operational runs.
+13. [x] Complete the public Release 0.1 API commands and queries beyond the original Docker Trust Test surface.
+14. [x] Generate OpenAPI 3.1 from actual contracts and enforce a no-drift check.
+15. [x] Add the handwritten TypeScript SDK facade so apps do not import server packages.
+16. [x] Add a second materially different application schema fixture: WeSketch.
+17. [x] Complete scoped policy boundaries for assignments, application capabilities, infrastructure separation and break-glass access.
+18. [x] Complete the remaining ADR, stable error-code, compatibility, retention, trust-boundary, threat-model and operational contracts.
+19. [x] Add CI for lint, generated OpenAPI, strict typecheck, tests, production build, the service-adapter candidate and scheduled/main Docker integration.
 20. [x] Implement `pnpm trust:test:docker` and its machine/human reports.
 
-Items still open do not invalidate the completed Docker integration proof, but
-they remain product-scope work before declaring the broader Release 0.1
-platform complete.
+All Release 0.1 checklist items are complete. External-provider identity
+integration, production backup/restore and credential-rotation drills, and
+Release 0.2 archive/export/import remain explicitly outside this checkpoint.
 
 Codex must inspect the repository before assuming any listed gap remains. If current code already satisfies an item, prove it with evidence and update this document.
 
@@ -524,7 +536,12 @@ Required sections:
 
 It must not expose raw SQL, arbitrary object editing or direct storage access. Operational integrity access is separate from content preview permission. Every mutation uses the public API.
 
-The current UI is exploratory and partially fixture-backed. Real HTTP sessions and gateways exist; Codex must progressively replace fixture behavior with authenticated live queries and commands while preserving a safe synthetic preview mode.
+The current UI preserves a typed synthetic fixture mode for safe visual
+exploration. When `VITE_TRUST_API_BASE` is configured, its HTTP gateway uses
+the public TypeScript SDK for authenticated live snapshot, storage/backup
+health, verification reports, history, restoration and verification commands.
+Vercel hosts only this static SPA; the Trust API, worker, PostgreSQL and
+canonical object storage are separately operated services.
 
 ---
 
@@ -734,8 +751,8 @@ The threat model must cover compromised users, admins, apps, API, database and s
 
 1. Inspect the repository and read this specification completely before editing.
 2. Preserve existing work and unrelated changes.
-3. Continue Release 0.1 until its Docker gate passes.
-4. Do not begin Release 0.2 because implementation is convenient.
+3. Preserve the completed Release 0.1 gates while beginning later work.
+4. Begin Release 0.2 only as an explicit archive/export/import milestone.
 5. Prefer invariants, integration and failure proof over more dashboard polish.
 6. Never substitute provider versioning for Trust Core revisions.
 7. Never allow apps direct database or storage access.
@@ -778,7 +795,7 @@ No checkpoint may be described as complete merely because code compiles.
 
 ## Release 0.1
 
-Done only when real PostgreSQL/MinIO testing proves:
+Completed at checkpoint 0.1L. Real PostgreSQL/MinIO testing proves:
 
 - blobs cannot be overwritten;
 - revisions are append-only;
@@ -793,6 +810,13 @@ Done only when real PostgreSQL/MinIO testing proves:
 - no AI is required;
 - process interruption cannot corrupt canonical state;
 - the Docker Trust Test passes.
+
+The latest completion evidence is: lint PASS; generated OpenAPI no-drift PASS;
+strict typecheck across 18 projects PASS; all source-level workspace tests
+PASS; production SPA build PASS; source `TRUST TEST CANDIDATE: PASS`; 13 Docker PostgreSQL tests
+PASS; 5 live MinIO tests PASS; live API route/upload/scoped-verification and
+dual-fixture proof PASS; all eight interruption checkpoints PASS; final
+`TRUST TEST: PASS`.
 
 ## Portability
 

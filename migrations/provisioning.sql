@@ -123,7 +123,17 @@ GRANT SELECT, INSERT, UPDATE ON
   outbox_events,
   audit_events,
   verification_runs,
-  reconciliation_incidents
+  reconciliation_incidents,
+  application_registrations,
+  upload_sessions
+TO trust_application;
+REVOKE INSERT, UPDATE, DELETE ON
+  policy_assignments,
+  break_glass_grants
+FROM trust_application;
+GRANT SELECT ON
+  policy_assignments,
+  break_glass_grants
 TO trust_application;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   identity_login_transactions,
@@ -134,7 +144,22 @@ GRANT SELECT, UPDATE ON outbox_events TO trust_outbox_worker;
 GRANT SELECT ON blob_objects TO trust_outbox_worker;
 GRANT SELECT, INSERT ON reconciliation_incidents TO trust_outbox_worker;
 
-GRANT SELECT ON blob_objects TO trust_verification;
+GRANT SELECT ON
+  workspaces,
+  application_registrations,
+  policy_assignments,
+  break_glass_grants,
+  datasets,
+  resources,
+  revisions,
+  revision_blobs,
+  blob_objects,
+  relations,
+  tombstones,
+  operations,
+  upload_sessions,
+  audit_events
+TO trust_verification;
 GRANT SELECT, INSERT, UPDATE ON verification_runs TO trust_verification;
 
 GRANT SELECT ON audit_events TO trust_audit_reader;

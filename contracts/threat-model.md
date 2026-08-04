@@ -6,14 +6,19 @@ This model covers the Release 0.1 central trust loop running with PostgreSQL and
 S3-compatible immutable object storage. Archive portability is Release 0.2 and
 is intentionally out of scope.
 
+Normative boundary details are in [trust-boundaries.md](./trust-boundaries.md).
+Operational response is in the
+[recovery runbook](../docs/recovery-runbook.md) and
+[IdP administration runbook](../docs/idp-administration-runbook.md).
+
 ## Trust boundaries
 
 - Clients authenticate to the Trust API and never receive database credentials
   or canonical object-store keys.
 - The API runtime uses a non-owner PostgreSQL role restricted by workspace RLS.
 - The reconciliation worker can lease cross-workspace outbox work but cannot
-  read or mutate tenant application data except through narrowly scoped
-  functions required by its handlers.
+  read or mutate tenant application data; handler queries set workspace RLS
+  context and use only the worker's blob-metadata and incident grants.
 - The verification service can read canonical objects and write verification
   results but cannot mutate canonical object bytes.
 - Migration and backup operators are separate from runtime identities.
@@ -112,3 +117,6 @@ must retain the `TRUST TEST CANDIDATE` label.
   emergency-access, and privileged-session operational drills.
 - Docker process termination proves application recovery logic but not host or
   storage-media disaster recovery; backup/restore drills remain separate.
+- Physical purge, `.trustarchive` recovery, production backup orchestration and
+  provider lifecycle/replication controls are not implemented in Release 0.1;
+  see [retention-policy.md](./retention-policy.md).

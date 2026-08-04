@@ -11,14 +11,16 @@
     "db:seed-demo": "tsx src/admin.ts seed-demo",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:docker": "vitest run tests/docker.integration.test.ts -t \"proves live health\"",
+    "test:docker": "vitest run tests/docker.integration.test.ts -t \"proves live health|preserves application principals\"",
     "test:interruption:docker": "vitest run tests/docker.integration.test.ts -t \"terminates and restarts\""
   },
   "dependencies": {
     "@trust-core/fixtures-ivans-diary": "workspace:*",
+    "@trust-core/fixtures-wesketch": "workspace:*",
     "@trust-core/identity": "workspace:*",
     "@trust-core/operations": "workspace:*",
     "@trust-core/persistence-postgres": "workspace:*",
+    "@trust-core/policy": "workspace:*",
     "@trust-core/protocol": "workspace:*",
     "@trust-core/schema-registry": "workspace:*",
     "@trust-core/storage-minio": "workspace:*",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1102.0",
+    "@trust-core/sdk": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",
     "tsx": "^4.20.0",

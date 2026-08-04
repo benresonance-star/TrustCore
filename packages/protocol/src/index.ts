@@ -1,5 +1,7 @@
+import type { PublicErrorCode } from "./release01-contract.js";
+
 export type DatasetKind = "foundation" | "personal" | "creative" | "shared";
-export type DatasetHealth = "verified" | "review";
+export type DatasetHealth = "unknown" | "review" | "verified" | "degraded";
 
 export interface DatasetSummary {
   id: string;
@@ -22,7 +24,8 @@ export interface SystemStatus {
   activeProjects: number;
   latestVerifiedBackup: string;
   recoveryAttention: number;
-  canonicalIntegrityPercent: number;
+  canonicalIntegrityPercent: number | null;
+  canonicalIntegrityStatus: DatasetHealth;
   syncQueue: number;
 }
 
@@ -38,17 +41,351 @@ export interface HealthResponse {
   checkedAt: string;
 }
 
-export type TrustAction = "control:read" | "history:read" | "revision:create" | "resource:delete" | "resource:restore" | "verification:run";
-export interface AuthenticatedActor { id: string; displayName: string; roles: readonly ("owner" | "admin" | "editor" | "recovery_operator" | "auditor")[]; workspaceIds: readonly string[]; }
-export interface RevisionCommand { workspaceId: string; expectedRevisionId: string | null; schemaPackageId: string; schemaVersion: string; canonicalPayload: Readonly<Record<string, unknown>>; changeNote?: string; }
-export interface DeleteResourceCommand { workspaceId: string; expectedRevisionId: string | null; recoverUntil: string | null; reason?: string; }
-export interface RestoreResourceCommand { workspaceId: string; changeNote?: string; }
-export interface RevisionCommandResult { resourceId: string; revisionId: string; revisionNumber: number; source: "user" | "application" | "import" | "restore" | "merge"; createdAt: string; }
-export interface DeleteResourceResult { resourceId: string; tombstoneId: string; deletedAt: string; recoverUntil: string | null; }
-export interface RecoverableItem { tombstoneId: string; workspaceId: string; datasetId: string; resourceId: string; resourceTitle: string | null; resourceType: string; deletedAt: string; recoverUntil: string | null; deletedBy: string; priorRevisionId: string | null; }
-export interface TrustEventSummary { id: string; action: string; subjectId: string; actorId: string; occurredAt: string; metadata: Readonly<Record<string, unknown>>; }
-export interface HistorySnapshot { recoverable: readonly RecoverableItem[]; events: readonly TrustEventSummary[]; }
-export interface AdminSession { actor: AuthenticatedActor; csrfToken: string; expiresAt: string; }
-export interface RunVerificationCommand { workspaceId:string;level:"metadata"|"full_blob"; }
-export interface VerificationIssueSummary { code:string;severity:"warning"|"error"|"critical";subjectKind:"blob"|"resource"|"storage";subjectId:string;message:string;expected?:string|number;actual?:string|number|null; }
-export interface VerificationRunResult { id:string;workspaceId:string;level:"metadata"|"full_blob";status:"running"|"passed"|"failed"|"degraded";startedAt:string;completedAt:string;objectsChecked:number;bytesRead:number;issues:readonly VerificationIssueSummary[]; }
+export const verificationLevels = [
+  "metadata",
+  "full_blob",
+  "resource",
+  "dataset",
+  "workspace",
+] as const;
+export type VerificationLevel = (typeof verificationLevels)[number];
+export type VerificationScopeKind =
+  "blob" | "resource" | "dataset" | "workspace";
+
+export const operationStates = [
+  "requested",
+  "authorised",
+  "temporary_upload_created",
+  "bytes_received",
+  "hash_verified",
+  "immutable_object_committed",
+  "metadata_committed",
+  "audit_committed",
+  "completed",
+  "rejected",
+  "failed_retryable",
+  "failed_terminal",
+  "quarantined",
+] as const;
+export type OperationState = (typeof operationStates)[number];
+export type OperationStatus =
+  "pending" | "running" | "succeeded" | "failed" | "quarantined";
+
+export {
+  publicErrorCodes,
+  release01OpenApi,
+  release01Routes,
+  release01Schemas,
+} from "./release01-contract.js";
+export type {
+  PublicErrorCode,
+  Release01Method,
+  RouteContract,
+} from "./release01-contract.js";
+export interface ApiErrorResponse {
+  code: PublicErrorCode;
+  message: string;
+  details?: Readonly<Record<string, unknown>>;
+  requestId?: string;
+}
+
+export interface ListResponse<T> {
+  items: readonly T[];
+  nextCursor?: string;
+}
+
+export type TrustAction =
+  | "workspace:read"
+  | "workspace:manage"
+  | "control:read"
+  | "dataset:read"
+  | "resource:read"
+  | "revision:create"
+  | "resource:delete"
+  | "resource:restore"
+  | "object:ingest"
+  | "relation:read"
+  | "history:read"
+  | "audit:read"
+  | "verification:run"
+  | "health:read";
+export interface AuthenticatedActor {
+  id: string;
+  displayName: string;
+  principalType?: "user" | "service" | "application";
+  roles: readonly (
+    "owner" | "admin" | "editor" | "recovery_operator" | "auditor"
+  )[];
+  workspaceIds: readonly string[];
+}
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  slug: string;
+  status: "active" | "suspended" | "closed";
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ApplicationRegistration {
+  id: string;
+  workspaceId: string;
+  namespace: string;
+  name: string;
+  applicationVersion: string;
+  schemaPackageIds: readonly string[];
+  capabilities: readonly string[];
+  status: "active" | "suspended" | "revoked";
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PolicyAssignment {
+  id: string;
+  workspaceId: string;
+  principalType: "user" | "service" | "application";
+  principalId: string;
+  role: string;
+  scopeKind: "workspace" | "dataset" | "application";
+  scopeId: string;
+  createdBy: string;
+  createdAt: string;
+  revokedAt?: string;
+}
+export interface BreakGlassGrant {
+  id: string;
+  workspaceId: string;
+  principalId: string;
+  reason: string;
+  actions: readonly string[];
+  grantedBy: string;
+  grantedAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+}
+export interface DatasetRecord {
+  id: string;
+  workspaceId: string;
+  schemaPackageId: string;
+  datasetType: string;
+  name: string;
+  status: "active" | "archived" | "deleted_logically" | "legal_hold";
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ResourceRecord {
+  id: string;
+  workspaceId: string;
+  datasetId: string;
+  resourceType: string;
+  title: string | null;
+  status: "active" | "archived" | "deleted_logically" | "legal_hold";
+  currentRevisionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface RevisionRecord {
+  id: string;
+  workspaceId: string;
+  datasetId: string;
+  resourceId: string;
+  revisionNumber: number;
+  parentRevisionId: string | null;
+  mergeParentRevisionIds: readonly string[];
+  schemaPackageId: string;
+  schemaVersion: string;
+  canonicalPayload: Readonly<Record<string, unknown>>;
+  canonicalPayloadHash: string;
+  createdBy: string;
+  source: "user" | "application" | "import" | "restore" | "merge";
+  changeNote: string | null;
+  restoredFromRevisionId: string | null;
+  createdAt: string;
+}
+export interface RevisionGraph {
+  resourceId: string;
+  headRevisionId: string | null;
+  revisions: readonly RevisionRecord[];
+}
+export interface RelationRecord {
+  id: string;
+  workspaceId: string;
+  datasetId: string;
+  sourceKind: "resource" | "revision" | "blob" | "external";
+  sourceId: string;
+  targetKind: "resource" | "revision" | "blob" | "external";
+  targetId: string;
+  relationType: string;
+  metadata: Readonly<Record<string, unknown>>;
+  createdBy: string;
+  createdAt: string;
+  endedAt: string | null;
+}
+export interface UploadSession {
+  id: string;
+  workspaceId: string;
+  operationId: string;
+  state: OperationState;
+  status: OperationStatus;
+  mediaType: string;
+  expectedByteLength: number;
+  expectedSha256: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  blobId: string | null;
+}
+export interface OperationSummary {
+  id: string;
+  workspaceId: string;
+  type: string;
+  state: OperationState;
+  status: OperationStatus;
+  requestedBy: string;
+  retryCount: number;
+  errorCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+export interface AuditEventRecord {
+  id: string;
+  workspaceId: string;
+  datasetId: string | null;
+  actorType: "user" | "service" | "application" | "system";
+  actorId: string;
+  action: string;
+  subjectKind: string;
+  subjectId: string;
+  occurredAt: string;
+  requestId: string;
+  correlationId: string;
+  operationId: string | null;
+  eventHash: string;
+  metadata: Readonly<Record<string, unknown>>;
+}
+export interface ServiceHealth {
+  status: "healthy" | "degraded" | "not_configured";
+  checkedAt: string;
+  summary: string;
+  details: Readonly<Record<string, unknown>>;
+}
+export interface RegisterApplicationCommand {
+  workspaceId: string;
+  namespace: string;
+  name: string;
+  applicationVersion: string;
+  schemaPackageIds: readonly string[];
+  capabilities: readonly string[];
+  idempotencyKey: string;
+}
+export interface CreateUploadCommand {
+  workspaceId: string;
+  idempotencyKey: string;
+  mediaType: string;
+  expectedByteLength: number;
+  expectedSha256: string;
+  expiresInSeconds?: number;
+}
+export interface CompleteUploadCommand {
+  workspaceId: string;
+  bytesBase64: string;
+}
+export interface RevisionCommand {
+  workspaceId: string;
+  expectedRevisionId: string | null;
+  schemaPackageId: string;
+  schemaVersion: string;
+  canonicalPayload: Readonly<Record<string, unknown>>;
+  changeNote?: string;
+}
+export interface DeleteResourceCommand {
+  workspaceId: string;
+  expectedRevisionId: string | null;
+  recoverUntil: string | null;
+  reason?: string;
+}
+export interface RestoreResourceCommand {
+  workspaceId: string;
+  changeNote?: string;
+}
+export interface RevisionCommandResult {
+  resourceId: string;
+  revisionId: string;
+  revisionNumber: number;
+  source: "user" | "application" | "import" | "restore" | "merge";
+  createdAt: string;
+}
+export interface DeleteResourceResult {
+  resourceId: string;
+  tombstoneId: string;
+  deletedAt: string;
+  recoverUntil: string | null;
+}
+export interface RecoverableItem {
+  tombstoneId: string;
+  workspaceId: string;
+  datasetId: string;
+  resourceId: string;
+  resourceTitle: string | null;
+  resourceType: string;
+  deletedAt: string;
+  recoverUntil: string | null;
+  deletedBy: string;
+  priorRevisionId: string | null;
+}
+export interface TrustEventSummary {
+  id: string;
+  action: string;
+  subjectId: string;
+  actorId: string;
+  occurredAt: string;
+  metadata: Readonly<Record<string, unknown>>;
+}
+export interface HistorySnapshot {
+  recoverable: readonly RecoverableItem[];
+  events: readonly TrustEventSummary[];
+}
+export interface AdminSession {
+  actor: AuthenticatedActor;
+  csrfToken: string;
+  expiresAt: string;
+}
+export interface VerificationScope {
+  kind: VerificationScopeKind;
+  id: string;
+}
+export interface RunVerificationCommand {
+  workspaceId: string;
+  level: VerificationLevel;
+  scope?: VerificationScope;
+}
+export interface VerificationIssueSummary {
+  code: string;
+  severity: "warning" | "error" | "critical";
+  subjectKind:
+    | "blob"
+    | "resource"
+    | "revision"
+    | "relation"
+    | "dataset"
+    | "workspace"
+    | "policy"
+    | "operation"
+    | "storage";
+  subjectId: string;
+  message: string;
+  expected?: string | number;
+  actual?: string | number | null;
+}
+export interface VerificationRunResult {
+  id: string;
+  workspaceId: string;
+  level: VerificationLevel;
+  scope: VerificationScope;
+  status: "running" | "passed" | "failed" | "degraded";
+  startedAt: string;
+  completedAt: string | null;
+  objectsChecked: number;
+  bytesRead: number;
+  issues: readonly VerificationIssueSummary[];
+}

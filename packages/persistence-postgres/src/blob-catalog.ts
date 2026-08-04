@@ -1,16 +1,157 @@
 import type { BlobObject } from "@trust-core/core";
 import { appendAuditEvent } from "@trust-core/audit";
-import type { BlobCatalog } from "@trust-core/operations";
+import type { BlobCatalog, IngestPrincipalType } from "@trust-core/operations";
 import { inTransaction, type DatabasePool, type Queryable } from "./db.js";
 import { deterministicUuid } from "./ids.js";
 
 export class PostgresBlobCatalog implements BlobCatalog {
   constructor(private readonly pool: DatabasePool) {}
-  findByHash(workspaceId:string,sha256:string):Promise<BlobObject|undefined>{return inTransaction(this.pool,async db=>{await scope(db,workspaceId);const r=await db.query<BlobRow>(`${selectBlob} WHERE workspace_id=$1 AND sha256=$2`,[workspaceId,sha256]);return r.rows[0]?mapBlob(r.rows[0]):undefined;});}
-  recordVerified(blob:BlobObject):Promise<BlobObject>{return inTransaction(this.pool,async db=>{await scope(db,blob.workspaceId);const r=await db.query<BlobRow>(`INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'verified',$8) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified' RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at`,[blob.id,blob.workspaceId,blob.sha256,blob.byteLength,blob.mediaType,blob.storageProvider,blob.storageKey,blob.createdAt]);if(!r.rows[0])throw new Error("Blob metadata was not recorded.");return mapBlob(r.rows[0]);});}
-  commitVerifiedIngest(input:{blob:BlobObject;operationId:string;actorId:string;occurredAt:string}):Promise<BlobObject>{return inTransaction(this.pool,async db=>{const blob=input.blob;await scope(db,blob.workspaceId);const recorded=await db.query<BlobRow>(`INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'verified',$8) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified' RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at`,[blob.id,blob.workspaceId,blob.sha256,blob.byteLength,blob.mediaType,blob.storageProvider,blob.storageKey,blob.createdAt]);const row=recorded.rows[0];if(!row)throw new Error("Blob metadata was not recorded.");const canonical=mapBlob(row);await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[blob.workspaceId]);const previous=await db.query<{event_hash:string}>("SELECT event_hash FROM audit_events WHERE workspace_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",[blob.workspaceId]);const auditId=deterministicUuid(`ingest-audit:${input.operationId}`),requestId=deterministicUuid(`ingest-request:${input.operationId}`),correlationId=input.operationId;const chained=appendAuditEvent({id:auditId,workspaceId:blob.workspaceId,actorType:"user",actorId:input.actorId,action:"blob.ingested",subjectKind:"blob",subjectId:canonical.id,timestamp:input.occurredAt,requestId,correlationId,metadata:{sha256:canonical.sha256,byteLength:canonical.byteLength,storageKey:canonical.storageKey}},previous.rows[0]?.event_hash??"");await db.query("INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_kind,subject_id,occurred_at,request_id,correlation_id,operation_id,previous_event_hash,event_hash,metadata_json) VALUES ($1,$2,'user',$3,'blob.ingested','blob',$4,$5,$6,$7,$8,$9,$10,$11::jsonb) ON CONFLICT (id) DO NOTHING",[auditId,blob.workspaceId,input.actorId,canonical.id,input.occurredAt,requestId,correlationId,input.operationId,chained.previousEventHash||null,chained.eventHash,JSON.stringify({sha256:canonical.sha256,byteLength:canonical.byteLength,storageKey:canonical.storageKey})]);await db.query("INSERT INTO outbox_events (id,workspace_id,operation_id,event_type,payload_json) VALUES ($1,$2,$3,'blob.reconcile_requested',$4::jsonb) ON CONFLICT (id) DO NOTHING",[deterministicUuid(`ingest-outbox:${input.operationId}`),blob.workspaceId,input.operationId,JSON.stringify({storageKey:canonical.storageKey,sha256:canonical.sha256,byteLength:canonical.byteLength})]);return canonical;});}
+  findByHash(
+    workspaceId: string,
+    sha256: string,
+  ): Promise<BlobObject | undefined> {
+    return inTransaction(this.pool, async (db) => {
+      await scope(db, workspaceId);
+      const result = await db.query<BlobRow>(
+        `${selectBlob} WHERE workspace_id=$1 AND sha256=$2`,
+        [workspaceId, sha256],
+      );
+      return result.rows[0] ? mapBlob(result.rows[0]) : undefined;
+    });
+  }
+  recordVerified(blob: BlobObject): Promise<BlobObject> {
+    return inTransaction(this.pool, async (db) => {
+      await scope(db, blob.workspaceId);
+      const result = await recordBlob(db, blob);
+      return mapBlob(requiredBlobRow(result.rows[0]));
+    });
+  }
+  commitVerifiedIngest(input: {
+    blob: BlobObject;
+    operationId: string;
+    actorId: string;
+    actorType: IngestPrincipalType;
+    occurredAt: string;
+  }): Promise<BlobObject> {
+    return inTransaction(this.pool, async (db) => {
+      const blob = input.blob;
+      await scope(db, blob.workspaceId);
+      const recorded = await recordBlob(db, blob);
+      const canonical = mapBlob(requiredBlobRow(recorded.rows[0]));
+      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        blob.workspaceId,
+      ]);
+      const previous = await db.query<{ event_hash: string }>(
+        "SELECT event_hash FROM audit_events WHERE workspace_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",
+        [blob.workspaceId],
+      );
+      const auditId = deterministicUuid(`ingest-audit:${input.operationId}`);
+      const requestId = deterministicUuid(
+        `ingest-request:${input.operationId}`,
+      );
+      const correlationId = input.operationId;
+      const metadata = {
+        sha256: canonical.sha256,
+        byteLength: canonical.byteLength,
+        storageKey: canonical.storageKey,
+      };
+      const chained = appendAuditEvent(
+        {
+          id: auditId,
+          workspaceId: blob.workspaceId,
+          actorType: input.actorType,
+          actorId: input.actorId,
+          action: "blob.ingested",
+          subjectKind: "blob",
+          subjectId: canonical.id,
+          timestamp: input.occurredAt,
+          requestId,
+          correlationId,
+          metadata,
+        },
+        previous.rows[0]?.event_hash ?? "",
+      );
+      await db.query(
+        "INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_kind,subject_id,occurred_at,request_id,correlation_id,operation_id,previous_event_hash,event_hash,metadata_json) VALUES ($1,$2,$3,$4,'blob.ingested','blob',$5,$6,$7,$8,$9,$10,$11,$12::jsonb) ON CONFLICT (id) DO NOTHING",
+        [
+          auditId,
+          blob.workspaceId,
+          input.actorType,
+          input.actorId,
+          canonical.id,
+          input.occurredAt,
+          requestId,
+          correlationId,
+          input.operationId,
+          chained.previousEventHash || null,
+          chained.eventHash,
+          JSON.stringify(metadata),
+        ],
+      );
+      await db.query(
+        "INSERT INTO outbox_events (id,workspace_id,operation_id,event_type,payload_json) VALUES ($1,$2,$3,'blob.reconcile_requested',$4::jsonb) ON CONFLICT (id) DO NOTHING",
+        [
+          deterministicUuid(`ingest-outbox:${input.operationId}`),
+          blob.workspaceId,
+          input.operationId,
+          JSON.stringify({
+            storageKey: canonical.storageKey,
+            sha256: canonical.sha256,
+            byteLength: canonical.byteLength,
+          }),
+        ],
+      );
+      return canonical;
+    });
+  }
 }
-const selectBlob="SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at FROM blob_objects";
-async function scope(db:Queryable,workspaceId:string){await db.query("SELECT set_config('trust.workspace_id',$1,true)",[workspaceId]);}
-interface BlobRow{id:string;workspace_id:string;sha256:string;byte_length:number|string;media_type:string;storage_provider:string;storage_key:string;verification_state:BlobObject["verificationState"];created_at:string|Date;}
-function mapBlob(r:BlobRow):BlobObject{return{id:r.id,workspaceId:r.workspace_id,sha256:r.sha256,byteLength:Number(r.byte_length),mediaType:r.media_type,storageProvider:r.storage_provider,storageKey:r.storage_key,verificationState:r.verification_state,createdAt:new Date(r.created_at).toISOString()};}
+const selectBlob =
+  "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at FROM blob_objects";
+function recordBlob(db: Queryable, blob: BlobObject) {
+  return db.query<BlobRow>(
+    `INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'verified',$8) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified' RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at`,
+    [
+      blob.id,
+      blob.workspaceId,
+      blob.sha256,
+      blob.byteLength,
+      blob.mediaType,
+      blob.storageProvider,
+      blob.storageKey,
+      blob.createdAt,
+    ],
+  );
+}
+async function scope(db: Queryable, workspaceId: string) {
+  await db.query("SELECT set_config('trust.workspace_id',$1,true)", [
+    workspaceId,
+  ]);
+}
+function requiredBlobRow(row: BlobRow | undefined): BlobRow {
+  if (!row) throw new Error("Blob metadata was not recorded.");
+  return row;
+}
+interface BlobRow {
+  id: string;
+  workspace_id: string;
+  sha256: string;
+  byte_length: number | string;
+  media_type: string;
+  storage_provider: string;
+  storage_key: string;
+  verification_state: BlobObject["verificationState"];
+  created_at: string | Date;
+}
+function mapBlob(row: BlobRow): BlobObject {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    sha256: row.sha256,
+    byteLength: Number(row.byte_length),
+    mediaType: row.media_type,
+    storageProvider: row.storage_provider,
+    storageKey: row.storage_key,
+    verificationState: row.verification_state,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
