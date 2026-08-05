@@ -8,7 +8,12 @@ import {
 import { createIvansDiaryFixture } from "@trust-core/fixtures-ivans-diary";
 import { createWeSketchFixture } from "@trust-core/fixtures-wesketch";
 import { describe, expect, it } from "vitest";
-import { projectArchive, renderArchiveHtml } from "../src/index.js";
+import {
+  projectArchive,
+  renderArchiveBytes,
+  renderArchiveHtml,
+} from "../src/index.js";
+import { runViewerCli } from "../src/cli.js";
 
 describe("independent trust archive viewer", () => {
   it.each([
@@ -51,6 +56,33 @@ describe("independent trust archive viewer", () => {
       ),
     );
     expect(renderArchiveHtml(projectArchive(parsed))).not.toContain("<script>");
+  });
+
+  it("runs as an offline CLI and refuses invalid input", async () => {
+    const bytes = await writeTrustArchive(
+      assembleArchiveEntries(source(createIvansDiaryFixture())),
+    );
+    const written: string[] = [];
+    const messages: string[] = [];
+    const io = {
+      read: async () => bytes,
+      write: async (_path: string, contents: string) => {
+        written.push(contents);
+      },
+      log: (message: string) => {
+        messages.push(message);
+      },
+      error: (message: string) => {
+        messages.push(message);
+      },
+    };
+    expect(await runViewerCli(["ivan.trustarchive"], io)).toBe(0);
+    expect(written[0]).toBe(await renderArchiveBytes(bytes));
+    expect(messages[0]).toContain("Verified archive");
+
+    const invalidIo = { ...io, read: async () => new Uint8Array([1, 2, 3]) };
+    expect(await runViewerCli(["invalid.trustarchive"], invalidIo)).toBe(1);
+    expect(messages.at(-1)).toContain("Viewer refused the archive");
   });
 });
 

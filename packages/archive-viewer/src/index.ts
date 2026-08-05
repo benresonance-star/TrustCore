@@ -1,4 +1,5 @@
 import type { ArchiveRecord, ParsedTrustArchive } from "@trust-core/archive";
+import { readTrustArchive } from "@trust-core/archive";
 
 export interface ArchiveViewerModel {
   readonly exportId: string;
@@ -75,6 +76,10 @@ export function renderArchiveHtml(model: ArchiveViewerModel): string {
     )
     .join("");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(model.workspace?.name ?? "Trust archive")}</title><style>${styles}</style></head><body><main><header><small>Independent Trust Archive viewer</small><h1>${escape(model.workspace?.name ?? "Unknown workspace")}</h1><p>Export ${escape(model.exportId)} · verified read-only reconstruction</p></header><section class="metrics"><div><strong>${model.datasets.length}</strong><span>Datasets</span></div><div><strong>${model.resources.length}</strong><span>Resources</span></div><div><strong>${model.audit.eventCount}</strong><span>Audit events</span></div></section><section><h2>Resources</h2><table><thead><tr><th>Name</th><th>Type</th><th>Revisions</th><th>State</th></tr></thead><tbody>${resources}</tbody></table></section><footer>No Trust API, database or originating application was required to render this view.</footer></main></body></html>`;
+}
+
+export async function renderArchiveBytes(bytes: Uint8Array): Promise<string> {
+  return renderArchiveHtml(projectArchive(await readTrustArchive(bytes)));
 }
 
 function countBy(records: readonly ArchiveRecord[], key: string) {

@@ -97,3 +97,12 @@ application, PostgreSQL or object store, and it refuses unverified input.
 The source tests reconstruct both synthetic application fixtures. The release
 gate additionally requires the viewer to open archives produced before live
 source-store destruction on the Docker-capable PC.
+
+The command-line reference implementation is:
+
+```text
+trust-archive-viewer <archive.trustarchive> [--output archive.html]
+```
+
+It exits `0` only after strict archive verification and successful HTML output,
+`1` when archive verification or output fails, and `2` for invalid invocation.

@@ -92,6 +92,20 @@ Historical local Docker proofs are recorded in `CHECKPOINT.md`. A release is
 current only when the Docker gate succeeds for the exact committed release SHA;
 local dirty-tree reports are supporting diagnostics, not release evidence.
 
+## Independent archive viewer
+
+The read-only viewer runs without the Trust API, database or originating app.
+It strictly verifies the archive before producing a self-contained HTML file:
+
+```bash
+pnpm --filter @trust-core/archive-viewer viewer -- \
+  ./export.trustarchive --output ./export.html
+```
+
+Invalid archives are refused with a non-zero exit status. The generated HTML is
+a reconstruction aid, not an editor or an authority for changing canonical
+data.
+
 With `DATABASE_URL` present the API reports `mode: live` and reads PostgreSQL. Without it, the API deliberately reports `mode: fixture`.
 
 Live mutation routes also require `TRUST_ADMIN_TOKEN`. The bootstrap-token
