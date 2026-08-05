@@ -486,7 +486,7 @@ async function afterImportEffect(
     process.stderr.write(
       `Injected import process termination after ${checkpoint}\n`,
     );
-    process.exit(87);
+    process.exit(86);
   }
 }
 function parsePrincipalType(

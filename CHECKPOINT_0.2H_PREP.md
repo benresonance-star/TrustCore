@@ -33,19 +33,25 @@ assembly and delivery remain memory-bounded by the existing 8 MB container
 limit. A streaming public upload/download contract is deferred to a later
 contract revision rather than being introduced incompatibly in 0.2H.
 
-## Deliberate limits
+## Docker acceptance command
 
-This checkpoint does not claim:
+The complete destructive acceptance scope is now encoded behind:
 
-- PostgreSQL logical-point export;
-- MinIO streaming reads;
-- durable export-operation state across processes;
-- production-scale streaming download;
-- source destruction or clean-store reconstruction;
-- real OIDC/MFA step-up evidence.
+```powershell
+corepack pnpm@10.15.0 trust:test:portability:docker
+```
 
-Those remain the Docker-capable PC's 0.2H gate. This file records preparation,
-not `TRUST TEST: PASS`.
+It uses dedicated RLS portability tables, run-scoped source/target databases
+and MinIO buckets, live API/adapters, source destruction, clean-target
+reconstruction, hostile archive rejection, offline viewer execution, and API
+process exit/restart at every declared import checkpoint. See
+[`docs/portability-gate-runbook.md`](docs/portability-gate-runbook.md).
+
+The local profile intentionally validates unsigned archives and same-principal
+bootstrap re-authentication. Managed signatures and real OIDC/MFA remain
+deferred. This preparation record does not claim 0.2H complete: the parent must
+rerun the command on the exact clean, committed candidate SHA and retain both
+sanitized reports before `TRUST TEST: PASS` is release evidence.
 
 ## Source evidence
 

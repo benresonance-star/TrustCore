@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:docker": "vitest run tests/docker.integration.test.ts -t \"proves live health|preserves application principals|exports and imports\"",
-    "test:interruption:docker": "vitest run tests/docker.integration.test.ts -t \"terminates and restarts\""
+    "test:interruption:docker": "vitest run tests/docker.integration.test.ts -t \"terminates and restarts\"",
+    "test:portability:docker": "vitest run tests/portability.docker.integration.test.ts"
   },
   "dependencies": {
     "@trust-core/archive": "workspace:*",

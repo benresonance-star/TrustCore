@@ -792,11 +792,14 @@ fixtures directly from verified archive bytes. The checkpoint lists the
 remaining PC/Docker destruction, reconstruction, interruption and real-OIDC
 tests; none are claimed by the source candidate.
 
-The first 0.2H preparation slice is recorded in `CHECKPOINT_0.2H_PREP.md`.
-It adds privileged dataset-scoped archive creation/download contracts, SDK
-methods and a runnable offline viewer. Fixture mode proves the byte handoff for
-Ivan and WeSketch; PostgreSQL/MinIO export, durable operations, streaming and
-destructive reconstruction remain unproved until the PC/Docker gate.
+The 0.2H acceptance implementation is recorded in `CHECKPOINT_0.2H_PREP.md`
+and is run with
+`corepack pnpm@10.15.0 trust:test:portability:docker`. Its acceptance scope is
+live PostgreSQL/MinIO export, durable handoff, source destruction, clean-target
+reconstruction of Ivan and WeSketch, strict invalid-archive rejection, offline
+viewer use and process-level import resumption. Managed signatures and real
+OIDC remain deferred. This text does not close 0.2H; closure requires a passing
+sanitized report from that command on the exact clean committed candidate SHA.
 
 ---
 

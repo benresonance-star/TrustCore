@@ -77,3 +77,31 @@ jobs:
             reports/release-0.1-docker-gate.md
           if-no-files-found: warn
           retention-days: 7
+
+  portability-docker:
+    name: Release 0.2 portability Docker gate
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: docker-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Enable pinned Corepack package manager
+        run: corepack enable
+      - name: Install frozen dependencies
+        run: corepack pnpm@10.15.0 install --frozen-lockfile
+      - name: Run destructive portability gate
+        run: corepack pnpm@10.15.0 trust:test:portability:docker
+      - name: Upload sanitized portability reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-test-portability-${{ github.run_id }}
+          path: |
+            reports/release-0.2-portability-gate.json
+            reports/release-0.2-portability-gate.md
+          if-no-files-found: error
+          retention-days: 14

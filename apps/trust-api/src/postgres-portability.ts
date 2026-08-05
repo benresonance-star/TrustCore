@@ -175,6 +175,15 @@ export class PostgresPortabilityProvider implements PortabilityProvider {
           "INVALID_COMMAND",
           "Only the local unsigned archive profile is supported.",
         );
+      if (
+        [...parsed.entries.keys()].some((path) =>
+          path.startsWith("signatures/"),
+        )
+      )
+        throw codedError(
+          "INVALID_COMMAND",
+          "Unsigned archives must not contain signature artifacts.",
+        );
       const persisted = await this.objects.persist({
         workspaceId: command.workspaceId,
         requestId: `upload-${fingerprint}`,
