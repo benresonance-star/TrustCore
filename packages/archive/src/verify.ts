@@ -150,21 +150,82 @@ function validateAuditLineage(
       "ARCHIVE_AUDIT_LINEAGE_INVALID",
       "Audit lineage count does not match exported audit records.",
     );
-  const hashes = new Set(
-    events
-      .map((event) => event.eventHash)
-      .filter((value): value is string => typeof value === "string"),
-  );
-  for (const boundary of [lineage.firstEventHash, lineage.lastEventHash])
-    if (
-      boundary !== null &&
-      (!/^[a-f0-9]{64}$/.test(boundary) || !hashes.has(boundary))
-    )
+  if (events.length === 0) {
+    if (lineage.firstEventHash !== null || lineage.lastEventHash !== null)
       issue(
         issues,
         "ARCHIVE_AUDIT_LINEAGE_INVALID",
-        "Audit lineage boundary hash is not present in exported audit records.",
+        "Empty audit lineage must have null boundary hashes.",
       );
+    return;
+  }
+  const hashes = events.map((event) =>
+    typeof event.eventHash === "string" ? event.eventHash : "",
+  );
+  if (
+    hashes.some((hash) => !/^[a-f0-9]{64}$/.test(hash)) ||
+    new Set(hashes).size !== hashes.length
+  )
+    issue(
+      issues,
+      "ARCHIVE_AUDIT_LINEAGE_INVALID",
+      "Audit lineage contains an invalid or duplicate event hash.",
+    );
+  const roots = events.filter(
+    (event) =>
+      event.previousEventHash === null ||
+      event.previousEventHash === undefined ||
+      event.previousEventHash === "",
+  );
+  const references = events
+    .map((event) => event.previousEventHash)
+    .filter(
+      (hash): hash is string => typeof hash === "string" && hash.length > 0,
+    );
+  const tails = hashes.filter((hash) => !references.includes(hash));
+  if (
+    roots.length !== 1 ||
+    tails.length !== 1 ||
+    lineage.firstEventHash !== roots[0]?.eventHash ||
+    lineage.lastEventHash !== tails[0]
+  )
+    issue(
+      issues,
+      "ARCHIVE_AUDIT_LINEAGE_INVALID",
+      "Audit lineage boundary hashes do not identify one complete chain.",
+    );
+  const children = new Map<string, number>();
+  for (const previous of references)
+    children.set(previous, (children.get(previous) ?? 0) + 1);
+  if (
+    references.some((previous) => !hashes.includes(previous)) ||
+    [...children.values()].some((count) => count !== 1)
+  )
+    issue(
+      issues,
+      "ARCHIVE_AUDIT_LINEAGE_INVALID",
+      "Audit lineage event links are discontinuous or branching.",
+    );
+  if (tails.length === 1) {
+    const byHash = new Map(
+      events.map((event) => [String(event.eventHash), event]),
+    );
+    const visited = new Set<string>();
+    let current: string | null = tails[0]!;
+    while (current) {
+      if (visited.has(current)) break;
+      visited.add(current);
+      const previous: unknown = byHash.get(current)?.previousEventHash;
+      current =
+        typeof previous === "string" && previous.length > 0 ? previous : null;
+    }
+    if (visited.size !== events.length)
+      issue(
+        issues,
+        "ARCHIVE_AUDIT_LINEAGE_INVALID",
+        "Audit lineage does not cover every exported audit event.",
+      );
+  }
 }
 
 function readChecksums(

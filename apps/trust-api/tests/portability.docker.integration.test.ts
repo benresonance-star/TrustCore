@@ -2,12 +2,14 @@ import {
   CreateBucketCommand,
   DeleteBucketCommand,
   DeleteObjectsCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
   archiveImportCheckpoints,
+  canonicalJson,
   readTrustArchive,
   writeTrustArchive,
   type ArchiveImportCheckpoint,
@@ -24,6 +26,7 @@ import {
 import {
   PostgresTrustRepository,
   deterministicUuid,
+  loadArchiveImportInventory,
   runMigrations,
   type DatabasePool,
   type QueryResult,
@@ -79,11 +82,19 @@ const sourceWorkspaces = [ivan, sketch].map((fixture) =>
 const sourceDatasets = [ivan, sketch].map((fixture) =>
   deterministicUuid(fixture.dataset.id),
 );
-const targetWorkspaces = archiveImportCheckpoints.map((checkpoint) =>
-  deterministicUuid(`portability-target-${scope.runId}-${checkpoint}`),
+const targetWorkspaces = [ivan, sketch].flatMap((_fixture, fixtureIndex) =>
+  archiveImportCheckpoints.map((checkpoint) =>
+    deterministicUuid(
+      `portability-target-${scope.runId}-${fixtureIndex}-${checkpoint}`,
+    ),
+  ),
 );
+const failureTarget = deterministicUuid(
+  `portability-target-${scope.runId}-failure`,
+);
+const allTargetWorkspaces = [...targetWorkspaces, failureTarget];
 const finalIvanTarget = targetWorkspaces[0]!;
-const finalSketchTarget = targetWorkspaces[1]!;
+const finalSketchTarget = targetWorkspaces[archiveImportCheckpoints.length]!;
 let sourceOwner: Pool;
 let targetOwner: Pool;
 let sourceServer: ChildProcess | undefined;
@@ -148,6 +159,15 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
         bytesBase64: lineageSeed.toString("base64"),
       });
       expect(ingested.status).toBe(200);
+      const secondIngest = await post("/v1/objects/ingest", workspaceId, {
+        workspaceId,
+        idempotencyKey: `lineage-second-${index}-${scope.runId}`,
+        mediaType: "application/octet-stream",
+        bytesBase64: Buffer.from(
+          `audit-lineage-second-${index}-${scope.runId}`,
+        ).toString("base64"),
+      });
+      expect(secondIngest.status).toBe(200);
       const exported = await post("/v1/portability/exports", workspaceId, {
         workspaceId,
         datasetIds: [datasetId],
@@ -182,13 +202,25 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
       await writeFile(resolve(temp, `${index}.trustarchive`), bytes);
     }
     const sourceAudit = await sourceOwner.query<{
+      workspace_id: string;
       action: string;
+      request_id: string;
+      correlation_id: string;
       metadata_json: unknown;
     }>(
-      "SELECT action,metadata_json FROM audit_events WHERE workspace_id=ANY($1::uuid[]) AND action='archive.exported'",
+      "SELECT workspace_id,action,request_id,correlation_id,metadata_json FROM audit_events WHERE workspace_id=ANY($1::uuid[]) AND action='archive.exported'",
       [sourceWorkspaces],
     );
     expect(sourceAudit.rowCount).toBe(2);
+    expect(
+      new Set(sourceAudit.rows.map(({ workspace_id }) => workspace_id)),
+    ).toEqual(new Set(sourceWorkspaces));
+    expect(
+      sourceAudit.rows.every(
+        ({ request_id, correlation_id }) =>
+          request_id.length > 0 && correlation_id.length > 0,
+      ),
+    ).toBe(true);
 
     await stopServer(sourceServer);
     sourceServer = undefined;
@@ -211,24 +243,33 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
       await readFile(resolve(temp, "1.trustarchive")),
     );
 
-    const viewerOutput = resolve(temp, "offline.html");
-    expect(
-      await processExit(process.execPath, [
+    for (let index = 0; index < sourceWorkspaces.length; index += 1) {
+      const viewerOutput = resolve(temp, `offline-${index}.html`);
+      const viewed = await processResult(process.execPath, [
         tsxCli,
         viewerCli,
-        resolve(temp, "1.trustarchive"),
+        resolve(temp, `${index}.trustarchive`),
         "--output",
         viewerOutput,
-      ]),
-    ).toBe(0);
-    expect(await readFile(viewerOutput, "utf8")).toContain("Trust Archive");
-    expect(await processExit(process.execPath, [tsxCli, viewerCli])).toBe(2);
+      ]);
+      expect(viewed.code).toBe(0);
+      expect(viewed.stdout).toContain("Verified archive");
+      expect(await readFile(viewerOutput, "utf8")).toContain("Trust Archive");
+    }
+    const invalidViewer = await processResult(process.execPath, [
+      tsxCli,
+      viewerCli,
+    ]);
+    expect(invalidViewer.code).toBe(2);
+    expect(`${invalidViewer.stdout}\n${invalidViewer.stderr}`).toMatch(
+      /usage|archive/i,
+    );
 
     await createBucket(scope.targetBucket);
     await createDatabase(scope.targetDatabase);
     targetOwner = ownerPool(scope.targetDatabase);
     await provision(targetOwner);
-    for (const [index, workspaceId] of targetWorkspaces.entries())
+    for (const [index, workspaceId] of allTargetWorkspaces.entries())
       await targetOwner.query(
         "INSERT INTO workspaces (id,name,slug) VALUES ($1,$2,$3)",
         [
@@ -241,6 +282,7 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
 
     const sketchBytes = archives.get(sourceWorkspaces[1]!)!;
     for (const [name, bytes] of await hostileArchives(sketchBytes)) {
+      const before = await reconstructedEffects(finalSketchTarget);
       const rejected = await post(
         "/v1/portability/archives",
         finalSketchTarget,
@@ -255,7 +297,11 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
         `${name}: ${rejected.status} ${JSON.stringify(rejected.body)}`,
       ).toBe(true);
       expect(rejected.body.status, name).not.toBe("verified");
+      expect(await reconstructedEffects(finalSketchTarget), name).toEqual(
+        before,
+      );
     }
+    const beforeOversized = await reconstructedEffects(finalSketchTarget);
     const oversized = await post(
       "/v1/portability/archives",
       finalSketchTarget,
@@ -266,88 +312,178 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
       },
     );
     expect(oversized.status).toBe(413);
+    expect(await reconstructedEffects(finalSketchTarget)).toEqual(
+      beforeOversized,
+    );
     expect(
-      (
-        await fetch(`${baseUrl}/v1/portability/archives`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            workspaceId: finalSketchTarget,
-            idempotencyKey: "unauthenticated",
-            archiveBase64: sketchBytes.toString("base64"),
-          }),
-        })
-      ).status,
+      (await fetchUnauthorizedArchive(finalSketchTarget, sketchBytes)).status,
     ).toBe(401);
     expect(
       (await get("/v1/resources", deterministicUuid("unassigned-workspace")))
         .status,
     ).toBe(403);
 
-    for (let index = 0; index < archiveImportCheckpoints.length; index += 1) {
-      const checkpoint = archiveImportCheckpoints[index]!;
-      const workspaceId = targetWorkspaces[index]!;
-      const sourceBytes =
-        index === 0
-          ? archives.get(sourceWorkspaces[0]!)!
-          : archives.get(sourceWorkspaces[1]!)!;
-      const preparedImport = await uploadAndPlan(
-        workspaceId,
-        await validArchiveVariant(sourceBytes, index),
-        index,
-      );
-      process.stdout.write(`[0.2H] interrupting after ${checkpoint}\n`);
-      await stopServer(targetServer);
-      targetServer = await startServer(
-        scope.targetDatabase,
-        scope.targetBucket,
-        checkpoint,
-      );
-      const request = post(
-        `/v1/portability/plans/${preparedImport.planId}/execute`,
-        preparedImport.workspaceId,
-        preparedImport.command,
-      ).catch((error: unknown) => ({ error }));
-      const exitCode = await waitForExitWithin(targetServer, 20_000);
-      const interruptionResult = await request;
-      expect(
-        exitCode,
-        `${checkpoint}: ${JSON.stringify(interruptionResult)}`,
-      ).toBe(86);
-      targetServer = await startServer(
-        scope.targetDatabase,
-        scope.targetBucket,
-      );
-      const resumed = await post(
-        `/v1/portability/plans/${preparedImport.planId}/execute`,
-        preparedImport.workspaceId,
-        preparedImport.command,
-      );
-      expect(resumed.status, checkpoint).toBe(200);
-      expect(resumed.body).toMatchObject({
-        checkpoint: "completed",
-        status: "completed",
-        resumed: checkpoint !== "authorised",
-      });
-      const duplicate = await post(
-        `/v1/portability/plans/${preparedImport.planId}/execute`,
-        preparedImport.workspaceId,
-        preparedImport.command,
-      );
-      expect(duplicate.body).toMatchObject({
-        id: stringField(resumed.body, "id"),
-        checkpoint: "completed",
-        resumed: true,
-      });
-      const operationCount = await targetOwner.query<{ count: number }>(
-        "SELECT count(*)::int AS count FROM portability_import_operations WHERE workspace_id=$1 AND plan_id=$2",
-        [preparedImport.workspaceId, preparedImport.planId],
-      );
-      expect(operationCount.rows[0]!.count).toBe(1);
+    for (let fixtureIndex = 0; fixtureIndex < 2; fixtureIndex += 1) {
+      for (
+        let checkpointIndex = 0;
+        checkpointIndex < archiveImportCheckpoints.length;
+        checkpointIndex += 1
+      ) {
+        const checkpoint = archiveImportCheckpoints[checkpointIndex]!;
+        const runIndex =
+          fixtureIndex * archiveImportCheckpoints.length + checkpointIndex;
+        const workspaceId = targetWorkspaces[runIndex]!;
+        const sourceBytes = archives.get(sourceWorkspaces[fixtureIndex]!)!;
+        const importBytes = await validArchiveVariant(sourceBytes, runIndex);
+        const preparedImport = await uploadAndPlan(
+          workspaceId,
+          importBytes,
+          runIndex,
+        );
+        process.stdout.write(
+          `[0.2H] fixture ${fixtureIndex} interrupting after ${checkpoint}\n`,
+        );
+        await stopServer(targetServer);
+        targetServer = await startServer(
+          scope.targetDatabase,
+          scope.targetBucket,
+          checkpoint,
+        );
+        const request = post(
+          `/v1/portability/plans/${preparedImport.planId}/execute`,
+          preparedImport.workspaceId,
+          preparedImport.command,
+        ).catch((error: unknown) => ({ error }));
+        const exitCode = await waitForExitWithin(targetServer, 20_000);
+        const interruptionResult = await request;
+        expect(
+          exitCode,
+          `${checkpoint}: ${JSON.stringify(interruptionResult)}`,
+        ).toBe(86);
+        targetServer = await startServer(
+          scope.targetDatabase,
+          scope.targetBucket,
+        );
+        const resumed = await post(
+          `/v1/portability/plans/${preparedImport.planId}/execute`,
+          preparedImport.workspaceId,
+          preparedImport.command,
+        );
+        expect(resumed.status, checkpoint).toBe(200);
+        expect(resumed.body).toMatchObject({
+          checkpoint: "completed",
+          status: "completed",
+          resumed: true,
+        });
+        await assertReconstructedIntegrity(workspaceId, importBytes);
+        const beforeReplay = await completeEffectSnapshot(workspaceId);
+        const duplicates = await Promise.all(
+          [0, 1].map(() =>
+            post(
+              `/v1/portability/plans/${preparedImport.planId}/execute`,
+              preparedImport.workspaceId,
+              preparedImport.command,
+            ),
+          ),
+        );
+        for (const duplicate of duplicates)
+          expect(duplicate.body).toMatchObject({
+            id: stringField(resumed.body, "id"),
+            checkpoint: "completed",
+            resumed: true,
+          });
+        expect(await completeEffectSnapshot(workspaceId)).toEqual(beforeReplay);
+        const operationCount = await targetOwner.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM portability_import_operations WHERE workspace_id=$1 AND plan_id=$2",
+          [preparedImport.workspaceId, preparedImport.planId],
+        );
+        expect(operationCount.rows[0]!.count).toBe(1);
+      }
     }
+
+    const failedImport = await uploadAndPlan(
+      failureTarget,
+      await validArchiveVariant(archives.get(sourceWorkspaces[0]!)!, 99),
+      99,
+    );
+    const failedPlan = (
+      await targetOwner.query<{
+        plan_json: {
+          actions: Array<{
+            kind: string;
+            targetId: string;
+            disposition: string;
+            record?: Record<string, unknown>;
+          }>;
+        };
+      }>(
+        "SELECT plan_json FROM portability_plans WHERE workspace_id=$1 AND id=$2",
+        [failureTarget, failedImport.planId],
+      )
+    ).rows[0]!.plan_json;
+    const staleDataset = failedPlan.actions.find(
+      ({ kind, disposition }) =>
+        kind === "datasets" && disposition === "insert",
+    );
+    const staleSchema = failedPlan.actions.find(
+      ({ kind, disposition }) =>
+        kind === "schema-packages" && disposition === "insert",
+    );
+    if (!staleDataset?.record)
+      throw new Error("Failure proof dataset action was not found.");
+    if (staleSchema?.record)
+      await targetOwner.query(
+        "INSERT INTO schema_packages (id,namespace,name,semantic_version,schema_digest,manifest_json) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
+        [
+          staleSchema.targetId,
+          String(staleSchema.record.namespace),
+          String(staleSchema.record.name),
+          String(staleSchema.record.semanticVersion),
+          String(staleSchema.record.schemaDigest),
+          JSON.stringify(staleSchema.record.manifest),
+        ],
+      );
+    await targetOwner.query(
+      "INSERT INTO datasets (id,workspace_id,schema_package_id,dataset_type,name,created_by) VALUES ($1,$2,$3,$4,'stale target','gate')",
+      [
+        staleDataset.targetId,
+        failureTarget,
+        String(staleDataset.record.schemaPackageId),
+        String(staleDataset.record.datasetType),
+      ],
+    );
+    const beforeFailedImport = await reconstructedEffects(failureTarget);
+    const rejectedImport = await post(
+      `/v1/portability/plans/${failedImport.planId}/execute`,
+      failureTarget,
+      failedImport.command,
+    );
+    expect(rejectedImport.status).toBeGreaterThanOrEqual(400);
+    expect(await reconstructedEffects(failureTarget)).toEqual(
+      beforeFailedImport,
+    );
 
     await assertFixtureVisible(finalIvanTarget, ivan);
     await assertFixtureVisible(finalSketchTarget, sketch);
+    for (const [index, workspaceId] of [
+      finalIvanTarget,
+      finalSketchTarget,
+    ].entries()) {
+      const level = index === 0 ? "workspace" : "full_blob";
+      const verified = await post("/v1/verification/runs", workspaceId, {
+        workspaceId,
+        level,
+        ...(level === "workspace"
+          ? { scope: { kind: "workspace", id: workspaceId } }
+          : {}),
+      });
+      expect(verified.status).toBe(200);
+      expect(verified.body).toMatchObject({
+        workspaceId,
+        level,
+        status: "passed",
+      });
+    }
     expect(
       (
         await targetOwner.query<{ count: number }>(
@@ -365,6 +501,56 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
     expect(
       unknownField.rows[0]!.canonical_payload_json.transcriptionConfidence,
     ).toBe(0.91);
+    await provisionApplicationPrincipal(finalIvanTarget, "ivan");
+    await provisionApplicationPrincipal(finalSketchTarget, "wesketch");
+    await stopServer(targetServer);
+    const ivanApplicationToken = `ivan-application-${scope.runId}`;
+    targetServer = await startServer(
+      scope.targetDatabase,
+      scope.targetBucket,
+      undefined,
+      {
+        actorId: `restored.ivan.${scope.runId}`,
+        token: ivanApplicationToken,
+        principalType: "application",
+      },
+    );
+    expect(
+      arrayField(
+        (await get("/v1/resources", finalIvanTarget, ivanApplicationToken))
+          .body,
+        "items",
+      ),
+    ).toHaveLength(ivan.resources.length);
+    expect(
+      (await get("/v1/resources", finalSketchTarget, ivanApplicationToken))
+        .status,
+    ).toBe(403);
+    await stopServer(targetServer);
+    const sketchApplicationToken = `sketch-application-${scope.runId}`;
+    targetServer = await startServer(
+      scope.targetDatabase,
+      scope.targetBucket,
+      undefined,
+      {
+        actorId: `restored.wesketch.${scope.runId}`,
+        token: sketchApplicationToken,
+        principalType: "application",
+      },
+    );
+    expect(
+      arrayField(
+        (await get("/v1/resources", finalSketchTarget, sketchApplicationToken))
+          .body,
+        "items",
+      ),
+    ).toHaveLength(sketch.resources.length);
+    expect(
+      (await get("/v1/resources", finalIvanTarget, sketchApplicationToken))
+        .status,
+    ).toBe(403);
+    await stopServer(targetServer);
+    targetServer = await startServer(scope.targetDatabase, scope.targetBucket);
     const audit = await targetOwner.query<{
       action: string;
       metadata_json: unknown;
@@ -378,10 +564,78 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
         "archive.upload.verified",
         "archive.upload.failed",
         "archive.import.planned",
+        "archive.import.resumed",
         "archive.imported",
         "archive.import.executed",
       ]),
     );
+    for (const workspaceId of targetWorkspaces) {
+      const operation = (
+        await targetOwner.query<{ id: string }>(
+          "SELECT id FROM portability_import_operations WHERE workspace_id=$1",
+          [workspaceId],
+        )
+      ).rows[0]!;
+      const lifecycle = await targetOwner.query<{
+        action: string;
+        request_id: string;
+        correlation_id: string;
+      }>(
+        "SELECT action,request_id,correlation_id FROM audit_events WHERE workspace_id=$1 AND action=ANY($2::text[]) ORDER BY action",
+        [
+          workspaceId,
+          [
+            "archive.upload.verified",
+            "archive.import.planned",
+            "archive.import.resumed",
+            "archive.imported",
+            "archive.import.executed",
+          ],
+        ],
+      );
+      expect(new Set(lifecycle.rows.map(({ action }) => action))).toEqual(
+        new Set([
+          "archive.upload.verified",
+          "archive.import.planned",
+          "archive.import.resumed",
+          "archive.imported",
+          "archive.import.executed",
+        ]),
+      );
+      expect(
+        lifecycle.rows.every(
+          ({ request_id, correlation_id }) =>
+            request_id.length > 0 && correlation_id.length > 0,
+        ),
+      ).toBe(true);
+      expect(
+        lifecycle.rows
+          .filter(({ action }) =>
+            [
+              "archive.import.resumed",
+              "archive.imported",
+              "archive.import.executed",
+            ].includes(action),
+          )
+          .every(({ correlation_id }) => correlation_id === operation.id),
+      ).toBe(true);
+    }
+    expect(
+      (
+        await targetOwner.query(
+          "SELECT id FROM audit_events WHERE workspace_id=$1 AND action='archive.import.failed'",
+          [failureTarget],
+        )
+      ).rowCount,
+    ).toBe(1);
+    expect(
+      (
+        await targetOwner.query(
+          "SELECT id FROM audit_events WHERE workspace_id=$1 AND action IN ('archive.upload.rejected','archive.upload.failed') AND request_id LIKE $2",
+          [finalSketchTarget, `reject-%-${scope.runId}`],
+        )
+      ).rowCount,
+    ).toBe(10);
     const auditText = JSON.stringify(audit.rows);
     expect(auditText).not.toContain(token);
     expect(auditText).not.toContain("archiveBase64");
@@ -394,7 +648,55 @@ describe.runIf(enabled)("Checkpoint 0.2H destructive portability gate", () => {
         )
       ).rows[0]!.count,
     ).toBeGreaterThan(0);
-  }, 360_000);
+    const evidencePath = process.env.TRUST_PORTABILITY_EVIDENCE_PATH;
+    if (evidencePath)
+      await writeFile(
+        evidencePath,
+        `${JSON.stringify(
+          {
+            profile: {
+              archiveSignature: "local-unsigned",
+              authentication: "same-principal-bootstrap",
+              deferred: ["managed-signatures", "OIDC"],
+            },
+            fixtures: ["Ivan's Diary", "WeSketch"].map((name) => ({
+              name,
+              checkpointRestarts: [...archiveImportCheckpoints],
+              proofs: {
+                export: true,
+                auditLifecycle: true,
+                canonicalRecordsAndHashes: true,
+                committedObjectRehash: true,
+                targetVerification: true,
+                applicationAccessAndIsolation: true,
+                offlineViewerAfterSourceDestruction: true,
+                duplicateAndConcurrentReplayIdempotency: true,
+                sourceDatabaseAndBucketDestroyed: true,
+              },
+            })),
+            negativeCases: [
+              "checksum",
+              "content-checksum",
+              "missing-blob",
+              "unsupported-signature",
+              "invalid-signature-artifact",
+              "path-traversal",
+              "compression-ratio",
+              "invalid-reference",
+              "invalid-parentage",
+              "invalid-audit-lineage",
+              "oversized-request",
+              "stale-target-import-failure",
+              "offline-viewer-invalid-invocation-exit-2",
+            ],
+            sanitized: true,
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+  }, 900_000);
 });
 
 async function uploadAndPlan(
@@ -469,6 +771,196 @@ async function assertFixtureVisible(
   });
 }
 
+async function assertReconstructedIntegrity(
+  workspaceId: string,
+  archiveBytes: Buffer,
+) {
+  const parsed = await readTrustArchive(archiveBytes);
+  expect(parsed.verification.valid).toBe(true);
+  const inventory = await loadArchiveImportInventory(
+    adaptPool(targetOwner),
+    workspaceId,
+  );
+  for (const kind of [
+    "datasets",
+    "resources",
+    "revisions",
+    "revision-blobs",
+    "blobs",
+    "relations",
+    "tombstones",
+  ] as const)
+    expect(Object.keys(inventory.records?.[kind] ?? {}), kind).toHaveLength(
+      parsed.manifest.recordCounts[kind],
+    );
+  const expectedRevisions = (parsed.verification.records.revisions ?? [])
+    .map((record) => ({
+      canonicalPayload: canonicalJson(record.canonicalPayload),
+      canonicalPayloadHash: record.canonicalPayloadHash,
+    }))
+    .sort((left, right) =>
+      String(left.canonicalPayloadHash).localeCompare(
+        String(right.canonicalPayloadHash),
+      ),
+    );
+  const actualRevisions = (
+    await targetOwner.query<{
+      canonical_payload_json: unknown;
+      canonical_payload_hash: string;
+    }>(
+      "SELECT canonical_payload_json,canonical_payload_hash FROM revisions WHERE workspace_id=$1 ORDER BY canonical_payload_hash",
+      [workspaceId],
+    )
+  ).rows.map((row) => ({
+    canonicalPayload: canonicalJson(row.canonical_payload_json),
+    canonicalPayloadHash: row.canonical_payload_hash,
+  }));
+  expect(actualRevisions).toEqual(expectedRevisions);
+
+  const expectedBlobs = new Map(
+    (parsed.verification.records.blobs ?? []).map((record) => [
+      String(record.sha256),
+      Number(record.byteLength),
+    ]),
+  );
+  const committed = await committedObjectSnapshot(workspaceId);
+  expect(
+    committed.map(({ sha256, byteLength }) => [sha256, byteLength]),
+  ).toEqual(
+    [...expectedBlobs].sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+async function reconstructedEffects(workspaceId: string) {
+  const tables = [
+    "datasets",
+    "resources",
+    "revisions",
+    "revision_blobs",
+    "blob_objects",
+    "relations",
+    "tombstones",
+    "imported_archive_audit_events",
+  ];
+  const database: Record<string, string> = {};
+  for (const table of tables)
+    database[table] = (
+      await targetOwner.query<{ value: string }>(
+        `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb)::text AS value FROM ${table} t WHERE workspace_id=$1`,
+        [workspaceId],
+      )
+    ).rows[0]!.value;
+  return {
+    database,
+    committedObjects: await committedObjectSnapshot(workspaceId),
+  };
+}
+
+async function completeEffectSnapshot(workspaceId: string) {
+  const reconstructed = await reconstructedEffects(workspaceId);
+  const tables = [
+    "portability_archives",
+    "portability_plans",
+    "portability_import_operations",
+    "audit_events",
+  ];
+  const lifecycle: Record<string, string> = {};
+  for (const table of tables)
+    lifecycle[table] = (
+      await targetOwner.query<{ value: string }>(
+        `SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb)::text AS value FROM ${table} t WHERE workspace_id=$1`,
+        [workspaceId],
+      )
+    ).rows[0]!.value;
+  const sharedSchemaPackages = (
+    await targetOwner.query<{ value: string }>(
+      "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id),'[]'::jsonb)::text AS value FROM schema_packages t",
+    )
+  ).rows[0]!.value;
+  const workspace = (
+    await targetOwner.query<{ value: string }>(
+      "SELECT to_jsonb(t)::text AS value FROM workspaces t WHERE id=$1",
+      [workspaceId],
+    )
+  ).rows[0]!.value;
+  return {
+    ...reconstructed,
+    lifecycle,
+    sharedSchemaPackages,
+    workspace,
+    durableObjects: await allWorkspaceObjectSnapshot(workspaceId),
+  };
+}
+
+async function committedObjectSnapshot(workspaceId: string) {
+  const keys = (
+    await targetOwner.query<{ storage_key: string }>(
+      "SELECT storage_key FROM blob_objects WHERE workspace_id=$1 ORDER BY storage_key",
+      [workspaceId],
+    )
+  ).rows.map(({ storage_key }) => storage_key);
+  return hashObjects(keys);
+}
+
+async function allWorkspaceObjectSnapshot(workspaceId: string) {
+  const listed = await s3.send(
+    new ListObjectsV2Command({
+      Bucket: scope.targetBucket,
+      Prefix: `workspaces/${workspaceId}/objects/`,
+    }),
+  );
+  return hashObjects(
+    (listed.Contents ?? []).flatMap(({ Key }) => (Key ? [Key] : [])).sort(),
+  );
+}
+
+async function hashObjects(keys: readonly string[]) {
+  const result: Array<{
+    key: string;
+    sha256: string;
+    byteLength: number;
+  }> = [];
+  for (const key of keys) {
+    const object = await s3.send(
+      new GetObjectCommand({ Bucket: scope.targetBucket, Key: key }),
+    );
+    if (!object.Body) throw new Error("Committed object body is missing.");
+    const hash = createHash("sha256");
+    let byteLength = 0;
+    for await (const chunk of object.Body as AsyncIterable<Uint8Array>) {
+      const bytes = Buffer.from(chunk);
+      hash.update(bytes);
+      byteLength += bytes.byteLength;
+    }
+    const digest = hash.digest("hex");
+    expect(key.endsWith(`/${digest}`)).toBe(true);
+    result.push({ key, sha256: digest, byteLength });
+  }
+  return result;
+}
+
+async function provisionApplicationPrincipal(
+  workspaceId: string,
+  name: "ivan" | "wesketch",
+) {
+  const principalId = `restored.${name}.${scope.runId}`;
+  const application = (
+    await targetOwner.query<{ id: string }>(
+      "INSERT INTO application_registrations (workspace_id,namespace,name,application_version,capabilities_json) VALUES ($1,$2,$3,'0.2H',$4::jsonb) RETURNING id",
+      [
+        workspaceId,
+        principalId,
+        `Restored ${name} application`,
+        JSON.stringify(["resource:read", "relation:read", "history:read"]),
+      ],
+    )
+  ).rows[0]!;
+  await targetOwner.query(
+    "INSERT INTO policy_assignments (workspace_id,principal_type,principal_id,role,scope_kind,scope_id,created_by) VALUES ($1,'application',$2,'admin','application',$3,'portability-gate')",
+    [workspaceId, principalId, application.id],
+  );
+}
+
 async function hostileArchives(
   bytes: Buffer,
 ): Promise<readonly [string, Buffer][]> {
@@ -479,6 +971,7 @@ async function hostileArchives(
       entries: Map<string, Uint8Array>,
       manifest: Record<string, unknown>,
     ) => void,
+    validChecksums = false,
   ): Promise<[string, Buffer]> => {
     const entries = new Map(parsed.entries);
     const manifest = JSON.parse(
@@ -486,6 +979,7 @@ async function hostileArchives(
     ) as Record<string, unknown>;
     update(entries, manifest);
     entries.set("manifest.json", Buffer.from(JSON.stringify(manifest)));
+    if (validChecksums) updateChecksums(entries);
     return [
       name,
       Buffer.from(
@@ -507,7 +1001,7 @@ async function hostileArchives(
     value[0] = value[0] === 97 ? 98 : 97;
     entries.set("checksums/sha256sums.txt", value);
   });
-  const content = await mutate("content", (entries) => {
+  const content = await mutate("content-checksum", (entries) => {
     entries.set(
       contentPath,
       Buffer.concat([entries.get(contentPath)!, Buffer.from(" ")]),
@@ -521,6 +1015,7 @@ async function hostileArchives(
     (_entries, manifest) => {
       manifest.signatureProfile = "managed-ed25519";
     },
+    true,
   );
   const invalidSignatureArtifact = await mutate(
     "invalid-signature-artifact",
@@ -528,6 +1023,40 @@ async function hostileArchives(
   );
   const pathTraversal = Buffer.from(bytes);
   replaceAll(pathTraversal, "manifest.json", "../evil.jsonx");
+  const compressionRatio = await mutate(
+    "compression-ratio",
+    (entries) => entries.set("README.txt", Buffer.from("a".repeat(500_000))),
+    true,
+  );
+  const invalidReference = await mutate(
+    "invalid-reference",
+    (entries) =>
+      updateJsonl(entries, "records/revisions.jsonl", (records) => {
+        records[0] = { ...records[0], resourceId: "missing-resource" };
+      }),
+    true,
+  );
+  const invalidParentage = await mutate(
+    "invalid-parentage",
+    (entries) =>
+      updateJsonl(entries, "records/revisions.jsonl", (records) => {
+        records[0] = { ...records[0], parentRevisionId: "missing-parent" };
+      }),
+    true,
+  );
+  const invalidAuditLineage = await mutate(
+    "invalid-audit-lineage",
+    (entries) =>
+      updateJsonl(entries, "records/audit-events.jsonl", (records) => {
+        if (records.length < 2)
+          throw new Error("Audit lineage fixture requires two events.");
+        records[1] = {
+          ...records[1],
+          previousEventHash: "c".repeat(64),
+        };
+      }),
+    true,
+  );
   return [
     checksum,
     content,
@@ -535,6 +1064,10 @@ async function hostileArchives(
     unsupportedSignature,
     invalidSignatureArtifact,
     ["path-traversal", pathTraversal],
+    compressionRatio,
+    invalidReference,
+    invalidParentage,
+    invalidAuditLineage,
   ];
 }
 
@@ -548,14 +1081,40 @@ async function validArchiveVariant(bytes: Buffer, index: number) {
       Buffer.from(`Harness import variant ${index}\n`),
     ]),
   );
+  updateChecksums(entries);
+  return Buffer.from(
+    await writeTrustArchive({ entries, manifest: parsed.manifest }),
+  );
+}
+
+function updateChecksums(entries: Map<string, Uint8Array>) {
   const sums = [...entries]
     .filter(([path]) => path !== "checksums/sha256sums.txt")
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([path, value]) => `${sha256(value)}  ${path}`)
     .join("\n");
   entries.set("checksums/sha256sums.txt", Buffer.from(`${sums}\n`));
-  return Buffer.from(
-    await writeTrustArchive({ entries, manifest: parsed.manifest }),
+}
+
+function updateJsonl(
+  entries: Map<string, Uint8Array>,
+  path: string,
+  update: (records: Record<string, unknown>[]) => void,
+) {
+  const bytes = entries.get(path);
+  if (!bytes) throw new Error(`Archive record entry is missing: ${path}`);
+  const records = Buffer.from(bytes)
+    .toString("utf8")
+    .trimEnd()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  update(records);
+  entries.set(
+    path,
+    Buffer.from(
+      `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+    ),
   );
 }
 
@@ -628,6 +1187,11 @@ async function startServer(
   database: string,
   bucket: string,
   failAfter?: ArchiveImportCheckpoint,
+  principal?: {
+    actorId: string;
+    token: string;
+    principalType: "application";
+  },
 ) {
   const url = new URL(bootstrapUrl);
   url.pathname = `/${database}`;
@@ -638,12 +1202,13 @@ async function startServer(
     env: {
       ...process.env,
       DATABASE_URL: url.toString(),
-      TRUST_ADMIN_TOKEN: token,
-      TRUST_ADMIN_ACTOR_ID: actor,
+      TRUST_ADMIN_TOKEN: principal?.token ?? token,
+      TRUST_ADMIN_ACTOR_ID: principal?.actorId ?? actor,
+      TRUST_ADMIN_PRINCIPAL_TYPE: principal?.principalType ?? "user",
       TRUST_WORKSPACE_KEY: `portability-${scope.runId}`,
       TRUST_FIXTURE_WORKSPACE_IDS: [
         ...sourceWorkspaces,
-        ...targetWorkspaces,
+        ...allTargetWorkspaces,
       ].join(","),
       TRUST_API_PORT: String(port),
       TRUST_STORAGE_ENDPOINT: endpoint,
@@ -704,11 +1269,25 @@ async function waitForExitWithin(child: ChildProcess, milliseconds: number) {
   ]);
 }
 
-async function processExit(file: string, args: readonly string[]) {
-  return new Promise<number | null>((resolvePromise, reject) => {
-    const child = spawn(file, args, { cwd: root, stdio: "ignore" });
+async function processResult(file: string, args: readonly string[]) {
+  return new Promise<{
+    code: number | null;
+    stdout: string;
+    stderr: string;
+  }>((resolvePromise, reject) => {
+    const child = spawn(file, args, { cwd: root, stdio: "pipe" });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
     child.once("error", reject);
-    child.once("exit", resolvePromise);
+    child.once("exit", (code) =>
+      resolvePromise({
+        code,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+      }),
+    );
   });
 }
 
@@ -734,10 +1313,34 @@ async function post(
   };
 }
 
-async function get(path: string, workspaceId: string) {
+async function fetchUnauthorizedArchive(workspaceId: string, bytes: Buffer) {
+  const request = () =>
+    fetch(`${baseUrl}/v1/portability/archives`, {
+      method: "POST",
+      headers: {
+        connection: "close",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        workspaceId,
+        idempotencyKey: "unauthenticated",
+        archiveBase64: bytes.toString("base64"),
+      }),
+    });
+  return request().catch(async () => {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+    return request();
+  });
+}
+
+async function get(
+  path: string,
+  workspaceId: string,
+  authorizationToken = token,
+) {
   const options = {
     headers: {
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${authorizationToken}`,
       "x-trust-workspace-id": workspaceId,
       "x-trust-reauth": token,
     },

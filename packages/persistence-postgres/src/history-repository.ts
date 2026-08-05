@@ -123,7 +123,7 @@ export class PostgresHistoryRepository implements HistoryRepository {
     const db = this.db();
     await scope(db, workspaceId);
     const r = await db.query<TombstoneRow>(
-      "SELECT id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,restored_at,purge_state FROM tombstones WHERE workspace_id=$1 AND subject_kind='resource' AND subject_id=$2 AND restored_at IS NULL AND purge_state<>'purged' ORDER BY deleted_at DESC LIMIT 1",
+      "SELECT id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,restored_at,restored_by,purge_state FROM tombstones WHERE workspace_id=$1 AND subject_kind='resource' AND subject_id=$2 AND restored_at IS NULL AND purge_state<>'purged' ORDER BY deleted_at DESC LIMIT 1",
       [workspaceId, resourceId],
     );
     return r.rows[0] ? mapTombstone(r.rows[0]) : undefined;
@@ -131,12 +131,13 @@ export class PostgresHistoryRepository implements HistoryRepository {
   async closeTombstone(
     workspaceId: string,
     tombstoneId: string,
+    restoredBy: string,
   ): Promise<void> {
     const db = this.db();
     await scope(db, workspaceId);
     await db.query(
-      "UPDATE tombstones SET restored_at=now() WHERE workspace_id=$1 AND id=$2 AND restored_at IS NULL",
-      [workspaceId, tombstoneId],
+      "UPDATE tombstones SET restored_at=now(),restored_by=$3 WHERE workspace_id=$1 AND id=$2 AND restored_at IS NULL",
+      [workspaceId, tombstoneId, restoredBy],
     );
   }
   async appendAudit(event: HistoryAuditEvent): Promise<void> {
@@ -267,6 +268,7 @@ interface TombstoneRow {
   recover_until: string | Date | null;
   prior_revision_id: string | null;
   restored_at: string | Date | null;
+  restored_by: string | null;
   purge_state: Tombstone["purgeState"];
 }
 const iso = (v: string | Date) => new Date(v).toISOString();
@@ -318,6 +320,7 @@ function mapTombstone(r: TombstoneRow): Tombstone {
     recoverUntil: r.recover_until ? iso(r.recover_until) : null,
     priorRevisionId: r.prior_revision_id,
     restoredAt: r.restored_at ? iso(r.restored_at) : null,
+    restoredBy: r.restored_by,
     purgeState: r.purge_state,
   };
 }

@@ -180,6 +180,64 @@ describe("Trust Archive 0.2A logical entry set", () => {
       ]),
     );
   });
+
+  it("rejects a checksummed archive with discontinuous audit lineage", () => {
+    const value = source();
+    const firstHash = "a".repeat(64);
+    const secondHash = "b".repeat(64);
+    const archive = assembleArchiveEntries({
+      ...value,
+      records: {
+        ...value.records,
+        "audit-events": [
+          {
+            id: "audit-one",
+            workspaceId: value.workspaceId,
+            previousEventHash: null,
+            eventHash: firstHash,
+          },
+          {
+            id: "audit-two",
+            workspaceId: value.workspaceId,
+            previousEventHash: firstHash,
+            eventHash: secondHash,
+          },
+        ],
+      },
+    });
+    const entries = new Map(archive.entries);
+    entries.set(
+      "records/audit-events.jsonl",
+      encoder.encode(
+        `${JSON.stringify({
+          id: "audit-one",
+          workspaceId: value.workspaceId,
+          previousEventHash: null,
+          eventHash: firstHash,
+        })}\n${JSON.stringify({
+          id: "audit-two",
+          workspaceId: value.workspaceId,
+          previousEventHash: "c".repeat(64),
+          eventHash: secondHash,
+        })}\n`,
+      ),
+    );
+    const sums = [...entries]
+      .filter(([path]) => path !== "checksums/sha256sums.txt")
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([path, bytes]) =>
+          `${createHash("sha256").update(bytes).digest("hex")}  ${path}`,
+      )
+      .join("\n");
+    entries.set("checksums/sha256sums.txt", encoder.encode(`${sums}\n`));
+
+    const report = verifyArchiveEntries({ entries });
+    expect(report.valid).toBe(false);
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_AUDIT_LINEAGE_INVALID" }),
+    );
+  });
 });
 
 describe("Trust Archive 0.2B ZIP64 container", () => {
@@ -317,6 +375,65 @@ describe("Trust Archive 0.2C dry-run import planning", () => {
     expect(dataset?.record?.id).toBe(dataset?.targetId);
     const resource = plan.actions.find((action) => action.kind === "resources");
     expect(resource?.record?.datasetId).toBe(dataset?.targetId);
+  });
+
+  it("keeps mapped-workspace source audit evidence byte-faithful", async () => {
+    const value = source();
+    const sourceEvent = {
+      id: "source-audit-event",
+      workspaceId: value.workspaceId,
+      actorType: "service",
+      actorId: "source-service",
+      action: "source.recorded",
+      subjectKind: "resource",
+      subjectId: "source-subject",
+      occurredAt: "2026-08-04T09:59:00.000Z",
+      requestId: "source-request",
+      correlationId: "source-correlation",
+      previousEventHash: null,
+      eventHash: "a".repeat(64),
+      metadata: { canonical: "source" },
+    };
+    const archive = await parsed({
+      ...value,
+      records: { ...value.records, "audit-events": [sourceEvent] },
+    });
+    const plan = planArchiveImport({
+      archive,
+      mode: "mapped_workspace",
+      conflictMode: "reject_on_error",
+      target: { workspaceId: "workspace-import-target" },
+    });
+    expect(plan.status).toBe("ready");
+    expect(
+      plan.actions.find((action) => action.kind === "audit-events")?.record,
+    ).toEqual(sourceEvent);
+  });
+
+  it("rejects a non-null retention assignment without durable policy data", async () => {
+    const value = source();
+    const archive = await parsed({
+      ...value,
+      records: {
+        ...value.records,
+        datasets: (value.records.datasets ?? []).map((dataset) => ({
+          ...dataset,
+          retentionPolicyId: "retention-policy-required",
+        })),
+      },
+    });
+    const plan = planArchiveImport({
+      archive,
+      mode: "preserve_ids",
+      conflictMode: "reject_on_error",
+      target: {},
+    });
+    expect(plan.status).toBe("rejected");
+    expect(plan.issues).toContainEqual(
+      expect.objectContaining({
+        code: "IMPORT_RETENTION_POLICY_UNAVAILABLE",
+      }),
+    );
   });
 
   it("classifies identical records as resumable and rejects divergent IDs", async () => {

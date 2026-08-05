@@ -369,11 +369,21 @@ export class PostgresPortabilityProvider implements PortabilityProvider {
         plan: durablePlan.plan,
         requestedBy: actor.id,
       });
+      if (result.resumed)
+        await this.audit(actor, command.workspaceId, {
+          action: "archive.import.resumed",
+          subjectKind: "import-operation",
+          subjectId: result.operation.id,
+          requestId: command.idempotencyKey,
+          correlationId: result.operation.id,
+          outcome: "succeeded",
+        });
       await this.audit(actor, command.workspaceId, {
         action: "archive.import.executed",
         subjectKind: "import-operation",
         subjectId: result.operation.id,
         requestId: command.idempotencyKey,
+        correlationId: result.operation.id,
         outcome: "succeeded",
       });
       return operationSummary(
@@ -436,6 +446,7 @@ export class PostgresPortabilityProvider implements PortabilityProvider {
       subjectKind: "archive" | "export" | "import-plan" | "import-operation";
       subjectId: string;
       requestId: string;
+      correlationId?: string;
       outcome: "succeeded" | "failed";
       errorCode?: string;
     },
@@ -445,9 +456,11 @@ export class PostgresPortabilityProvider implements PortabilityProvider {
       actorId: actor.id,
       principalType: actor.principalType ?? "user",
       ...input,
-      correlationId: deterministicUuid(
-        `portability-correlation:${workspaceId}:${input.requestId}`,
-      ),
+      correlationId:
+        input.correlationId ??
+        deterministicUuid(
+          `portability-correlation:${workspaceId}:${input.requestId}`,
+        ),
       at: this.now().toISOString(),
     });
   }

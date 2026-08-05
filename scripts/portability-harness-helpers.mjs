@@ -44,8 +44,9 @@ export function markdownReport(report) {
     "# Trust Core release 0.2 portability gate",
     "",
     `- Status: **${report.status.toUpperCase()}**`,
-    `- Clean committed HEAD: **${report.clean ? "YES" : "NO"}**`,
-    `- Commit: ${report.gitSha}`,
+    `- Initial clean committed HEAD: **${report.initial.clean ? "YES" : "NO"}**`,
+    `- Final identical clean HEAD: **${report.final.identicalCleanHead ? "YES" : "NO"}**`,
+    `- Commit: ${report.initial.gitSha}`,
     `- Started: ${report.startedAt}`,
     `- Finished: ${report.finishedAt}`,
     `- Duration: ${report.durationMs} ms`,
@@ -61,6 +62,21 @@ export function markdownReport(report) {
       `- ${stage.name}: ${stage.status.toUpperCase()} (${stage.durationMs} ms)`,
     );
     if (stage.detail) lines.push(`  - ${stage.detail}`);
+  }
+  if (report.evidence) {
+    lines.push("", "## Fixture evidence", "");
+    for (const fixture of report.evidence.fixtures) {
+      lines.push(`### ${fixture.name}`, "");
+      for (const checkpoint of fixture.checkpointRestarts)
+        lines.push(`- Restart after ${checkpoint}: PASS`);
+      for (const [name, passed] of Object.entries(fixture.proofs))
+        lines.push(`- ${name}: ${passed ? "PASS" : "FAIL"}`);
+      lines.push("");
+    }
+    lines.push("## Negative archive cases", "");
+    for (const name of report.evidence.negativeCases)
+      lines.push(`- ${name}: PASS`);
+    lines.push("");
   }
   lines.push("");
   return `${lines.join("\n")}\n`;

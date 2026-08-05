@@ -154,6 +154,7 @@ export interface ArchiveImportOperation {
   readonly archiveExportId: string;
   readonly requestedBy: string;
   readonly checkpoint: ArchiveImportCheckpoint;
+  readonly resumed?: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly completedAt?: string;

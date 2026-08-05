@@ -131,6 +131,7 @@ export class PostgresPortabilityExportReader {
         revisionBlobs,
         blobRecords,
         schemas,
+        relations,
       });
       const blobs = await Promise.all(
         blobRows.rows.map((row) => this.readBlob(row)),
@@ -244,6 +245,7 @@ function assertReferences(input: {
   revisionBlobs: readonly ArchiveRecord[];
   blobRecords: readonly ArchiveRecord[];
   schemas: readonly ArchiveRecord[];
+  relations: readonly ArchiveRecord[];
 }): void {
   const schemas = ids(input.schemas);
   const datasets = ids(input.datasets);
@@ -267,6 +269,18 @@ function assertReferences(input: {
     assertReference(revisions, attachment.revisionId, "attachment revision");
     assertReference(blobs, attachment.blobObjectId, "attachment blob");
   }
+  for (const relation of input.relations) {
+    assertRelationReference(relation.sourceKind, relation.sourceId, {
+      resources,
+      revisions,
+      blobs,
+    });
+    assertRelationReference(relation.targetKind, relation.targetId, {
+      resources,
+      revisions,
+      blobs,
+    });
+  }
 }
 
 function ids(records: readonly ArchiveRecord[]): ReadonlySet<string> {
@@ -284,6 +298,31 @@ function assertReference(
 ): void {
   if (typeof value !== "string" || !values.has(value))
     throw new Error(`Export is missing referenced ${description}.`);
+}
+
+function assertRelationReference(
+  kind: unknown,
+  value: unknown,
+  idsByKind: {
+    readonly resources: ReadonlySet<string>;
+    readonly revisions: ReadonlySet<string>;
+    readonly blobs: ReadonlySet<string>;
+  },
+): void {
+  if (kind === "external") return;
+  const ids =
+    kind === "resource"
+      ? idsByKind.resources
+      : kind === "revision"
+        ? idsByKind.revisions
+        : kind === "blob"
+          ? idsByKind.blobs
+          : undefined;
+  if (!ids || typeof value !== "string" || !ids.has(value))
+    throw codedError(
+      "EXPORT_DEPENDENCY_OUTSIDE_SELECTION",
+      "Selected datasets contain a relation to an unselected dataset.",
+    );
 }
 
 function codedError(code: string, message: string): Error {

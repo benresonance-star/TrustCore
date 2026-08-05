@@ -12,6 +12,7 @@ import {
   PostgresContractRepository,
   PostgresIngestOperationStore,
   PostgresOutboxStore,
+  PostgresPortabilityExportReader,
   PostgresPortabilityStore,
   PostgresTrustRepository,
   PostgresVerificationCatalog,
@@ -82,6 +83,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "0009_upload_principal_ownership.sql",
       "0010_ingest_principal_audit.sql",
       "0011_portability_persistence.sql",
+      "0012_portability_correctness.sql",
     ]);
     await expect(runMigrations(pool, migrationsDirectory)).resolves.toEqual([]);
     const protectedTables = await owner.query<{
@@ -134,6 +136,41 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       );
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades an applied 0011 database through migration 0012", async () => {
+    const database = `trust_upgrade_${randomUUID().replaceAll("-", "")}`;
+    const through0011 = await mkdtemp(join(tmpdir(), "trust-core-0011-"));
+    const url = new URL(bootstrapUrl);
+    url.pathname = `/${database}`;
+    let upgradeOwner: Pool | undefined;
+    try {
+      await bootstrap.query(`CREATE DATABASE "${database}"`);
+      for (const name of await readdir(migrationsDirectory))
+        if (/^\d+.*\.sql$/.test(name) && name < "0012")
+          await writeFile(
+            join(through0011, name),
+            await readFile(join(migrationsDirectory, name)),
+          );
+      upgradeOwner = new Pool({ connectionString: url.toString() });
+      const upgradePool = adaptPool(upgradeOwner);
+      expect(await runMigrations(upgradePool, through0011)).toContain(
+        "0011_portability_persistence.sql",
+      );
+      await expect(
+        runMigrations(upgradePool, migrationsDirectory),
+      ).resolves.toEqual(["0012_portability_correctness.sql"]);
+      const primaryKey = await upgradeOwner.query<{ columns: string[] }>(
+        "SELECT array_agg(a.attname ORDER BY key.ordinality)::text[] AS columns FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=key.attnum WHERE c.conrelid='portability_archives'::regclass AND c.contype='p' GROUP BY c.oid",
+      );
+      expect(primaryKey.rows[0]?.columns).toEqual(["workspace_id", "id"]);
+    } finally {
+      await upgradeOwner?.end().catch(() => undefined);
+      await bootstrap
+        .query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
+        .catch(() => undefined);
+      await rm(through0011, { recursive: true, force: true });
     }
   });
 
@@ -198,6 +235,110 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
         ],
       ),
     ).rejects.toMatchObject({ code: "23503" });
+  });
+
+  it("scopes archive identity and storage coordinates by workspace", async () => {
+    const fixture = await createFixture();
+    const archiveId = "6".repeat(64);
+    const storageKey = `shared/${archiveId}`;
+    for (const [index, workspaceId] of [
+      fixture.workspaceA,
+      fixture.workspaceB,
+    ].entries())
+      await owner.query(
+        "INSERT INTO portability_archives (id,workspace_id,source_export_id,source_workspace_id,status,signature_profile,checked_entries,issue_count,archive_sha256,byte_length,storage_provider,storage_key,manifest_json,verification_json,uploaded_by,uploaded_by_principal_type,idempotency_key,request_fingerprint) VALUES ($1,$2,$3,$2,'verified','unsigned',1,0,$1,1,'test',$4,'{}','{}','actor','user',$5,$6)",
+        [
+          archiveId,
+          workspaceId,
+          `source-${index}`,
+          storageKey,
+          `archive-${index}-${randomUUID()}`,
+          String(index).repeat(64),
+        ],
+      );
+    expect(
+      (
+        await owner.query(
+          "SELECT workspace_id FROM portability_archives WHERE id=$1",
+          [archiveId],
+        )
+      ).rowCount,
+    ).toBe(2);
+
+    const app = new Pool({ connectionString: appUrl, max: 1 });
+    try {
+      await app.query("SELECT set_config('trust.workspace_id',$1,false)", [
+        fixture.workspaceA,
+      ]);
+      expect(
+        (
+          await app.query("SELECT id FROM portability_archives WHERE id=$1", [
+            archiveId,
+          ])
+        ).rowCount,
+      ).toBe(1);
+    } finally {
+      await app.end();
+    }
+  });
+
+  it("rejects selected-dataset exports with cross-dataset relations", async () => {
+    const fixture = await createFixture();
+    const otherDataset = (
+      await owner.query<{ id: string }>(
+        "INSERT INTO datasets (workspace_id,schema_package_id,dataset_type,name,created_by) VALUES ($1,$2,'test','Other','test') RETURNING id",
+        [fixture.workspaceA, fixture.schemaPackage],
+      )
+    ).rows[0]!.id;
+    const otherResource = (
+      await owner.query<{ id: string }>(
+        "INSERT INTO resources (workspace_id,dataset_id,resource_type,title,created_by) VALUES ($1,$2,'test','outside selection','test') RETURNING id",
+        [fixture.workspaceA, otherDataset],
+      )
+    ).rows[0]!.id;
+    await owner.query(
+      "INSERT INTO relations (workspace_id,dataset_id,source_kind,source_id,target_kind,target_id,relation_type,created_by) VALUES ($1,$2,'resource',$3,'resource',$4,'cross-dataset','test')",
+      [fixture.workspaceA, fixture.datasetA, fixture.resource, otherResource],
+    );
+    const reader = new PostgresPortabilityExportReader(
+      pool,
+      unusedStorage(),
+      "test",
+    );
+    await expect(
+      reader.read({
+        exportId: "selected-export",
+        workspaceId: fixture.workspaceA,
+        datasetIds: [fixture.datasetA],
+        createdAt: "2026-08-05T00:00:00.000Z",
+        createdBy: "actor",
+      }),
+    ).rejects.toMatchObject({ code: "EXPORT_DEPENDENCY_OUTSIDE_SELECTION" });
+  });
+
+  it("exports a dataset retention assignment without nulling it", async () => {
+    const fixture = await createFixture();
+    const retentionPolicyId = randomUUID();
+    const datasetId = (
+      await owner.query<{ id: string }>(
+        "INSERT INTO datasets (workspace_id,schema_package_id,dataset_type,name,retention_policy_id,created_by) VALUES ($1,$2,'test','Retained',$3,'test') RETURNING id",
+        [fixture.workspaceA, fixture.schemaPackage, retentionPolicyId],
+      )
+    ).rows[0]!.id;
+    const source = await new PostgresPortabilityExportReader(
+      pool,
+      unusedStorage(),
+      "test",
+    ).read({
+      exportId: "retention-export",
+      workspaceId: fixture.workspaceA,
+      datasetIds: [datasetId],
+      createdAt: "2026-08-05T00:00:00.000Z",
+      createdBy: "actor",
+    });
+    expect(source.records.datasets).toEqual([
+      expect.objectContaining({ id: datasetId, retentionPolicyId }),
+    ]);
   });
 
   it("denies application access across workspace RLS boundaries", async () => {
@@ -433,7 +574,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       pool,
       fixture.workspaceA,
       {
-        principalType: "user",
+        principalType: "service",
         idempotencyKey: "execute-one",
         fingerprint: "c".repeat(64),
       },
@@ -445,6 +586,23 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       at: "2026-08-05T00:00:00.000Z",
     });
     expect(started.id).toBe(operationId);
+    expect(started.resumed).toBe(false);
+    await expect(
+      new PostgresArchiveImportOperationStore(pool, fixture.workspaceA, {
+        principalType: "service",
+        idempotencyKey: "execute-one",
+        fingerprint: "c".repeat(64),
+      }).begin({
+        planId,
+        archiveExportId: "source-export",
+        requestedBy: "actor",
+        at: "2026-08-05T00:00:00.500Z",
+      }),
+    ).resolves.toMatchObject({
+      id: started.id,
+      checkpoint: "authorised",
+      resumed: true,
+    });
     const advanced = await operations.advance({
       operationId: started.id,
       planId,
@@ -454,7 +612,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     });
     await expect(
       new PostgresArchiveImportOperationStore(pool, fixture.workspaceA, {
-        principalType: "user",
+        principalType: "service",
         idempotencyKey: "execute-one",
         fingerprint: "c".repeat(64),
       }).begin({
@@ -469,7 +627,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     });
     await expect(
       new PostgresArchiveImportOperationStore(pool, fixture.workspaceA, {
-        principalType: "user",
+        principalType: "service",
         idempotencyKey: "execute-one",
         fingerprint: "d".repeat(64),
       }).begin({
@@ -526,8 +684,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
         lastEventHash: sourceEvent.eventHash,
       },
     };
-    await target.appendAudit(append);
-    await target.appendAudit(append);
+    await Promise.all([target.appendAudit(append), target.appendAudit(append)]);
     const evidence = await owner.query<{
       source_event_json: {
         futureEvidenceField: { preserved: boolean };
@@ -546,11 +703,79 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     expect(
       (
         await owner.query(
-          "SELECT id FROM audit_events WHERE workspace_id=$1 AND action='archive.imported' AND correlation_id=$2",
+          "SELECT id FROM audit_events WHERE workspace_id=$1 AND action='archive.imported' AND correlation_id=$2 AND actor_type='service'",
           [fixture.workspaceA, started.id],
         )
       ).rowCount,
     ).toBe(1);
+    const restoredTombstoneId = randomUUID();
+    const openTombstoneId = randomUUID();
+    await target.commitMetadata({
+      operationId: started.id,
+      plan,
+      actions: [
+        {
+          index: 0,
+          phase: 90,
+          kind: "tombstones",
+          sourceId: restoredTombstoneId,
+          targetId: restoredTombstoneId,
+          disposition: "insert",
+          record: {
+            id: restoredTombstoneId,
+            workspaceId: fixture.workspaceA,
+            datasetId: fixture.datasetA,
+            subjectKind: "resource",
+            subjectId: fixture.resource,
+            deletedBy: "source-deleter",
+            deletedAt: "2026-08-04T00:00:00.000Z",
+            restoredAt: "2026-08-04T01:00:00.000Z",
+            restoredBy: "source-restorer",
+            purgeState: "not_eligible",
+          },
+          dependsOn: [],
+        },
+        {
+          index: 1,
+          phase: 90,
+          kind: "tombstones",
+          sourceId: openTombstoneId,
+          targetId: openTombstoneId,
+          disposition: "insert",
+          record: {
+            id: openTombstoneId,
+            workspaceId: fixture.workspaceA,
+            datasetId: fixture.datasetA,
+            subjectKind: "resource",
+            subjectId: fixture.resource,
+            deletedBy: "source-deleter",
+            deletedAt: "2026-08-04T02:00:00.000Z",
+            purgeState: "not_eligible",
+          },
+          dependsOn: [],
+        },
+      ],
+    });
+    const tombstones = await owner.query<{
+      id: string;
+      restored_at: Date | null;
+      restored_by: string | null;
+    }>(
+      "SELECT id,restored_at,restored_by FROM tombstones WHERE id=ANY($1::uuid[]) ORDER BY restored_at NULLS LAST",
+      [[restoredTombstoneId, openTombstoneId]],
+    );
+    expect(tombstones.rows).toEqual([
+      expect.objectContaining({
+        id: restoredTombstoneId,
+        restored_at: expect.any(Date),
+        restored_by: "source-restorer",
+      }),
+      expect.objectContaining({
+        id: openTombstoneId,
+        restored_at: null,
+        restored_by: null,
+      }),
+    ]);
     expect(await target.inventory()).toEqual(
       expect.objectContaining({
         workspaceId: fixture.workspaceA,
@@ -1044,6 +1269,9 @@ async function createFixture(): Promise<{
   workspaceA: string;
   workspaceB: string;
   schemaPackage: string;
+  datasetA: string;
+  datasetB: string;
+  resource: string;
   revision: string;
   blob: string;
 }> {
@@ -1072,10 +1300,12 @@ async function createFixture(): Promise<{
       [workspaceA, schemaPackage],
     )
   ).rows[0]!.id;
-  await owner.query(
-    "INSERT INTO datasets (workspace_id,schema_package_id,dataset_type,name,created_by) VALUES ($1,$2,'test','B','test')",
-    [workspaceB, schemaPackage],
-  );
+  const datasetB = (
+    await owner.query<{ id: string }>(
+      "INSERT INTO datasets (workspace_id,schema_package_id,dataset_type,name,created_by) VALUES ($1,$2,'test','B','test') RETURNING id",
+      [workspaceB, schemaPackage],
+    )
+  ).rows[0]!.id;
   const resource = (
     await owner.query<{ id: string }>(
       "INSERT INTO resources (workspace_id,dataset_id,resource_type,title,created_by) VALUES ($1,$2,'test','proof','test') RETURNING id",
@@ -1102,7 +1332,16 @@ async function createFixture(): Promise<{
     "INSERT INTO revision_blobs (workspace_id,revision_id,blob_object_id,role,logical_name) VALUES ($1,$2,$3,'primary','proof.txt')",
     [workspaceA, revision, blob],
   );
-  return { workspaceA, workspaceB, schemaPackage, revision, blob };
+  return {
+    workspaceA,
+    workspaceB,
+    schemaPackage,
+    datasetA,
+    datasetB,
+    resource,
+    revision,
+    blob,
+  };
 }
 
 function adaptPool(source: Pool): DatabasePool {

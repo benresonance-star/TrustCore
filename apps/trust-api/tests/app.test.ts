@@ -274,7 +274,7 @@ describe("Release 0.1 API routing", () => {
     ).toMatchObject({ code: "PERMISSION_DENIED" });
   });
 
-  it("rejects application access to arbitrary object and verification IDs", async () => {
+  it("allows registered application reads but rejects arbitrary scoped IDs", async () => {
     const actor = {
       id: "diary.app",
       displayName: "Diary application",
@@ -295,6 +295,8 @@ describe("Release 0.1 API routing", () => {
             capabilities: [
               "dataset:read",
               "resource:read",
+              "relation:read",
+              "history:read",
               "verification:run",
               "object:ingest",
             ],
@@ -371,10 +373,30 @@ describe("Release 0.1 API routing", () => {
         ).body,
         scope.kind,
       ).toMatchObject({ code: "PERMISSION_DENIED" });
+    for (const path of [
+      "/v1/resources",
+      "/v1/relations",
+      "/v1/deleted-resources",
+    ])
+      expect(
+        (
+          await route("GET", path, {
+            headers: {
+              ...headers,
+              "x-trust-application-id": "application-a",
+            },
+          })
+        ).status,
+        path,
+      ).toBe(200);
     expect(
       (
         await route("GET", "/v1/resources", {
-          headers: { ...headers, "x-trust-application-id": "application-a" },
+          headers: {
+            ...headers,
+            "x-trust-workspace-id": "workspace-demo-wesketch",
+            "x-trust-application-id": "application-a",
+          },
         })
       ).body,
     ).toMatchObject({ code: "PERMISSION_DENIED" });

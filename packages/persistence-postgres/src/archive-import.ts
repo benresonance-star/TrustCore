@@ -41,7 +41,7 @@ export class PostgresArchiveImportOperationStore implements ArchiveImportOperati
     const request = this.request;
     return inTransaction(this.pool, async (db) => {
       await scope(db, this.workspaceId);
-      await db.query(
+      const inserted = await db.query(
         "INSERT INTO portability_import_operations (id,workspace_id,plan_id,archive_export_id,requested_by,requested_by_principal_type,idempotency_key,request_fingerprint,checkpoint,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'authorised',$9,$9) ON CONFLICT DO NOTHING",
         [
           deterministicUuid(
@@ -80,7 +80,7 @@ export class PostgresArchiveImportOperationStore implements ArchiveImportOperati
           new Error("Import plan already belongs to another request."),
           { code: "IDEMPOTENCY_CONFLICT" },
         );
-      return mapOperation(row);
+      return { ...mapOperation(row), resumed: inserted.rowCount === 0 };
     });
   }
 
@@ -262,6 +262,9 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
   }): Promise<void> {
     await inTransaction(this.pool, async (db) => {
       await scope(db, this.workspaceId);
+      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        this.workspaceId,
+      ]);
       const auditId = deterministicUuid(
         `archive-import-audit:${input.operationId}`,
       );
@@ -270,9 +273,14 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
         [this.workspaceId, auditId],
       );
       if (existing.rowCount === 1) return;
-      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
-        this.workspaceId,
-      ]);
+      const operation = requiredOperation(
+        (
+          await db.query<ImportOperationRow>(
+            "SELECT * FROM portability_import_operations WHERE workspace_id=$1 AND id=$2",
+            [this.workspaceId, input.operationId],
+          )
+        ).rows[0],
+      );
       const previous = await db.query<{ event_hash: string }>(
         "SELECT event_hash FROM audit_events WHERE workspace_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",
         [this.workspaceId],
@@ -287,7 +295,7 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
         {
           id: auditId,
           workspaceId: this.workspaceId,
-          actorType: "user",
+          actorType: operation.requested_by_principal_type,
           actorId: input.requestedBy,
           action: "archive.imported",
           subjectKind: "archive",
@@ -302,10 +310,11 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
         previous.rows[0]?.event_hash ?? "",
       );
       await db.query(
-        "INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_kind,subject_id,occurred_at,request_id,correlation_id,previous_event_hash,event_hash,metadata_json) VALUES ($1,$2,'user',$3,'archive.imported','archive',$4,$5,$6,$7,$8,$9,$10::jsonb)",
+        "INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_kind,subject_id,occurred_at,request_id,correlation_id,previous_event_hash,event_hash,metadata_json) VALUES ($1,$2,$3,$4,'archive.imported','archive',$5,$6,$7,$8,$9,$10,$11::jsonb)",
         [
           event.id,
           event.workspaceId,
+          event.actorType,
           event.actorId,
           event.subjectId,
           event.timestamp,
@@ -371,7 +380,7 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
         return;
       case "datasets":
         await db.query(
-          "INSERT INTO datasets (id,workspace_id,schema_package_id,dataset_type,name,status,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING",
+          "INSERT INTO datasets (id,workspace_id,schema_package_id,dataset_type,name,status,retention_policy_id,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING",
           [
             id(action.targetId),
             this.workspaceId,
@@ -379,6 +388,9 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
             text(record, "datasetType"),
             text(record, "name"),
             optionalText(record, "status") ?? "active",
+            optionalText(record, "retentionPolicyId")
+              ? id(text(record, "retentionPolicyId"))
+              : null,
             text(record, "createdBy"),
             text(record, "createdAt"),
             text(record, "updatedAt"),
@@ -487,7 +499,7 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
         return;
       case "tombstones":
         await db.query(
-          "INSERT INTO tombstones (id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,purge_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO NOTHING",
+          "INSERT INTO tombstones (id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,restored_at,restored_by,purge_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO NOTHING",
           [
             id(action.targetId),
             this.workspaceId,
@@ -501,6 +513,8 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
             optionalText(record, "priorRevisionId")
               ? id(text(record, "priorRevisionId"))
               : null,
+            optionalText(record, "restoredAt"),
+            optionalText(record, "restoredBy"),
             optionalText(record, "purgeState") ?? "not_eligible",
           ],
         );
@@ -548,7 +562,7 @@ export async function loadArchiveImportInventory(
       'SELECT id::text,namespace,name,semantic_version AS "semanticVersion",schema_digest AS "schemaDigest",manifest_json AS manifest,status,created_at AS "createdAt" FROM schema_packages',
     );
     const datasets = await db.query<Record<string, unknown>>(
-      'SELECT id::text,workspace_id::text AS "workspaceId",schema_package_id::text AS "schemaPackageId",dataset_type AS "datasetType",name,status,created_by AS "createdBy",created_at AS "createdAt",updated_at AS "updatedAt" FROM datasets WHERE workspace_id=$1',
+      'SELECT id::text,workspace_id::text AS "workspaceId",schema_package_id::text AS "schemaPackageId",dataset_type AS "datasetType",name,status,retention_policy_id::text AS "retentionPolicyId",created_by AS "createdBy",created_at AS "createdAt",updated_at AS "updatedAt" FROM datasets WHERE workspace_id=$1',
       [workspaceId],
     );
     const resources = await db.query<Record<string, unknown>>(
@@ -572,7 +586,7 @@ export async function loadArchiveImportInventory(
       [workspaceId],
     );
     const tombstones = await db.query<Record<string, unknown>>(
-      'SELECT id::text,workspace_id::text AS "workspaceId",dataset_id::text AS "datasetId",subject_kind AS "subjectKind",subject_id AS "subjectId",deleted_by AS "deletedBy",deleted_at AS "deletedAt",reason,recover_until AS "recoverUntil",prior_revision_id::text AS "priorRevisionId",purge_state AS "purgeState" FROM tombstones WHERE workspace_id=$1',
+      'SELECT id::text,workspace_id::text AS "workspaceId",dataset_id::text AS "datasetId",subject_kind AS "subjectKind",subject_id AS "subjectId",deleted_by AS "deletedBy",deleted_at AS "deletedAt",reason,recover_until AS "recoverUntil",prior_revision_id::text AS "priorRevisionId",restored_at AS "restoredAt",restored_by AS "restoredBy",purge_state AS "purgeState" FROM tombstones WHERE workspace_id=$1',
       [workspaceId],
     );
     return {

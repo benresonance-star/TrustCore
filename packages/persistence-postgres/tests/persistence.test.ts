@@ -24,6 +24,7 @@ import type { ObjectStorage } from "@trust-core/storage";
 
 class RecordingClient implements TransactionClient {
   readonly calls: { text: string; values?: readonly unknown[] }[] = [];
+  readonly responses = new Map<string, readonly unknown[]>();
   failOn = "";
   released = false;
   async query<Row>(
@@ -33,6 +34,9 @@ class RecordingClient implements TransactionClient {
     this.calls.push(values ? { text, values } : { text });
     if (this.failOn && text.includes(this.failOn))
       throw new Error("planned failure");
+    for (const [fragment, rows] of this.responses)
+      if (text.includes(fragment))
+        return { rows: rows as Row[], rowCount: rows.length };
     return { rows: [], rowCount: 0 };
   }
   release() {
@@ -268,6 +272,57 @@ describe("PostgreSQL persistence", () => {
       }),
     ).rejects.toMatchObject({ code: "UNSIGNED_ARCHIVE_PROFILE_DISABLED" });
   });
+  it("writes non-null dataset retention assignments without erasing them", async () => {
+    const client = new RecordingClient();
+    const workspaceId = deterministicUuid("workspace");
+    const retentionPolicyId = deterministicUuid("retention-policy");
+    const target = new PostgresArchiveImportTarget(
+      fakePool(client),
+      inertStorage(),
+      workspaceId,
+      "test-storage",
+    );
+    await target.commitMetadata({
+      operationId: deterministicUuid("operation"),
+      plan: {
+        planId: "a".repeat(64),
+        archiveExportId: "source-export",
+        sourceWorkspaceId: deterministicUuid("source-workspace"),
+        targetWorkspaceId: workspaceId,
+        mode: "mapped_workspace",
+        conflictMode: "reject_on_error",
+        status: "ready",
+        issues: [],
+        actions: [],
+        counts: { insert: 0, already_present: 0, blocked: 0 },
+      },
+      actions: [
+        {
+          index: 0,
+          phase: 30,
+          kind: "datasets",
+          sourceId: "dataset",
+          targetId: deterministicUuid("dataset"),
+          disposition: "insert",
+          record: {
+            schemaPackageId: deterministicUuid("schema"),
+            datasetType: "test",
+            name: "Retained",
+            status: "active",
+            retentionPolicyId,
+            createdBy: "actor",
+            createdAt: "2026-08-05T00:00:00.000Z",
+            updatedAt: "2026-08-05T00:00:00.000Z",
+          },
+          dependsOn: [],
+        },
+      ],
+    });
+    expect(
+      client.calls.find(({ text }) => text.startsWith("INSERT INTO datasets"))
+        ?.values,
+    ).toContain(retentionPolicyId);
+  });
   it("rolls back the complete metadata batch and appends only a native import audit event", async () => {
     const client = new RecordingClient();
     const target = new PostgresArchiveImportTarget(
@@ -308,6 +363,21 @@ describe("PostgreSQL persistence", () => {
     ).rejects.toThrow("schemaPackageId");
     expect(client.calls.at(-1)?.text).toBe("ROLLBACK");
 
+    client.responses.set("SELECT * FROM portability_import_operations", [
+      {
+        id: deterministicUuid("operation"),
+        plan_id: plan.planId,
+        archive_export_id: plan.archiveExportId,
+        requested_by: "actor",
+        requested_by_principal_type: "service",
+        idempotency_key: "execute",
+        request_fingerprint: "c".repeat(64),
+        checkpoint: "metadata_committed",
+        created_at: "2026-08-05T00:00:00.000Z",
+        updated_at: "2026-08-05T00:00:00.000Z",
+        completed_at: null,
+      },
+    ]);
     await target.appendAudit({
       operationId: deterministicUuid("operation"),
       plan,
@@ -322,10 +392,20 @@ describe("PostgreSQL persistence", () => {
       },
     });
     expect(
+      client.calls.findIndex(({ text }) =>
+        text.includes("pg_advisory_xact_lock"),
+      ),
+    ).toBeLessThan(
+      client.calls.findIndex(({ text }) =>
+        text.includes("SELECT id FROM audit_events"),
+      ),
+    );
+    expect(
       client.calls.some(
         ({ text, values }) =>
           text.startsWith("INSERT INTO audit_events") &&
-          values?.includes("source-export"),
+          values?.includes("source-export") &&
+          values?.includes("service"),
       ),
     ).toBe(true);
     expect(

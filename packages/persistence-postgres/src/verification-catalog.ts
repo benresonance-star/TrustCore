@@ -150,7 +150,7 @@ export class PostgresVerificationCatalog implements StructuralVerificationCatalo
         [workspaceId],
       );
       const tombstones = await db.query<TombstoneRow>(
-        "SELECT id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,restored_at,purge_state FROM tombstones WHERE workspace_id=$1 AND restored_at IS NULL ORDER BY id",
+        "SELECT id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,restored_at,restored_by,purge_state FROM tombstones WHERE workspace_id=$1 AND restored_at IS NULL ORDER BY id",
         [workspaceId],
       );
       const auditEvents = await db.query<AuditRow>(
@@ -276,6 +276,7 @@ interface TombstoneRow {
   recover_until: string | Date | null;
   prior_revision_id: string | null;
   restored_at: string | Date | null;
+  restored_by: string | null;
   purge_state: Tombstone["purgeState"];
 }
 interface AuditRow {
@@ -410,6 +411,7 @@ function mapTombstone(row: TombstoneRow): Tombstone {
     recoverUntil: nullableIso(row.recover_until),
     priorRevisionId: row.prior_revision_id,
     restoredAt: nullableIso(row.restored_at),
+    restoredBy: row.restored_by,
     purgeState: row.purge_state,
   };
 }

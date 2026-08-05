@@ -98,6 +98,7 @@ export interface Tombstone {
   recoverUntil: IsoTimestamp | null;
   priorRevisionId: TrustId | null;
   restoredAt?: IsoTimestamp | null;
+  restoredBy?: TrustId | null;
   purgeState: "not_eligible" | "eligible" | "planned" | "purged";
 }
 

@@ -47,7 +47,7 @@ export class ArchiveImportExecutor {
       requestedBy: input.requestedBy,
       at: this.now(),
     });
-    const resumed = operation.checkpoint !== "authorised";
+    const resumed = operation.resumed ?? operation.checkpoint !== "authorised";
     if (operation.checkpoint === "authorised")
       await this.afterCheckpoint?.("authorised", operation);
     while (operation.checkpoint !== "completed") {

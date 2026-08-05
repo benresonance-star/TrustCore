@@ -332,6 +332,8 @@ export function createApi(
             workspaceId,
             request.headers?.["x-trust-dataset-id"],
           ),
+        undefined,
+        { applicationScopeAllowed: true },
       );
     if (resourceMatch && method === "GET")
       return secured(
@@ -425,6 +427,8 @@ export function createApi(
             workspaceId,
             request.headers?.["x-trust-dataset-id"],
           ),
+        undefined,
+        { applicationScopeAllowed: true },
       );
     if (pathname === "/v1/relations" && method === "GET")
       return secured(
@@ -438,6 +442,8 @@ export function createApi(
             workspaceId,
             request.headers?.["x-trust-dataset-id"],
           ),
+        undefined,
+        { applicationScopeAllowed: true },
       );
     if (pathname === "/v1/history" && method === "GET")
       return secured(

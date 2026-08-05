@@ -5,7 +5,7 @@
 The 0.2H gate proves a live, authorized export from PostgreSQL and MinIO,
 durable handoff after source destruction, clean-store reconstruction, strict
 hostile-archive rejection, offline viewer operation, and process-level import
-resumption at every declared checkpoint.
+resumption at every declared checkpoint for both Ivan's Diary and WeSketch.
 
 Managed archive signatures and external OIDC/MFA are not part of this local
 profile. The gate enables the explicitly local unsigned profile and uses the
@@ -33,11 +33,13 @@ Every run writes:
 - `reports/release-0.2-portability-gate.json`
 - `reports/release-0.2-portability-gate.md`
 
-Reports contain the exact Git SHA, initial clean-tree result, environment
-versions, stage outcomes and sanitized failure summaries. They contain no
-tokens, archive bytes, canonical content, database URLs, or object-storage
-credentials. A dirty tree or any failed stage exits nonzero and cannot print
-`TRUST TEST: PASS`.
+Reports contain the exact initial and final Git SHA, proof that both snapshots
+are the same clean HEAD, environment versions, stage outcomes, both fixtures'
+eight checkpoint restarts, negative cases, audit/integrity/access/viewer/
+idempotency/destruction evidence, and sanitized failure summaries. They
+contain no tokens, archive bytes, canonical content, database URLs, or
+object-storage credentials. A dirty tree, changed HEAD/status, missing detailed
+evidence, or any failed stage exits nonzero and cannot print `TRUST TEST: PASS`.
 
 Checkpoint 0.2H is complete only after this command succeeds on the exact clean,
 committed candidate SHA and its reports are retained as release evidence.

@@ -36,8 +36,12 @@ describe("portability Docker harness helpers", () => {
   it("produces sanitized report text", () => {
     const report = markdownReport({
       status: "fail",
-      clean: false,
-      gitSha: "a".repeat(40),
+      initial: { clean: false, gitSha: "a".repeat(40) },
+      final: {
+        clean: false,
+        gitSha: "a".repeat(40),
+        identicalCleanHead: false,
+      },
       startedAt: "2026-08-05T00:00:00.000Z",
       finishedAt: "2026-08-05T00:00:01.000Z",
       durationMs: 1000,

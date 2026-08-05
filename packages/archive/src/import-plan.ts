@@ -61,6 +61,7 @@ export function planArchiveImport(
     mappedWorkspaceId,
   );
   validateGraph(transformed, mappedWorkspaceId, issues);
+  validateRetentionAssignments(transformed, issues);
   validateSchemaConflicts(transformed, request.target.records, issues);
 
   const actions: ArchiveImportAction[] = [];
@@ -253,7 +254,7 @@ function mapRecord(
   mappings: Readonly<Record<string, ReadonlyMap<string, string>>>,
 ): ArchiveRecord {
   const mapped = { ...record };
-  if (mapped.workspaceId === sourceWorkspaceId)
+  if (kind !== "audit-events" && mapped.workspaceId === sourceWorkspaceId)
     mapped.workspaceId = targetWorkspaceId;
   mapped.id = mapReference(mappings[kind], mapped.id);
   switch (kind) {
@@ -392,7 +393,11 @@ function validateGraph(
   const resourceRevisions = new Map<string, Set<number>>();
   for (const [kind, values] of Object.entries(records)) {
     for (const record of values ?? []) {
-      if ("workspaceId" in record && record.workspaceId !== workspaceId)
+      if (
+        kind !== "audit-events" &&
+        "workspaceId" in record &&
+        record.workspaceId !== workspaceId
+      )
         addIssue(
           issues,
           "IMPORT_WORKSPACE_MISMATCH",
@@ -523,6 +528,28 @@ function validateGraph(
         tombstone.priorRevisionId,
         "tombstone prior revision",
         issues,
+      );
+  }
+}
+
+function validateRetentionAssignments(
+  records: Partial<Record<ArchiveRecordKind, readonly ArchiveRecord[]>>,
+  issues: ArchiveIssue[],
+): void {
+  const retentionIds = new Set(
+    (records.retention ?? []).flatMap((record) =>
+      typeof record.id === "string" ? [record.id] : [],
+    ),
+  );
+  for (const dataset of records.datasets ?? []) {
+    if (
+      typeof dataset.retentionPolicyId === "string" &&
+      !retentionIds.has(dataset.retentionPolicyId)
+    )
+      addIssue(
+        issues,
+        "IMPORT_RETENTION_POLICY_UNAVAILABLE",
+        `Dataset retention policy is not durably represented in the archive: ${dataset.retentionPolicyId}`,
       );
   }
 }

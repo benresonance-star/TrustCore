@@ -338,14 +338,14 @@ export class PostgresPortabilityStore {
       const auditId = deterministicUuid(
         `portability-audit:${input.workspaceId}:${input.action}:${input.requestId}:${input.outcome}`,
       );
+      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        input.workspaceId,
+      ]);
       const existing = await db.query(
         "SELECT id FROM audit_events WHERE workspace_id=$1 AND id=$2",
         [input.workspaceId, auditId],
       );
       if (existing.rowCount === 1) return;
-      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
-        input.workspaceId,
-      ]);
       const previous = await db.query<{ event_hash: string }>(
         "SELECT event_hash FROM audit_events WHERE workspace_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",
         [input.workspaceId],

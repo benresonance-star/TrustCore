@@ -32,7 +32,11 @@ export interface HistoryRepository {
     workspaceId: string,
     resourceId: string,
   ): Promise<Tombstone | undefined>;
-  closeTombstone(workspaceId: string, tombstoneId: string): Promise<void>;
+  closeTombstone(
+    workspaceId: string,
+    tombstoneId: string,
+    restoredBy: string,
+  ): Promise<void>;
   appendAudit(event: HistoryAuditEvent): Promise<void>;
   enqueueOutbox?(event: HistoryOutboxEvent): Promise<void>;
 }
@@ -286,7 +290,11 @@ export class ResourceHistoryService {
         changeNote: input.changeNote ?? "Restored deleted resource",
         restoredFromRevisionId: prior.id,
       });
-      await repository.closeTombstone(input.workspaceId, tombstone.id);
+      await repository.closeTombstone(
+        input.workspaceId,
+        tombstone.id,
+        input.actorId,
+      );
       return restored;
     });
   }
