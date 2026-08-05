@@ -1883,6 +1883,559 @@
         }
       }
     },
+    "/v1/portability/archives": {
+      "post": {
+        "operationId": "portability.archives.create",
+        "parameters": [
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional when workspaceId is supplied in the request body."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadArchive"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveCandidate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/exports": {
+      "post": {
+        "operationId": "portability.exports.create",
+        "parameters": [
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional when workspaceId is supplied in the request body."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArchiveExport"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveExport"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/exports/{exportId}/download": {
+      "get": {
+        "operationId": "portability.exports.download",
+        "parameters": [
+          {
+            "name": "exportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Required workspace context."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveDownload"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/archives/{archiveId}": {
+      "get": {
+        "operationId": "portability.archives.get",
+        "parameters": [
+          {
+            "name": "archiveId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Required workspace context."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveCandidate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/plans": {
+      "post": {
+        "operationId": "portability.plans.create",
+        "parameters": [
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional when workspaceId is supplied in the request body."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateImportPlan"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPlan"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/plans/{planId}": {
+      "get": {
+        "operationId": "portability.plans.get",
+        "parameters": [
+          {
+            "name": "planId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Required workspace context."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPlan"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/plans/{planId}/execute": {
+      "post": {
+        "operationId": "portability.plans.execute",
+        "parameters": [
+          {
+            "name": "planId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional when workspaceId is supplied in the request body."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteImport"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOperation"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/operations/{operationId}": {
+      "get": {
+        "operationId": "portability.operations.get",
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Required workspace context."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOperation"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/control-centre/snapshot": {
       "get": {
         "operationId": "control.snapshot",
@@ -1983,6 +2536,7 @@
               "AUTHENTICATION_REQUIRED",
               "INVALID_CREDENTIALS",
               "INVALID_SESSION",
+              "REAUTHENTICATION_REQUIRED",
               "PERMISSION_DENIED",
               "WORKSPACE_REQUIRED",
               "INVALID_COMMAND",
@@ -1992,6 +2546,8 @@
               "APPLICATION_NOT_FOUND",
               "VERIFICATION_REPORT_NOT_FOUND",
               "OPERATION_NOT_FOUND",
+              "ARCHIVE_NOT_FOUND",
+              "IMPORT_PLAN_NOT_FOUND",
               "REVISION_CONFLICT",
               "IDEMPOTENCY_CONFLICT",
               "COMMAND_REJECTED",
@@ -3466,6 +4022,411 @@
           "retryCount",
           "errorCode",
           "createdAt",
+          "updatedAt",
+          "completedAt"
+        ],
+        "additionalProperties": false
+      },
+      "UploadArchive": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "archiveBase64": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 12000000
+          }
+        },
+        "required": [
+          "workspaceId",
+          "idempotencyKey",
+          "archiveBase64"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveCandidate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "exportId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "rejected"
+            ]
+          },
+          "checkedEntries": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "issueCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recordCounts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "blobCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalBlobBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "exportId",
+          "status",
+          "checkedEntries",
+          "issueCount",
+          "recordCounts",
+          "blobCount",
+          "totalBlobBytes",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "CreateArchiveExport": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "datasetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "workspaceId",
+          "datasetIds",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveExport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "datasetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "const": "ready"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "datasetIds",
+          "status",
+          "sha256",
+          "byteLength",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveDownload": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "datasetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "const": "ready"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mediaType": {
+            "const": "application/vnd.trust-core.archive+zip"
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          },
+          "archiveBase64": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "datasetIds",
+          "status",
+          "sha256",
+          "byteLength",
+          "createdAt",
+          "mediaType",
+          "filename",
+          "archiveBase64"
+        ],
+        "additionalProperties": false
+      },
+      "CreateImportPlan": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "archiveId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preserve_ids",
+              "mapped_workspace"
+            ]
+          },
+          "conflictMode": {
+            "type": "string",
+            "enum": [
+              "reject_on_error",
+              "report_only"
+            ]
+          }
+        },
+        "required": [
+          "workspaceId",
+          "archiveId",
+          "idempotencyKey",
+          "mode",
+          "conflictMode"
+        ],
+        "additionalProperties": false
+      },
+      "ImportPlan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "archiveId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceWorkspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preserve_ids",
+              "mapped_workspace"
+            ]
+          },
+          "conflictMode": {
+            "type": "string",
+            "enum": [
+              "reject_on_error",
+              "report_only"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "rejected",
+              "report_only"
+            ]
+          },
+          "issueCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "archiveId",
+          "workspaceId",
+          "sourceWorkspaceId",
+          "mode",
+          "conflictMode",
+          "status",
+          "issueCount",
+          "counts",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "ExecuteImport": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "confirmation": {
+            "const": "IMPORT"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "idempotencyKey",
+          "confirmation"
+        ],
+        "additionalProperties": false
+      },
+      "ImportOperation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "planId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "archiveId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "checkpoint": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed"
+            ]
+          },
+          "resumed": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "planId",
+          "archiveId",
+          "checkpoint",
+          "status",
+          "resumed",
           "updatedAt",
           "completedAt"
         ],

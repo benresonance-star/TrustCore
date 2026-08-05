@@ -8,6 +8,7 @@ export const publicErrorCodes = [
   "AUTHENTICATION_REQUIRED",
   "INVALID_CREDENTIALS",
   "INVALID_SESSION",
+  "REAUTHENTICATION_REQUIRED",
   "PERMISSION_DENIED",
   "WORKSPACE_REQUIRED",
   "INVALID_COMMAND",
@@ -17,6 +18,8 @@ export const publicErrorCodes = [
   "APPLICATION_NOT_FOUND",
   "VERIFICATION_REPORT_NOT_FOUND",
   "OPERATION_NOT_FOUND",
+  "ARCHIVE_NOT_FOUND",
+  "IMPORT_PLAN_NOT_FOUND",
   "REVISION_CONFLICT",
   "IDEMPOTENCY_CONFLICT",
   "COMMAND_REJECTED",
@@ -131,6 +134,46 @@ export const release01Routes = [
   },
   { method: "GET", path: "/v1/health/storage", operationId: "storage.health" },
   { method: "GET", path: "/v1/health/backup", operationId: "backup.health" },
+  {
+    method: "POST",
+    path: "/v1/portability/archives",
+    operationId: "portability.archives.create",
+  },
+  {
+    method: "POST",
+    path: "/v1/portability/exports",
+    operationId: "portability.exports.create",
+  },
+  {
+    method: "GET",
+    path: "/v1/portability/exports/{exportId}/download",
+    operationId: "portability.exports.download",
+  },
+  {
+    method: "GET",
+    path: "/v1/portability/archives/{archiveId}",
+    operationId: "portability.archives.get",
+  },
+  {
+    method: "POST",
+    path: "/v1/portability/plans",
+    operationId: "portability.plans.create",
+  },
+  {
+    method: "GET",
+    path: "/v1/portability/plans/{planId}",
+    operationId: "portability.plans.get",
+  },
+  {
+    method: "POST",
+    path: "/v1/portability/plans/{planId}/execute",
+    operationId: "portability.plans.execute",
+  },
+  {
+    method: "GET",
+    path: "/v1/portability/operations/{operationId}",
+    operationId: "portability.operations.get",
+  },
   {
     method: "GET",
     path: "/v1/control-centre/snapshot",
@@ -499,6 +542,90 @@ export const release01Schemas = {
     updatedAt: dateTime,
     completedAt: nullable(dateTime),
   }),
+  UploadArchive: object({
+    workspaceId: id,
+    idempotencyKey: { type: "string", minLength: 1 },
+    archiveBase64: { type: "string", minLength: 1, maxLength: 12000000 },
+  }),
+  ArchiveCandidate: object({
+    id,
+    workspaceId: id,
+    exportId: id,
+    status: { type: "string", enum: ["verified", "rejected"] },
+    checkedEntries: { type: "integer", minimum: 0 },
+    issueCount: { type: "integer", minimum: 0 },
+    recordCounts: stringMap,
+    blobCount: { type: "integer", minimum: 0 },
+    totalBlobBytes: { type: "integer", minimum: 0 },
+    createdAt: dateTime,
+  }),
+  CreateArchiveExport: object({
+    workspaceId: id,
+    datasetIds: array(id),
+    idempotencyKey: { type: "string", minLength: 1 },
+  }),
+  ArchiveExport: object({
+    id,
+    workspaceId: id,
+    datasetIds: array(id),
+    status: { const: "ready" },
+    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    byteLength: { type: "integer", minimum: 1 },
+    createdAt: dateTime,
+  }),
+  ArchiveDownload: object({
+    id,
+    workspaceId: id,
+    datasetIds: array(id),
+    status: { const: "ready" },
+    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    byteLength: { type: "integer", minimum: 1 },
+    createdAt: dateTime,
+    mediaType: { const: "application/vnd.trust-core.archive+zip" },
+    filename: { type: "string", minLength: 1 },
+    archiveBase64: { type: "string", minLength: 1 },
+  }),
+  CreateImportPlan: object({
+    workspaceId: id,
+    archiveId: id,
+    idempotencyKey: { type: "string", minLength: 1 },
+    mode: { type: "string", enum: ["preserve_ids", "mapped_workspace"] },
+    conflictMode: {
+      type: "string",
+      enum: ["reject_on_error", "report_only"],
+    },
+  }),
+  ImportPlan: object({
+    id,
+    archiveId: id,
+    workspaceId: id,
+    sourceWorkspaceId: id,
+    mode: { type: "string", enum: ["preserve_ids", "mapped_workspace"] },
+    conflictMode: {
+      type: "string",
+      enum: ["reject_on_error", "report_only"],
+    },
+    status: { type: "string", enum: ["ready", "rejected", "report_only"] },
+    issueCount: { type: "integer", minimum: 0 },
+    counts: stringMap,
+    createdAt: dateTime,
+  }),
+  ExecuteImport: object({
+    workspaceId: id,
+    idempotencyKey: { type: "string", minLength: 1 },
+    confirmation: { const: "IMPORT" },
+  }),
+  ImportOperation: object({
+    id,
+    workspaceId: id,
+    planId: id,
+    archiveId: id,
+    checkpoint: { type: "string" },
+    status: { type: "string", enum: ["running", "completed"] },
+    resumed: { type: "boolean" },
+    updatedAt: dateTime,
+    completedAt: nullable(dateTime),
+  }),
   ServiceHealth: object({
     status: { type: "string", enum: ["healthy", "degraded", "not_configured"] },
     checkedAt: dateTime,
@@ -773,6 +900,50 @@ export const release01OpenApi = {
     "/v1/health/backup": {
       get: operation("backup.health", "ServiceHealth", {
         parameters: readContextParameters,
+      }),
+    },
+    "/v1/portability/archives": {
+      post: operation("portability.archives.create", "ArchiveCandidate", {
+        body: "UploadArchive",
+        parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/portability/exports": {
+      post: operation("portability.exports.create", "ArchiveExport", {
+        body: "CreateArchiveExport",
+        parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/portability/exports/{exportId}/download": {
+      get: operation("portability.exports.download", "ArchiveDownload", {
+        parameters: [pathParameter("exportId"), ...readContextParameters],
+      }),
+    },
+    "/v1/portability/archives/{archiveId}": {
+      get: operation("portability.archives.get", "ArchiveCandidate", {
+        parameters: [pathParameter("archiveId"), ...readContextParameters],
+      }),
+    },
+    "/v1/portability/plans": {
+      post: operation("portability.plans.create", "ImportPlan", {
+        body: "CreateImportPlan",
+        parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/portability/plans/{planId}": {
+      get: operation("portability.plans.get", "ImportPlan", {
+        parameters: [pathParameter("planId"), ...readContextParameters],
+      }),
+    },
+    "/v1/portability/plans/{planId}/execute": {
+      post: operation("portability.plans.execute", "ImportOperation", {
+        body: "ExecuteImport",
+        parameters: [pathParameter("planId"), ...bodyContextParameters],
+      }),
+    },
+    "/v1/portability/operations/{operationId}": {
+      get: operation("portability.operations.get", "ImportOperation", {
+        parameters: [pathParameter("operationId"), ...readContextParameters],
       }),
     },
     "/v1/control-centre/snapshot": {

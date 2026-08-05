@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import {
+  assembleArchiveEntries,
+  readTrustArchive,
+  writeTrustArchive,
+} from "@trust-core/archive";
 import { release01Routes, release01Schemas } from "@trust-core/protocol";
 import type { AuthenticatedActor } from "@trust-core/protocol";
 import { describe, expect, it } from "vitest";
 import { StaticTokenAccessGateway } from "../src/access.js";
 import { createApi, roleAllows } from "../src/app.js";
 import { createFixtureCommands } from "../src/fixture-commands.js";
+import { FixturePortabilityProvider } from "../src/portability.js";
 
 const now = new Date("2026-08-04T12:00:00.000Z");
 const snapshot = {
@@ -58,6 +64,14 @@ function configured(actor: AuthenticatedActor = admin) {
   const access = {
     authenticate: async (token: string) =>
       token === "valid" ? actor : undefined,
+    confirmsPrivilegedAction: async (
+      authenticatedActor: AuthenticatedActor,
+      proof: string,
+    ) =>
+      proof === "valid" &&
+      authenticatedActor.id === actor.id &&
+      (authenticatedActor.principalType ?? "user") ===
+        (actor.principalType ?? "user"),
     allows: roleAllows,
   };
   return {
@@ -69,6 +83,7 @@ function configured(actor: AuthenticatedActor = admin) {
       "fixture",
       commands,
       access,
+      new FixturePortabilityProvider(() => now),
     ),
   };
 }
@@ -138,7 +153,9 @@ describe("Release 0.1 API routing", () => {
         .replace("{resourceId}", "diary-main")
         .replace("{reportId}", "missing")
         .replace("{operationId}", "missing")
-        .replace("{uploadId}", "missing");
+        .replace("{uploadId}", "missing")
+        .replace("{archiveId}", "missing")
+        .replace("{planId}", "missing");
       const body = bodyFor(contract.operationId);
       const result = await route(contract.method, path, {
         headers,
@@ -257,7 +274,7 @@ describe("Release 0.1 API routing", () => {
     ).toMatchObject({ code: "PERMISSION_DENIED" });
   });
 
-  it("rejects application access to arbitrary object and verification IDs", async () => {
+  it("allows registered application reads but rejects arbitrary scoped IDs", async () => {
     const actor = {
       id: "diary.app",
       displayName: "Diary application",
@@ -278,6 +295,8 @@ describe("Release 0.1 API routing", () => {
             capabilities: [
               "dataset:read",
               "resource:read",
+              "relation:read",
+              "history:read",
               "verification:run",
               "object:ingest",
             ],
@@ -354,10 +373,30 @@ describe("Release 0.1 API routing", () => {
         ).body,
         scope.kind,
       ).toMatchObject({ code: "PERMISSION_DENIED" });
+    for (const path of [
+      "/v1/resources",
+      "/v1/relations",
+      "/v1/deleted-resources",
+    ])
+      expect(
+        (
+          await route("GET", path, {
+            headers: {
+              ...headers,
+              "x-trust-application-id": "application-a",
+            },
+          })
+        ).status,
+        path,
+      ).toBe(200);
     expect(
       (
         await route("GET", "/v1/resources", {
-          headers: { ...headers, "x-trust-application-id": "application-a" },
+          headers: {
+            ...headers,
+            "x-trust-workspace-id": "workspace-demo-wesketch",
+            "x-trust-application-id": "application-a",
+          },
         })
       ).body,
     ).toMatchObject({ code: "PERMISSION_DENIED" });
@@ -835,6 +874,191 @@ describe("Release 0.1 API routing", () => {
     });
   });
 
+  it("verifies, plans and executes an idempotent fixture archive import", async () => {
+    const { route } = configured();
+    const archiveBase64 = await fixtureArchiveBase64();
+    const uploadBody = {
+      workspaceId: "workspace-demo",
+      idempotencyKey: "archive-one",
+      archiveBase64,
+    };
+    const uploaded = await route("POST", "/v1/portability/archives", {
+      headers,
+      body: uploadBody,
+    });
+    expect(uploaded.status).toBe(200);
+    expect(uploaded.body).toMatchObject({ status: "verified", issueCount: 0 });
+    const archiveId = (uploaded.body as { id: string }).id;
+    expect(
+      await route("POST", "/v1/portability/archives", {
+        headers,
+        body: uploadBody,
+      }),
+    ).toEqual(uploaded);
+    const conflict = await route("POST", "/v1/portability/archives", {
+      headers,
+      body: { ...uploadBody, archiveBase64: "YQ==" },
+    });
+    expect(conflict.body).toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+
+    const planned = await route("POST", "/v1/portability/plans", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        archiveId,
+        idempotencyKey: "plan-one",
+        mode: "mapped_workspace",
+        conflictMode: "reject_on_error",
+      },
+    });
+    expect(planned.body).toMatchObject({ status: "ready", issueCount: 0 });
+    const planId = (planned.body as { id: string }).id;
+    expect(
+      (
+        await route("POST", `/v1/portability/plans/${planId}/execute`, {
+          headers,
+          body: {
+            workspaceId: "workspace-demo",
+            idempotencyKey: "execute-without-reauth",
+            confirmation: "IMPORT",
+          },
+        })
+      ).body,
+    ).toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
+    const executed = await route(
+      "POST",
+      `/v1/portability/plans/${planId}/execute`,
+      {
+        headers: { ...headers, "x-trust-reauth": "valid" },
+        body: {
+          workspaceId: "workspace-demo",
+          idempotencyKey: "execute-one",
+          confirmation: "IMPORT",
+        },
+      },
+    );
+    expect(executed.body).toMatchObject({
+      planId,
+      checkpoint: "completed",
+      status: "completed",
+    });
+    const operationId = (executed.body as { id: string }).id;
+    expect(
+      (
+        await route("GET", `/v1/portability/operations/${operationId}`, {
+          headers,
+        })
+      ).body,
+    ).toMatchObject({ id: operationId, checkpoint: "completed" });
+  });
+
+  it("exports and downloads a verified fixture archive behind reauthentication", async () => {
+    const actor: AuthenticatedActor = {
+      ...admin,
+      workspaceIds: ["workspace-demo-ivan"],
+    };
+    const { route } = configured(actor);
+    const exportHeaders = {
+      ...headers,
+      "x-trust-workspace-id": "workspace-demo-ivan",
+    };
+    const command = {
+      workspaceId: "workspace-demo-ivan",
+      datasetIds: ["dataset-demo-ivan-001"],
+      idempotencyKey: "export-one",
+    };
+    expect(
+      (
+        await route("POST", "/v1/portability/exports", {
+          headers: exportHeaders,
+          body: command,
+        })
+      ).body,
+    ).toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
+    const created = await route("POST", "/v1/portability/exports", {
+      headers: { ...exportHeaders, "x-trust-reauth": "valid" },
+      body: command,
+    });
+    expect(created.body).toMatchObject({
+      workspaceId: "workspace-demo-ivan",
+      datasetIds: ["dataset-demo-ivan-001"],
+      status: "ready",
+    });
+    const exportId = (created.body as { id: string }).id;
+    const downloaded = await route(
+      "GET",
+      `/v1/portability/exports/${exportId}/download`,
+      { headers: { ...exportHeaders, "x-trust-reauth": "valid" } },
+    );
+    expect(downloaded.body).toMatchObject({
+      id: exportId,
+      mediaType: "application/vnd.trust-core.archive+zip",
+      filename: `${exportId}.trustarchive`,
+    });
+    const bytes = Buffer.from(
+      (downloaded.body as { archiveBase64: string }).archiveBase64,
+      "base64",
+    );
+    const parsed = await readTrustArchive(bytes);
+    expect(parsed.verification.valid).toBe(true);
+    expect(parsed.manifest.datasetIds).toEqual(["dataset-demo-ivan-001"]);
+
+    const weSketchActor: AuthenticatedActor = {
+      ...admin,
+      workspaceIds: ["workspace-demo-wesketch"],
+    };
+    const weSketchRoute = configured(weSketchActor).route;
+    const weSketchHeaders = {
+      ...headers,
+      "x-trust-workspace-id": "workspace-demo-wesketch",
+      "x-trust-reauth": "valid",
+    };
+    const weSketchExport = await weSketchRoute(
+      "POST",
+      "/v1/portability/exports",
+      {
+        headers: weSketchHeaders,
+        body: {
+          workspaceId: "workspace-demo-wesketch",
+          datasetIds: ["dataset-demo-wesketch-001"],
+          idempotencyKey: "export-wesketch",
+        },
+      },
+    );
+    const weSketchExportId = (weSketchExport.body as { id: string }).id;
+    const weSketchDownload = await weSketchRoute(
+      "GET",
+      `/v1/portability/exports/${weSketchExportId}/download`,
+      { headers: weSketchHeaders },
+    );
+    const weSketchParsed = await readTrustArchive(
+      Buffer.from(
+        (weSketchDownload.body as { archiveBase64: string }).archiveBase64,
+        "base64",
+      ),
+    );
+    expect(weSketchParsed.verification.valid).toBe(true);
+    expect(weSketchParsed.manifest.blobCount).toBeGreaterThan(0);
+  });
+
+  it("denies portability mutation to read-only roles", async () => {
+    const { route } = configured({
+      id: "auditor",
+      displayName: "Auditor",
+      roles: ["auditor"],
+      workspaceIds: ["workspace-demo"],
+    });
+    const result = await route("POST", "/v1/portability/archives", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "denied",
+        archiveBase64: await fixtureArchiveBase64(),
+      },
+    });
+    expect(result.body).toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
   it("keeps representative live route responses conformant with OpenAPI schemas", async () => {
     const { route } = configured();
     const health = await route("GET", "/health");
@@ -845,6 +1069,30 @@ describe("Release 0.1 API routing", () => {
     expect(conforms(error.body, release01Schemas.ApiError)).toBe(true);
   });
 });
+
+async function fixtureArchiveBase64(): Promise<string> {
+  const logical = assembleArchiveEntries({
+    exportId: "export-api-candidate",
+    workspaceId: "source-workspace",
+    datasetIds: [],
+    createdAt: now.toISOString(),
+    createdBy: "fixture-exporter",
+    sourceVersion: "0.2F-test",
+    records: {
+      workspaces: [
+        {
+          id: "source-workspace",
+          name: "Source",
+          slug: "source",
+          status: "active",
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+      ],
+    },
+  });
+  return Buffer.from(await writeTrustArchive(logical)).toString("base64");
+}
 
 function bodyFor(
   operationId: (typeof release01Routes)[number]["operationId"],
@@ -895,6 +1143,32 @@ function bodyFor(
       };
     case "verification.run":
       return { workspaceId: "workspace-demo", level: "metadata" };
+    case "portability.archives.create":
+      return {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "contract-archive",
+        archiveBase64: "YQ==",
+      };
+    case "portability.exports.create":
+      return {
+        workspaceId: "workspace-demo",
+        datasetIds: ["ivan"],
+        idempotencyKey: "contract-export",
+      };
+    case "portability.plans.create":
+      return {
+        workspaceId: "workspace-demo",
+        archiveId: "missing",
+        idempotencyKey: "contract-plan",
+        mode: "mapped_workspace",
+        conflictMode: "reject_on_error",
+      };
+    case "portability.plans.execute":
+      return {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "contract-execute",
+        confirmation: "IMPORT",
+      };
     case "health.get":
     case "auth.oidcStart":
     case "auth.oidcCallback":
@@ -920,6 +1194,10 @@ function bodyFor(
     case "storage.health":
     case "backup.health":
     case "control.snapshot":
+    case "portability.archives.get":
+    case "portability.plans.get":
+    case "portability.operations.get":
+    case "portability.exports.download":
       return undefined;
     default:
       return assertNever(operationId);

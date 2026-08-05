@@ -10,6 +10,7 @@
     "test:docker": "vitest run tests/postgres.integration.test.ts"
   },
   "dependencies": {
+    "@trust-core/archive": "workspace:*",
     "@trust-core/audit": "workspace:*",
     "@trust-core/core": "workspace:*",
     "@trust-core/identity": "workspace:*",
@@ -18,6 +19,7 @@
     "@trust-core/protocol": "workspace:*",
     "@trust-core/reconciliation": "workspace:*",
     "@trust-core/schema-registry": "workspace:*",
+    "@trust-core/storage": "workspace:*",
     "@trust-core/verification": "workspace:*",
     "pg": "^8.16.0"
   },

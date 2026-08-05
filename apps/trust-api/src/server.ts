@@ -14,6 +14,7 @@ import {
   type QueryResult,
   type TransactionClient,
 } from "@trust-core/persistence-postgres";
+import type { ArchiveImportCheckpoint } from "@trust-core/archive";
 import {
   ObjectIngestService,
   type IngestCheckpoint,
@@ -37,6 +38,8 @@ import { AdminSessionGateway } from "./access.js";
 import { createFixtureCommands } from "./fixture-commands.js";
 import { PostgresCommandProvider } from "./postgres-commands.js";
 import { fixtureProvider } from "./fixture-provider.js";
+import { FixturePortabilityProvider } from "./portability.js";
+import { PostgresPortabilityProvider } from "./postgres-portability.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const pgPool = databaseUrl
@@ -81,13 +84,26 @@ const ingest =
 const commandProvider = pool
   ? new PostgresCommandProvider(pool, verification, ingest)
   : createFixtureCommands();
+const portability =
+  pool && storage
+    ? new PostgresPortabilityProvider(
+        pool,
+        storage,
+        "minio",
+        process.env.NODE_ENV !== "production" &&
+          process.env.TRUST_ALLOW_LOCAL_UNSIGNED_ARCHIVES === "true",
+        afterImportEffect,
+      )
+    : pool
+      ? undefined
+      : new FixturePortabilityProvider();
 const adminToken =
   process.env.TRUST_ADMIN_TOKEN ??
   (repository ? undefined : "trust-core-fixture-admin");
 const fixtureWorkspaceIds = (
   process.env.TRUST_FIXTURE_WORKSPACE_IDS ??
   process.env.TRUST_FIXTURE_WORKSPACE_ID ??
-  "workspace-demo"
+  "workspace-demo,workspace-demo-ivan,workspace-demo-wesketch"
 )
   .split(",")
   .map((value) => value.trim())
@@ -108,7 +124,16 @@ const actor: AuthenticatedActor = {
 const oidc = createOidc();
 const access =
   adminToken || oidc
-    ? new AdminSessionGateway(adminToken, actor, 30 * 60_000, oidc, contracts)
+    ? new AdminSessionGateway(
+        adminToken,
+        actor,
+        30 * 60_000,
+        oidc,
+        contracts,
+        () => new Date(),
+        process.env.NODE_ENV !== "production" ||
+          process.env.TRUST_ALLOW_BOOTSTRAP_BEARER === "true",
+      )
     : undefined;
 const route = createApi(
   snapshots,
@@ -117,6 +142,7 @@ const route = createApi(
   repository ? "live" : "fixture",
   commandProvider,
   access,
+  portability,
 );
 const port = Number(process.env.TRUST_API_PORT ?? process.env.PORT ?? 4310);
 
@@ -142,6 +168,7 @@ createServer(async (request, response) => {
         requestUrl.searchParams.get("returnTo") ?? "/",
       );
       response.writeHead(302, {
+        ...securityResponseHeaders(),
         location: login.authorizationUrl,
         "cache-control": "no-store",
         "set-cookie": oidcBindingCookie(login.browserBinding),
@@ -186,6 +213,7 @@ createServer(async (request, response) => {
         browserBinding,
       });
       response.writeHead(302, {
+        ...securityResponseHeaders(),
         location: completed.returnTo,
         "cache-control": "no-store",
         "set-cookie": [
@@ -256,6 +284,7 @@ createServer(async (request, response) => {
         cookie: header(request.headers.cookie),
         "x-request-id": requestId,
         "x-trust-csrf": header(request.headers["x-trust-csrf"]),
+        "x-trust-reauth": header(request.headers["x-trust-reauth"]),
         "x-trust-workspace-id": header(request.headers["x-trust-workspace-id"]),
         "x-trust-dataset-id": header(request.headers["x-trust-dataset-id"]),
         "x-trust-application-id": header(
@@ -349,9 +378,22 @@ function send(
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    ...securityResponseHeaders(),
     ...headers,
   });
   response.end(body === undefined ? undefined : JSON.stringify(body));
+}
+function securityResponseHeaders(): Record<string, string> {
+  return {
+    "content-security-policy":
+      "default-src 'none'; frame-ancestors 'none'; sandbox",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    ...(process.env.NODE_ENV === "production"
+      ? { "strict-transport-security": "max-age=31536000; includeSubDomains" }
+      : {}),
+  };
 }
 function apiError(
   code: PublicErrorCode,
@@ -434,6 +476,16 @@ function createStorage(): MinioObjectStorage | undefined {
 async function afterIngestEffect(checkpoint: IngestCheckpoint): Promise<void> {
   if (process.env.TRUST_FAIL_AFTER_CHECKPOINT === checkpoint) {
     process.stderr.write(`Injected process termination after ${checkpoint}\n`);
+    process.exit(86);
+  }
+}
+async function afterImportEffect(
+  checkpoint: ArchiveImportCheckpoint,
+): Promise<void> {
+  if (process.env.TRUST_FAIL_AFTER_IMPORT_CHECKPOINT === checkpoint) {
+    process.stderr.write(
+      `Injected import process termination after ${checkpoint}\n`,
+    );
     process.exit(86);
   }
 }

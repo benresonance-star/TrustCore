@@ -467,6 +467,143 @@ describe.runIf(enabled)("Release 0.1 live API Docker integration", () => {
     }
   }, 60_000);
 
+  it("exports and imports a verified PostgreSQL and MinIO archive", async () => {
+    const server = await startServer();
+    try {
+      const exported = await postJson("/v1/portability/exports", {
+        workspaceId: weSketchWorkspaceId,
+        datasetIds: [weSketchDatasetId],
+        idempotencyKey: `portability-export-${runId}`,
+      });
+      expect(exported.status, JSON.stringify(exported.body)).toBe(200);
+      expect(exported.body).toMatchObject({
+        workspaceId: weSketchWorkspaceId,
+        datasetIds: [weSketchDatasetId],
+        status: "ready",
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(
+        await postJson("/v1/portability/exports", {
+          workspaceId: weSketchWorkspaceId,
+          datasetIds: [weSketchDatasetId],
+          idempotencyKey: `portability-export-${runId}`,
+        }),
+      ).toEqual(exported);
+      const exportId = requiredString(exported.body, "id");
+      const downloaded = await authorizedGet(
+        `/v1/portability/exports/${exportId}/download`,
+        weSketchWorkspaceId,
+      );
+      expect(downloaded.status).toBe(200);
+      const archiveBase64 = requiredString(downloaded.body, "archiveBase64");
+      expect(sha256(Buffer.from(archiveBase64, "base64"))).toBe(
+        requiredString(exported.body, "sha256"),
+      );
+
+      const uploaded = await postJson("/v1/portability/archives", {
+        workspaceId,
+        idempotencyKey: `portability-upload-${runId}`,
+        archiveBase64,
+      });
+      expect(uploaded.status).toBe(200);
+      expect(uploaded.body).toMatchObject({
+        workspaceId,
+        status: "verified",
+        issueCount: 0,
+        blobCount: weSketchFixture.blobs.length,
+      });
+      expect(
+        await postJson("/v1/portability/archives", {
+          workspaceId,
+          idempotencyKey: `portability-upload-${runId}`,
+          archiveBase64,
+        }),
+      ).toEqual(uploaded);
+      const archiveId = requiredString(uploaded.body, "id");
+      const planned = await postJson("/v1/portability/plans", {
+        workspaceId,
+        archiveId,
+        idempotencyKey: `portability-plan-${runId}`,
+        mode: "mapped_workspace",
+        conflictMode: "reject_on_error",
+      });
+      expect(planned.status).toBe(200);
+      const persistedPlan = (
+        await ownerSource.query<{ plan_json: { issues: unknown[] } }>(
+          "SELECT plan_json FROM portability_plans WHERE workspace_id=$1 AND id=$2",
+          [workspaceId, requiredString(planned.body, "id")],
+        )
+      ).rows[0]!;
+      expect(
+        planned.body,
+        JSON.stringify(persistedPlan.plan_json.issues),
+      ).toMatchObject({
+        workspaceId,
+        archiveId,
+        status: "ready",
+        issueCount: 0,
+      });
+      const planId = requiredString(planned.body, "id");
+      const executed = await postJson(
+        `/v1/portability/plans/${planId}/execute`,
+        {
+          workspaceId,
+          idempotencyKey: `portability-execute-${runId}`,
+          confirmation: "IMPORT",
+        },
+      );
+      expect(executed.status).toBe(200);
+      expect(executed.body).toMatchObject({
+        workspaceId,
+        planId,
+        checkpoint: "completed",
+        status: "completed",
+      });
+      const replayed = await postJson(
+        `/v1/portability/plans/${planId}/execute`,
+        {
+          workspaceId,
+          idempotencyKey: `portability-execute-${runId}`,
+          confirmation: "IMPORT",
+        },
+      );
+      expect(replayed.body).toMatchObject({
+        id: requiredString(executed.body, "id"),
+        checkpoint: "completed",
+        resumed: true,
+      });
+      expect(
+        (
+          await authorizedGet(
+            `/v1/portability/operations/${requiredString(executed.body, "id")}`,
+            workspaceId,
+          )
+        ).body,
+      ).toMatchObject({
+        id: requiredString(executed.body, "id"),
+        checkpoint: "completed",
+      });
+      expect(
+        (
+          await ownerSource.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM datasets WHERE workspace_id=$1",
+            [workspaceId],
+          )
+        ).rows[0]!.count,
+      ).toBe(1);
+      expect(
+        (
+          await ownerSource.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM blob_objects WHERE workspace_id=$1 AND verification_state='verified' AND storage_provider='minio'",
+            [workspaceId],
+          )
+        ).rows[0]!.count,
+      ).toBe(weSketchFixture.blobs.length);
+    } finally {
+      await stopServer(server);
+    }
+  }, 60_000);
+
   it("terminates and restarts the API after every ingest effect without corruption", async () => {
     for (const checkpoint of ingestCheckpoints) {
       const idempotencyKey = `${checkpoint}-${runId}`;
@@ -557,6 +694,7 @@ async function startServer(
       TRUST_STORAGE_ACCESS_KEY: accessKeyId,
       TRUST_STORAGE_SECRET_KEY: secretAccessKey,
       TRUST_STORAGE_FORCE_PATH_STYLE: "true",
+      TRUST_ALLOW_LOCAL_UNSIGNED_ARCHIVES: "true",
       ...(failureCheckpoint
         ? { TRUST_FAIL_AFTER_CHECKPOINT: failureCheckpoint }
         : {}),
@@ -625,6 +763,7 @@ async function authorizedGet(
     headers: {
       authorization: `Bearer ${adminToken}`,
       "x-trust-workspace-id": workspaceId,
+      "x-trust-reauth": adminToken,
     },
   });
   return {
@@ -639,6 +778,7 @@ function requestOptions(body: Record<string, unknown>): RequestInit {
     headers: {
       authorization: `Bearer ${adminToken}`,
       "content-type": "application/json",
+      "x-trust-reauth": adminToken,
     },
     body: JSON.stringify(body),
   };

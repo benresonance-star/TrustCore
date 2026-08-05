@@ -24,6 +24,10 @@ export const policyActions = [
   "break_glass:use",
   "health:read",
   "operation:process",
+  "portability:read",
+  "portability:export",
+  "portability:plan",
+  "portability:execute",
 ] as const;
 
 export type PolicyAction = (typeof policyActions)[number];
@@ -142,6 +146,10 @@ const roleCapabilities: Readonly<
     "break_glass:grant",
     "break_glass:revoke",
     "health:read",
+    "portability:read",
+    "portability:export",
+    "portability:plan",
+    "portability:execute",
   ]),
   editor: new Set([
     "dataset:read",
@@ -158,6 +166,9 @@ const roleCapabilities: Readonly<
     "resource:read",
     "resource:restore",
     "history:read",
+    "portability:read",
+    "portability:plan",
+    "portability:execute",
   ]),
   auditor: new Set([
     "workspace:read",
@@ -170,6 +181,7 @@ const roleCapabilities: Readonly<
     "audit:read",
     "verification:run",
     "health:read",
+    "portability:read",
   ]),
   worker: new Set(["health:read", "operation:process"]),
   infrastructure_operator: new Set([
@@ -178,6 +190,7 @@ const roleCapabilities: Readonly<
     "audit:read",
     "verification:run",
     "health:read",
+    "portability:read",
   ]),
 };
 
@@ -214,12 +227,16 @@ export function actionBoundary(action: PolicyAction): ActionBoundary {
     case "verification:run":
     case "health:read":
     case "operation:process":
+    case "portability:read":
       return "infrastructure";
     case "workspace:manage":
     case "access:manage":
     case "break_glass:grant":
     case "break_glass:revoke":
     case "break_glass:use":
+    case "portability:plan":
+    case "portability:export":
+    case "portability:execute":
       return "security";
     default:
       return assertNever(action);

@@ -121,7 +121,10 @@ Sessions expire after 30 minutes by default.
 
 `TRUST_ADMIN_TOKEN` is an emergency local/bootstrap credential, not the normal
 production sign-in path. It creates a process-local 30-minute administrator
-session through `POST /v1/auth/session` and may authenticate bearer requests.
+session through `POST /v1/auth/session`. Direct bearer authentication is
+disabled in production by default. `TRUST_ALLOW_BOOTSTRAP_BEARER=true` is a
+temporary compatibility override requiring the same explicit approval and
+removal procedure as the bootstrap token itself.
 The actor is configured by `TRUST_ADMIN_ACTOR_ID`; its workspace access is
 limited to the API process's configured workspace list.
 

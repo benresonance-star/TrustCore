@@ -1,13 +1,19 @@
 import type {
   AdminSession,
   ApplicationRegistration,
+  ArchiveCandidate,
+  ArchiveDownload,
+  ArchiveExportSummary,
   AuditEventRecord,
   ControlCentreSnapshot,
+  CreateImportPlanCommand,
   DatasetRecord,
   DeleteResourceCommand,
   DeleteResourceResult,
   HealthResponse,
   HistorySnapshot,
+  ImportOperationSummary,
+  ImportPlanSummary,
   ListResponse,
   ObjectIngestCommand,
   ObjectIngestResult,
@@ -34,6 +40,7 @@ import type {
 } from "./generated/transport.js";
 
 export const MAX_UPLOAD_BYTES = 750_000;
+export const MAX_ARCHIVE_UPLOAD_BYTES = 8_000_000;
 export interface TrustClientConfiguration extends TransportConfiguration {}
 export interface UploadInput {
   bytes: Blob | Uint8Array | ArrayBuffer;
@@ -115,6 +122,39 @@ export interface TrustClient {
     ingest(
       command: WorkspaceCommand<ObjectIngestCommand>,
     ): Promise<ObjectIngestResult>;
+  };
+  portability: {
+    exports: {
+      create(input: {
+        datasetIds: readonly string[];
+        idempotencyKey?: string;
+        reauthenticationProof: string;
+      }): Promise<ArchiveExportSummary>;
+      download(
+        exportId: string,
+        reauthenticationProof: string,
+      ): Promise<ArchiveDownload>;
+    };
+    archives: {
+      upload(input: {
+        bytes: Blob | Uint8Array | ArrayBuffer;
+        idempotencyKey?: string;
+      }): Promise<ArchiveCandidate>;
+      get(archiveId: string): Promise<ArchiveCandidate>;
+    };
+    plans: {
+      create(
+        command: WorkspaceCommand<CreateImportPlanCommand>,
+      ): Promise<ImportPlanSummary>;
+      get(planId: string): Promise<ImportPlanSummary>;
+      execute(
+        planId: string,
+        input: { idempotencyKey?: string; reauthenticationProof: string },
+      ): Promise<ImportOperationSummary>;
+    };
+    operations: {
+      get(operationId: string): Promise<ImportOperationSummary>;
+    };
   };
   control: { snapshot(): Promise<ControlCentreSnapshot> };
   auth: {
@@ -293,6 +333,94 @@ function createClient(
           headers: contextHeaders(),
           body: await command(value),
         }),
+    },
+    portability: {
+      exports: {
+        create: async (input) =>
+          transport.request("/v1/portability/exports", {
+            method: "POST",
+            headers: {
+              ...contextHeaders(),
+              "x-trust-reauth": input.reauthenticationProof,
+            },
+            body: {
+              workspaceId: await workspace(),
+              datasetIds: input.datasetIds,
+              idempotencyKey:
+                input.idempotencyKey ?? createIdempotencyKey("export"),
+            },
+          }),
+        download: (id, reauthenticationProof) =>
+          transport.request(
+            `/v1/portability/exports/${encodeURIComponent(id)}/download`,
+            {
+              headers: {
+                ...contextHeaders(),
+                "x-trust-reauth": reauthenticationProof,
+              },
+            },
+          ),
+      },
+      archives: {
+        upload: async (input) => {
+          const bytes = await toBytes(input.bytes);
+          if (bytes.byteLength > MAX_ARCHIVE_UPLOAD_BYTES)
+            throw new RangeError(
+              `Archive exceeds the ${MAX_ARCHIVE_UPLOAD_BYTES} byte SDK candidate limit.`,
+            );
+          return transport.request("/v1/portability/archives", {
+            method: "POST",
+            headers: contextHeaders(),
+            body: {
+              workspaceId: await workspace(),
+              idempotencyKey:
+                input.idempotencyKey ?? createIdempotencyKey("archive"),
+              archiveBase64: base64(bytes),
+            },
+          });
+        },
+        get: (id) =>
+          transport.request(
+            `/v1/portability/archives/${encodeURIComponent(id)}`,
+            { headers: contextHeaders() },
+          ),
+      },
+      plans: {
+        create: async (value) =>
+          transport.request("/v1/portability/plans", {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          }),
+        get: (id) =>
+          transport.request(`/v1/portability/plans/${encodeURIComponent(id)}`, {
+            headers: contextHeaders(),
+          }),
+        execute: async (id, input) =>
+          transport.request(
+            `/v1/portability/plans/${encodeURIComponent(id)}/execute`,
+            {
+              method: "POST",
+              headers: {
+                ...contextHeaders(),
+                "x-trust-reauth": input.reauthenticationProof,
+              },
+              body: {
+                workspaceId: await workspace(),
+                idempotencyKey:
+                  input.idempotencyKey ?? createIdempotencyKey("import"),
+                confirmation: "IMPORT",
+              },
+            },
+          ),
+      },
+      operations: {
+        get: (id) =>
+          transport.request(
+            `/v1/portability/operations/${encodeURIComponent(id)}`,
+            { headers: contextHeaders() },
+          ),
+      },
     },
     control: {
       snapshot: () =>

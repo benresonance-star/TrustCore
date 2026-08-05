@@ -12,7 +12,7 @@ class MemoryHistory implements HistoryRepository {
   async setResourceHead(input: { workspaceId: string; resourceId: string; expectedRevisionId: string | null; nextRevisionId: string | null; status: Resource["status"]; updatedAt: string }) { const value = await this.getResource(input.workspaceId, input.resourceId); if (!value || value.currentRevisionId !== input.expectedRevisionId) return false; this.resources.set(value.id, { ...value, currentRevisionId: input.nextRevisionId, status: input.status, updatedAt: input.updatedAt }); return true; }
   async addTombstone(value: Tombstone) { this.tombstones.set(value.id, value); }
   async getOpenTombstone(workspaceId: string, resourceId: string) { return [...this.tombstones.values()].find((item) => item.workspaceId === workspaceId && item.subjectId === resourceId && item.purgeState === "not_eligible"); }
-  async closeTombstone(workspaceId: string, tombstoneId: string) { const value = this.tombstones.get(tombstoneId); if (value?.workspaceId === workspaceId) this.tombstones.set(value.id, { ...value, purgeState: "eligible" }); }
+  async closeTombstone(workspaceId: string, tombstoneId: string, restoredBy: string) { const value = this.tombstones.get(tombstoneId); if (value?.workspaceId === workspaceId) this.tombstones.set(value.id, { ...value, restoredBy, purgeState: "eligible" }); }
   async appendAudit(event: HistoryAuditEvent) { this.events.push(event); }
 }
 const baseResource: Resource = { id: "resource", workspaceId: "workspace", datasetId: "dataset", resourceType: "JournalPage", title: "Day one", status: "active", currentRevisionId: null, createdBy: "ivan", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
@@ -39,6 +39,7 @@ describe("resource history", () => {
     expect(repository.resources.get("resource")?.status).toBe("deleted_logically");
     const restored = await service.restoreResource({ workspaceId: "workspace", resourceId: "resource", actorId: "admin" });
     expect(restored.source).toBe("restore"); expect(restored.restoredFromRevisionId).toBe(original.id); expect(restored.canonicalPayload).toEqual(original.canonicalPayload);
+    expect([...repository.tombstones.values()][0]?.restoredBy).toBe("admin");
     expect(repository.resources.get("resource")?.status).toBe("active"); expect(events.map((item) => item.action)).toEqual(["revision.created", "resource.deleted_logically", "revision.created"]);
   });
 });

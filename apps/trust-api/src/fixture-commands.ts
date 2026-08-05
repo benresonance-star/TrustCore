@@ -384,7 +384,10 @@ export function createFixtureCommands(
         session.workspaceId !== command.workspaceId ||
         !actorMayAccessUpload(actor, uploadOwners.get(uploadId))
       )
-        throw codedError("OPERATION_NOT_FOUND", "Upload session was not found.");
+        throw codedError(
+          "OPERATION_NOT_FOUND",
+          "Upload session was not found.",
+        );
       const bytes = Buffer.from(command.bytesBase64, "base64");
       if (
         bytes.byteLength !== session.expectedByteLength ||

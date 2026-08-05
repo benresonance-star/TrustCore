@@ -22,6 +22,9 @@ importers:
 
   apps/trust-api:
     dependencies:
+      "@trust-core/archive":
+        specifier: workspace:*
+        version: link:../../packages/archive
       "@trust-core/fixtures-ivans-diary":
         specifier: workspace:*
         version: link:../../packages/fixtures-ivans-diary
@@ -80,6 +83,9 @@ importers:
 
   apps/trust-control-centre:
     dependencies:
+      "@trust-core/app-protocol":
+        specifier: workspace:*
+        version: link:../../packages/app-protocol
       "@trust-core/protocol":
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -145,6 +151,65 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+
+  packages/app-protocol:
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
+
+  packages/archive:
+    dependencies:
+      "@zip.js/zip.js":
+        specifier: ^2.8.34
+        version: 2.8.34
+    devDependencies:
+      "@trust-core/fixtures-ivans-diary":
+        specifier: workspace:*
+        version: link:../fixtures-ivans-diary
+      "@trust-core/fixtures-wesketch":
+        specifier: workspace:*
+        version: link:../fixtures-wesketch
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
+
+  packages/archive-viewer:
+    dependencies:
+      "@trust-core/archive":
+        specifier: workspace:*
+        version: link:../archive
+    devDependencies:
+      "@trust-core/fixtures-ivans-diary":
+        specifier: workspace:*
+        version: link:../fixtures-ivans-diary
+      "@trust-core/fixtures-wesketch":
+        specifier: workspace:*
+        version: link:../fixtures-wesketch
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.3
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.4
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
 
   packages/audit: {}
 
@@ -221,6 +286,9 @@ importers:
 
   packages/persistence-postgres:
     dependencies:
+      "@trust-core/archive":
+        specifier: workspace:*
+        version: link:../archive
       "@trust-core/audit":
         specifier: workspace:*
         version: link:../audit
@@ -245,6 +313,9 @@ importers:
       "@trust-core/schema-registry":
         specifier: workspace:*
         version: link:../schema-registry
+      "@trust-core/storage":
+        specifier: workspace:*
+        version: link:../storage
       "@trust-core/verification":
         specifier: workspace:*
         version: link:../verification
@@ -385,14 +456,6 @@ importers:
         version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
 
 packages:
-  prettier@3.9.6:
-    resolution:
-      {
-        integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==,
-      }
-    engines: { node: ">=14" }
-    hasBin: true
-
   "@adobe/css-tools@4.5.0":
     resolution:
       {
@@ -425,6 +488,9 @@ packages:
         integrity: sha512-O5otOc1c6UZh5HsHAaPdYBcUUR9HL6mtnKqvc8nxN/CKDGUBUpsdh0q8K04Uz/dd1i0TaGyIQuQNqoO7+ad2TQ==,
       }
     engines: { node: ">=20.0.0" }
+    deprecated: |-
+      Deprecated due to Document number parsing bug in JSON, see
+        https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
 
   "@aws-sdk/credential-provider-env@3.972.66":
     resolution:
@@ -1420,6 +1486,13 @@ packages:
         integrity: sha512-x6BDOd7dyo3PFLY3I9/HJ25X/6OurhGXk2/B9gOZNPF7XDVjeBK4k01lQE5uvDpbuheErh91qYuE1E2OEjK3Rw==,
       }
 
+  "@zip.js/zip.js@2.8.34":
+    resolution:
+      {
+        integrity: sha512-+6a3lyqq69rpseLbvDPiVIWsZ/HdTGAAD6afFtug6ECPDGttb2dHnPC6cJgdPofYkzL9OvXizegq+DQVfL2rnA==,
+      }
+    engines: { bun: ">=0.7.0", deno: ">=1.0.0", node: ">=18.0.0" }
+
   agent-base@7.1.4:
     resolution:
       {
@@ -1976,6 +2049,14 @@ packages:
       }
     engines: { node: ">=0.10.0" }
 
+  prettier@3.9.6:
+    resolution:
+      {
+        integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==,
+      }
+    engines: { node: ">=14" }
+    hasBin: true
+
   pretty-format@27.5.1:
     resolution:
       {
@@ -2419,8 +2500,6 @@ packages:
       }
 
 snapshots:
-  prettier@3.9.6: {}
-
   "@adobe/css-tools@4.5.0": {}
 
   "@asamuzakjp/css-color@3.2.0":
@@ -3085,6 +3164,8 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
+  "@zip.js/zip.js@2.8.34": {}
+
   agent-base@7.1.4: {}
 
   ansi-regex@5.0.1: {}
@@ -3373,6 +3454,8 @@ snapshots:
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+
+  prettier@3.9.6: {}
 
   pretty-format@27.5.1:
     dependencies:

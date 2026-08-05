@@ -52,6 +52,25 @@ export const httpGateway: ControlCentreGateway = {
   },
   runVerification: (workspaceId, level) =>
     client.datasetsContext({ workspaceId }).verification.run({ level }),
+  uploadArchive: (workspaceId, bytes) =>
+    client.datasetsContext({ workspaceId }).portability.archives.upload({
+      bytes,
+    }),
+  createImportPlan: (workspaceId, archiveId, mode) =>
+    client.datasetsContext({ workspaceId }).portability.plans.create({
+      archiveId,
+      mode,
+      conflictMode: "reject_on_error",
+      idempotencyKey: client.idempotency.create("import-plan"),
+    }),
+  executeImportPlan: (workspaceId, planId, reauthenticationProof) =>
+    client.datasetsContext({ workspaceId }).portability.plans.execute(planId, {
+      reauthenticationProof,
+    }),
+  getImportOperation: (workspaceId, operationId) =>
+    client
+      .datasetsContext({ workspaceId })
+      .portability.operations.get(operationId),
 };
 function readCookie(name: string): string | undefined {
   return document.cookie
