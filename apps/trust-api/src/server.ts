@@ -88,7 +88,7 @@ const adminToken =
 const fixtureWorkspaceIds = (
   process.env.TRUST_FIXTURE_WORKSPACE_IDS ??
   process.env.TRUST_FIXTURE_WORKSPACE_ID ??
-  "workspace-demo"
+  "workspace-demo,workspace-demo-ivan,workspace-demo-wesketch"
 )
   .split(",")
   .map((value) => value.trim())

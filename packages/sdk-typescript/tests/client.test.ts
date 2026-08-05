@@ -161,8 +161,10 @@ describe("Trust Core TypeScript SDK", () => {
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(json({ id: "archive", status: "verified" }))
       .mockResolvedValueOnce(json({ id: "plan", status: "ready" }))
+      .mockResolvedValueOnce(json({ id: "operation", checkpoint: "completed" }))
+      .mockResolvedValueOnce(json({ id: "export", status: "ready" }))
       .mockResolvedValueOnce(
-        json({ id: "operation", checkpoint: "completed" }),
+        json({ id: "export", archiveBase64: "YXJjaGl2ZQ==" }),
       );
     const client = createTrustClient({
       baseUrl: "https://trust.example",
@@ -183,6 +185,12 @@ describe("Trust Core TypeScript SDK", () => {
       idempotencyKey: "execute-key",
       reauthenticationProof: "fresh-proof",
     });
+    await client.portability.exports.create({
+      datasetIds: ["dataset"],
+      idempotencyKey: "export-key",
+      reauthenticationProof: "fresh-export-proof",
+    });
+    await client.portability.exports.download("export", "fresh-download-proof");
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
       workspaceId: "workspace",
       idempotencyKey: "archive-key",
@@ -196,6 +204,20 @@ describe("Trust Core TypeScript SDK", () => {
     expect(
       new Headers(fetch.mock.calls[2]?.[1]?.headers).get("x-trust-reauth"),
     ).toBe("fresh-proof");
+    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({
+      workspaceId: "workspace",
+      datasetIds: ["dataset"],
+      idempotencyKey: "export-key",
+    });
+    expect(
+      new Headers(fetch.mock.calls[3]?.[1]?.headers).get("x-trust-reauth"),
+    ).toBe("fresh-export-proof");
+    expect(fetch.mock.calls[4]?.[0]).toBe(
+      "https://trust.example/v1/portability/exports/export/download",
+    );
+    expect(
+      new Headers(fetch.mock.calls[4]?.[1]?.headers).get("x-trust-reauth"),
+    ).toBe("fresh-download-proof");
   });
 
   it("reads both application fixtures through only the public SDK surface", async () => {

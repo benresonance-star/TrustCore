@@ -5,6 +5,7 @@ import type {
   AuthenticatedActor,
   CompleteUploadCommand,
   ControlCentreSnapshot,
+  CreateArchiveExportCommand,
   CreateUploadCommand,
   CreateImportPlanCommand,
   DeleteResourceCommand,
@@ -221,6 +222,10 @@ export function createApi(
     const archiveMatch = match(
       pathname,
       /^\/v1\/portability\/archives\/([^/]+)$/,
+    );
+    const exportDownloadMatch = match(
+      pathname,
+      /^\/v1\/portability\/exports\/([^/]+)\/download$/,
     );
     const importPlanMatch = match(
       pathname,
@@ -589,6 +594,48 @@ export function createApi(
         { applicationScopeAllowed: true },
         true,
       );
+    if (pathname === "/v1/portability/exports" && method === "POST")
+      return portability
+        ? secured(
+            "portability:export",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              portability.createExport(
+                actor,
+                request.body as CreateArchiveExportCommand,
+              ),
+            validArchiveExport,
+            {},
+            false,
+            true,
+          )
+        : unavailable(request);
+    if (exportDownloadMatch && method === "GET")
+      return portability
+        ? secured(
+            "portability:export",
+            method,
+            request,
+            commands,
+            access,
+            async (workspaceId) =>
+              found(
+                await portability.downloadExport(
+                  workspaceId,
+                  exportDownloadMatch,
+                ),
+                "ARCHIVE_NOT_FOUND",
+                "The requested archive export was not found.",
+              ),
+            undefined,
+            {},
+            false,
+            true,
+          )
+        : unavailable(request);
     if (pathname === "/v1/portability/archives" && method === "POST")
       return portability
         ? secured(
@@ -1028,6 +1075,16 @@ function validArchiveUpload(body: unknown): boolean {
     validWorkspaceBody(body) &&
     nonEmpty(body.idempotencyKey) &&
     validBase64(body.archiveBase64, 12_000_000)
+  );
+}
+function validArchiveExport(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.idempotencyKey) &&
+    Array.isArray(body.datasetIds) &&
+    body.datasetIds.length > 0 &&
+    body.datasetIds.length <= 100 &&
+    body.datasetIds.every(nonEmpty)
   );
 }
 function validImportPlan(body: unknown): boolean {

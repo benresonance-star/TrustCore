@@ -792,6 +792,12 @@ fixtures directly from verified archive bytes. The checkpoint lists the
 remaining PC/Docker destruction, reconstruction, interruption and real-OIDC
 tests; none are claimed by the source candidate.
 
+The first 0.2H preparation slice is recorded in `CHECKPOINT_0.2H_PREP.md`.
+It adds privileged dataset-scoped archive creation/download contracts, SDK
+methods and a runnable offline viewer. Fixture mode proves the byte handoff for
+Ivan and WeSketch; PostgreSQL/MinIO export, durable operations, streaming and
+destructive reconstruction remain unproved until the PC/Docker gate.
+
 ---
 
 # 18. Application integration requirements

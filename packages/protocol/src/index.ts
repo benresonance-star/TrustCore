@@ -110,6 +110,7 @@ export type TrustAction =
   | "verification:run"
   | "health:read"
   | "portability:read"
+  | "portability:export"
   | "portability:plan"
   | "portability:execute";
 export interface AuthenticatedActor {
@@ -278,6 +279,25 @@ export interface ArchiveCandidate {
   blobCount: number;
   totalBlobBytes: number;
   createdAt: string;
+}
+export interface CreateArchiveExportCommand {
+  workspaceId: string;
+  datasetIds: readonly string[];
+  idempotencyKey: string;
+}
+export interface ArchiveExportSummary {
+  id: string;
+  workspaceId: string;
+  datasetIds: readonly string[];
+  status: "ready";
+  sha256: string;
+  byteLength: number;
+  createdAt: string;
+}
+export interface ArchiveDownload extends ArchiveExportSummary {
+  mediaType: "application/vnd.trust-core.archive+zip";
+  filename: string;
+  archiveBase64: string;
 }
 export interface UploadArchiveCommand {
   workspaceId: string;

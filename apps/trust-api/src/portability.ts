@@ -1,20 +1,29 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   ArchiveImportExecutor,
+  assembleArchiveEntries,
   planArchiveImport,
   readTrustArchive,
+  writeTrustArchive,
   type ArchiveImportAction,
   type ArchiveImportExecutionTarget,
   type ArchiveImportOperation,
   type ArchiveImportOperationStore,
   type ArchiveImportPlan,
   type ArchiveIssue,
+  type ArchiveRecord,
+  type ArchiveSource,
   type ParsedTrustArchive,
 } from "@trust-core/archive";
+import { createIvansDiaryFixture } from "@trust-core/fixtures-ivans-diary";
+import { createWeSketchFixture } from "@trust-core/fixtures-wesketch";
 import type {
   ArchiveCandidate,
+  ArchiveDownload,
+  ArchiveExportSummary,
   AuthenticatedActor,
   CreateImportPlanCommand,
+  CreateArchiveExportCommand,
   ExecuteImportCommand,
   ImportOperationSummary,
   ImportPlanSummary,
@@ -22,6 +31,14 @@ import type {
 } from "@trust-core/protocol";
 
 export interface PortabilityProvider {
+  createExport(
+    actor: AuthenticatedActor,
+    command: CreateArchiveExportCommand,
+  ): Promise<ArchiveExportSummary>;
+  downloadExport(
+    workspaceId: string,
+    exportId: string,
+  ): Promise<ArchiveDownload | undefined>;
   uploadArchive(
     actor: AuthenticatedActor,
     command: UploadArchiveCommand,
@@ -57,8 +74,13 @@ type StoredPlan = {
   summary: ImportPlanSummary;
   plan: ArchiveImportPlan;
 };
+type StoredExport = {
+  summary: ArchiveExportSummary;
+  bytes: Uint8Array;
+};
 
 export class FixturePortabilityProvider implements PortabilityProvider {
+  private readonly exports = new Map<string, StoredExport>();
   private readonly archives = new Map<string, StoredArchive>();
   private readonly plans = new Map<string, StoredPlan>();
   private readonly uploadRequests = new Map<
@@ -73,10 +95,82 @@ export class FixturePortabilityProvider implements PortabilityProvider {
     string,
     { fingerprint: string; operationId: string }
   >();
+  private readonly exportRequests = new Map<
+    string,
+    { fingerprint: string; exportId: string }
+  >();
   private readonly operations = new MemoryImportOperations();
   private readonly target = new MemoryImportTarget();
 
-  constructor(private readonly clock: () => Date = () => new Date()) {}
+  constructor(
+    private readonly clock: () => Date = () => new Date(),
+    private readonly exportSource: (
+      workspaceId: string,
+      datasetIds: readonly string[],
+      actor: AuthenticatedActor,
+    ) => ArchiveSource | undefined = fixtureExportSource,
+  ) {}
+
+  async createExport(
+    actor: AuthenticatedActor,
+    command: CreateArchiveExportCommand,
+  ): Promise<ArchiveExportSummary> {
+    const selected = [...new Set(command.datasetIds)].sort();
+    const candidateSource = this.exportSource(
+      command.workspaceId,
+      selected,
+      actor,
+    );
+    if (!candidateSource)
+      throw codedError(
+        "DATASET_NOT_FOUND",
+        "The requested export dataset selection was not found.",
+      );
+    const fingerprint = sha256(JSON.stringify({ datasetIds: selected }));
+    const requestKey = key(command.workspaceId, actor, command.idempotencyKey);
+    const replay = this.exportRequests.get(requestKey);
+    if (replay) {
+      if (replay.fingerprint !== fingerprint) throw idempotencyConflict();
+      return this.exports.get(scoped(command.workspaceId, replay.exportId))!
+        .summary;
+    }
+    const source: ArchiveSource = {
+      ...candidateSource,
+      exportId: `export-${sha256(requestKey).slice(0, 40)}`,
+    };
+    const bytes = await writeTrustArchive(assembleArchiveEntries(source));
+    const digest = sha256(bytes);
+    const summary: ArchiveExportSummary = {
+      id: source.exportId,
+      workspaceId: command.workspaceId,
+      datasetIds: source.datasetIds,
+      status: "ready",
+      sha256: digest,
+      byteLength: bytes.byteLength,
+      createdAt: this.clock().toISOString(),
+    };
+    this.exports.set(scoped(command.workspaceId, summary.id), {
+      summary,
+      bytes,
+    });
+    this.exportRequests.set(requestKey, {
+      fingerprint,
+      exportId: summary.id,
+    });
+    return summary;
+  }
+
+  async downloadExport(workspaceId: string, exportId: string) {
+    const stored = this.exports.get(scoped(workspaceId, exportId));
+    return stored
+      ? {
+          ...stored.summary,
+          mediaType: "application/vnd.trust-core.archive+zip" as const,
+          filename: `${stored.summary.id}.trustarchive`,
+          archiveBase64: Buffer.from(stored.bytes).toString("base64"),
+        }
+      : undefined;
+  }
 
   async uploadArchive(
     actor: AuthenticatedActor,
@@ -385,6 +479,61 @@ class MemoryImportTarget implements ArchiveImportExecutionTarget {
   async appendAudit(input: { operationId: string }) {
     this.audited.add(input.operationId);
   }
+}
+
+function fixtureExportSource(
+  workspaceId: string,
+  requestedDatasetIds: readonly string[],
+  actor: AuthenticatedActor,
+): ArchiveSource | undefined {
+  const fixture =
+    workspaceId === "workspace-demo-ivan"
+      ? createIvansDiaryFixture()
+      : workspaceId === "workspace-demo-wesketch"
+        ? createWeSketchFixture()
+        : undefined;
+  if (!fixture) return undefined;
+  const datasetIds = requestedDatasetIds.length
+    ? requestedDatasetIds
+    : [fixture.dataset.id];
+  if (datasetIds.length !== 1 || datasetIds[0] !== fixture.dataset.id)
+    return undefined;
+  const expanded = fixture as ReturnType<typeof createWeSketchFixture>;
+  return {
+    exportId: `export-${workspaceId}-${fixture.dataset.id}`,
+    workspaceId,
+    datasetIds,
+    createdAt: fixture.workspace.updatedAt,
+    createdBy: actor.id,
+    sourceVersion: "0.2H-candidate",
+    records: {
+      workspaces: archiveRecords([fixture.workspace]),
+      datasets: archiveRecords([fixture.dataset]),
+      resources: archiveRecords(fixture.resources),
+      revisions: archiveRecords(fixture.revisions),
+      relations: archiveRecords(fixture.relations),
+      tombstones: archiveRecords(fixture.tombstones),
+      ...(expanded.blobs ? { blobs: archiveRecords(expanded.blobs) } : {}),
+      ...(expanded.revisionBlobs
+        ? { "revision-blobs": archiveRecords(expanded.revisionBlobs) }
+        : {}),
+    },
+    ...(expanded.blobContents
+      ? {
+          blobs: expanded.blobs.map((blob) => ({
+            sha256: blob.sha256,
+            byteLength: blob.byteLength,
+            bytes: expanded.blobContents.find(
+              (content) => content.blobObjectId === blob.id,
+            )!.bytes,
+          })),
+        }
+      : {}),
+  };
+}
+
+function archiveRecords(values: readonly unknown[]): readonly ArchiveRecord[] {
+  return values as readonly ArchiveRecord[];
 }
 
 function decodeBase64(value: string): Uint8Array {

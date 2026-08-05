@@ -1952,6 +1952,142 @@
         }
       }
     },
+    "/v1/portability/exports": {
+      "post": {
+        "operationId": "portability.exports.create",
+        "parameters": [
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional when workspaceId is supplied in the request body."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArchiveExport"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveExport"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/portability/exports/{exportId}/download": {
+      "get": {
+        "operationId": "portability.exports.download",
+        "parameters": [
+          {
+            "name": "exportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Required workspace context."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveDownload"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/portability/archives/{archiveId}": {
       "get": {
         "operationId": "portability.archives.get",
@@ -3973,6 +4109,136 @@
           "blobCount",
           "totalBlobBytes",
           "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "CreateArchiveExport": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "datasetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "workspaceId",
+          "datasetIds",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveExport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "datasetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "const": "ready"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "datasetIds",
+          "status",
+          "sha256",
+          "byteLength",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveDownload": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "datasetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "const": "ready"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "byteLength": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mediaType": {
+            "const": "application/vnd.trust-core.archive+zip"
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          },
+          "archiveBase64": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "datasetIds",
+          "status",
+          "sha256",
+          "byteLength",
+          "createdAt",
+          "mediaType",
+          "filename",
+          "archiveBase64"
         ],
         "additionalProperties": false
       },

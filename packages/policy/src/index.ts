@@ -25,6 +25,7 @@ export const policyActions = [
   "health:read",
   "operation:process",
   "portability:read",
+  "portability:export",
   "portability:plan",
   "portability:execute",
 ] as const;
@@ -146,6 +147,7 @@ const roleCapabilities: Readonly<
     "break_glass:revoke",
     "health:read",
     "portability:read",
+    "portability:export",
     "portability:plan",
     "portability:execute",
   ]),
@@ -233,6 +235,7 @@ export function actionBoundary(action: PolicyAction): ActionBoundary {
     case "break_glass:revoke":
     case "break_glass:use":
     case "portability:plan":
+    case "portability:export":
     case "portability:execute":
       return "security";
     default:

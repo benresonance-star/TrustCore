@@ -140,6 +140,16 @@ export const release01Routes = [
     operationId: "portability.archives.create",
   },
   {
+    method: "POST",
+    path: "/v1/portability/exports",
+    operationId: "portability.exports.create",
+  },
+  {
+    method: "GET",
+    path: "/v1/portability/exports/{exportId}/download",
+    operationId: "portability.exports.download",
+  },
+  {
     method: "GET",
     path: "/v1/portability/archives/{archiveId}",
     operationId: "portability.archives.get",
@@ -549,6 +559,32 @@ export const release01Schemas = {
     totalBlobBytes: { type: "integer", minimum: 0 },
     createdAt: dateTime,
   }),
+  CreateArchiveExport: object({
+    workspaceId: id,
+    datasetIds: array(id),
+    idempotencyKey: { type: "string", minLength: 1 },
+  }),
+  ArchiveExport: object({
+    id,
+    workspaceId: id,
+    datasetIds: array(id),
+    status: { const: "ready" },
+    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    byteLength: { type: "integer", minimum: 1 },
+    createdAt: dateTime,
+  }),
+  ArchiveDownload: object({
+    id,
+    workspaceId: id,
+    datasetIds: array(id),
+    status: { const: "ready" },
+    sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    byteLength: { type: "integer", minimum: 1 },
+    createdAt: dateTime,
+    mediaType: { const: "application/vnd.trust-core.archive+zip" },
+    filename: { type: "string", minLength: 1 },
+    archiveBase64: { type: "string", minLength: 1 },
+  }),
   CreateImportPlan: object({
     workspaceId: id,
     archiveId: id,
@@ -870,6 +906,17 @@ export const release01OpenApi = {
       post: operation("portability.archives.create", "ArchiveCandidate", {
         body: "UploadArchive",
         parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/portability/exports": {
+      post: operation("portability.exports.create", "ArchiveExport", {
+        body: "CreateArchiveExport",
+        parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/portability/exports/{exportId}/download": {
+      get: operation("portability.exports.download", "ArchiveDownload", {
+        parameters: [pathParameter("exportId"), ...readContextParameters],
       }),
     },
     "/v1/portability/archives/{archiveId}": {

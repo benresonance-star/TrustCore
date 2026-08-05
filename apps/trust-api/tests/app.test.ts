@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { assembleArchiveEntries, writeTrustArchive } from "@trust-core/archive";
+import {
+  assembleArchiveEntries,
+  readTrustArchive,
+  writeTrustArchive,
+} from "@trust-core/archive";
 import { release01Routes, release01Schemas } from "@trust-core/protocol";
 import type { AuthenticatedActor } from "@trust-core/protocol";
 import { describe, expect, it } from "vitest";
@@ -926,6 +930,95 @@ describe("Release 0.1 API routing", () => {
     ).toMatchObject({ id: operationId, checkpoint: "completed" });
   });
 
+  it("exports and downloads a verified fixture archive behind reauthentication", async () => {
+    const actor: AuthenticatedActor = {
+      ...admin,
+      workspaceIds: ["workspace-demo-ivan"],
+    };
+    const { route } = configured(actor);
+    const exportHeaders = {
+      ...headers,
+      "x-trust-workspace-id": "workspace-demo-ivan",
+    };
+    const command = {
+      workspaceId: "workspace-demo-ivan",
+      datasetIds: ["dataset-demo-ivan-001"],
+      idempotencyKey: "export-one",
+    };
+    expect(
+      (
+        await route("POST", "/v1/portability/exports", {
+          headers: exportHeaders,
+          body: command,
+        })
+      ).body,
+    ).toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
+    const created = await route("POST", "/v1/portability/exports", {
+      headers: { ...exportHeaders, "x-trust-reauth": "valid" },
+      body: command,
+    });
+    expect(created.body).toMatchObject({
+      workspaceId: "workspace-demo-ivan",
+      datasetIds: ["dataset-demo-ivan-001"],
+      status: "ready",
+    });
+    const exportId = (created.body as { id: string }).id;
+    const downloaded = await route(
+      "GET",
+      `/v1/portability/exports/${exportId}/download`,
+      { headers: { ...exportHeaders, "x-trust-reauth": "valid" } },
+    );
+    expect(downloaded.body).toMatchObject({
+      id: exportId,
+      mediaType: "application/vnd.trust-core.archive+zip",
+      filename: `${exportId}.trustarchive`,
+    });
+    const bytes = Buffer.from(
+      (downloaded.body as { archiveBase64: string }).archiveBase64,
+      "base64",
+    );
+    const parsed = await readTrustArchive(bytes);
+    expect(parsed.verification.valid).toBe(true);
+    expect(parsed.manifest.datasetIds).toEqual(["dataset-demo-ivan-001"]);
+
+    const weSketchActor: AuthenticatedActor = {
+      ...admin,
+      workspaceIds: ["workspace-demo-wesketch"],
+    };
+    const weSketchRoute = configured(weSketchActor).route;
+    const weSketchHeaders = {
+      ...headers,
+      "x-trust-workspace-id": "workspace-demo-wesketch",
+      "x-trust-reauth": "valid",
+    };
+    const weSketchExport = await weSketchRoute(
+      "POST",
+      "/v1/portability/exports",
+      {
+        headers: weSketchHeaders,
+        body: {
+          workspaceId: "workspace-demo-wesketch",
+          datasetIds: ["dataset-demo-wesketch-001"],
+          idempotencyKey: "export-wesketch",
+        },
+      },
+    );
+    const weSketchExportId = (weSketchExport.body as { id: string }).id;
+    const weSketchDownload = await weSketchRoute(
+      "GET",
+      `/v1/portability/exports/${weSketchExportId}/download`,
+      { headers: weSketchHeaders },
+    );
+    const weSketchParsed = await readTrustArchive(
+      Buffer.from(
+        (weSketchDownload.body as { archiveBase64: string }).archiveBase64,
+        "base64",
+      ),
+    );
+    expect(weSketchParsed.verification.valid).toBe(true);
+    expect(weSketchParsed.manifest.blobCount).toBeGreaterThan(0);
+  });
+
   it("denies portability mutation to read-only roles", async () => {
     const { route } = configured({
       id: "auditor",
@@ -1034,6 +1127,12 @@ function bodyFor(
         idempotencyKey: "contract-archive",
         archiveBase64: "YQ==",
       };
+    case "portability.exports.create":
+      return {
+        workspaceId: "workspace-demo",
+        datasetIds: ["ivan"],
+        idempotencyKey: "contract-export",
+      };
     case "portability.plans.create":
       return {
         workspaceId: "workspace-demo",
@@ -1076,6 +1175,7 @@ function bodyFor(
     case "portability.archives.get":
     case "portability.plans.get":
     case "portability.operations.get":
+    case "portability.exports.download":
       return undefined;
     default:
       return assertNever(operationId);

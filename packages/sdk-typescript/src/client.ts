@@ -2,6 +2,8 @@ import type {
   AdminSession,
   ApplicationRegistration,
   ArchiveCandidate,
+  ArchiveDownload,
+  ArchiveExportSummary,
   AuditEventRecord,
   ControlCentreSnapshot,
   CreateImportPlanCommand,
@@ -122,6 +124,17 @@ export interface TrustClient {
     ): Promise<ObjectIngestResult>;
   };
   portability: {
+    exports: {
+      create(input: {
+        datasetIds: readonly string[];
+        idempotencyKey?: string;
+        reauthenticationProof: string;
+      }): Promise<ArchiveExportSummary>;
+      download(
+        exportId: string,
+        reauthenticationProof: string,
+      ): Promise<ArchiveDownload>;
+    };
     archives: {
       upload(input: {
         bytes: Blob | Uint8Array | ArrayBuffer;
@@ -322,6 +335,32 @@ function createClient(
         }),
     },
     portability: {
+      exports: {
+        create: async (input) =>
+          transport.request("/v1/portability/exports", {
+            method: "POST",
+            headers: {
+              ...contextHeaders(),
+              "x-trust-reauth": input.reauthenticationProof,
+            },
+            body: {
+              workspaceId: await workspace(),
+              datasetIds: input.datasetIds,
+              idempotencyKey:
+                input.idempotencyKey ?? createIdempotencyKey("export"),
+            },
+          }),
+        download: (id, reauthenticationProof) =>
+          transport.request(
+            `/v1/portability/exports/${encodeURIComponent(id)}/download`,
+            {
+              headers: {
+                ...contextHeaders(),
+                "x-trust-reauth": reauthenticationProof,
+              },
+            },
+          ),
+      },
       archives: {
         upload: async (input) => {
           const bytes = await toBytes(input.bytes);

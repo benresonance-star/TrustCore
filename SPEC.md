@@ -1030,6 +1030,12 @@ viewer reconstructs Ivan's Diary and WeSketch from verified archive bytes with
 no source app, API or database. Real OIDC step-up and live-store destruction and
 reconstruction remain explicitly assigned to the PC/Docker acceptance gate.
 
+The 0.2H preparation candidate adds dataset-scoped archive creation and
+download through a dedicated export permission and fresh same-principal
+authentication. Its fixture implementation and offline viewer prove the source
+contract only; live PostgreSQL/MinIO extraction, streaming delivery and
+destructive reconstruction remain part of the Docker gate.
+
 ## 0.3 Cloud/recovery proof
 
 S3, managed PostgreSQL guide, encryption, Object Lock where appropriate, separate backup, restore drill, signed manifests and monitoring.
