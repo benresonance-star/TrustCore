@@ -250,20 +250,20 @@ permissioned and its output must remain reviewable derived evidence.
 | Dataset                 | `Dataset`, `DatasetRecord`              | list/get                 | `datasets.jsonl`                   | `datasets`                     | none                                   |
 | Resource                | `Resource`, `ResourceRecord`            | list/get                 | `resources.jsonl`                  | `resources`                    | none                                   |
 | Revision                | `Revision`, `RevisionRecord`            | graph/create             | `revisions.jsonl`                  | `revisions`                    | none                                   |
-| BlobObject              | `BlobObject` plus storage projection    | ingest result indirectly | `blobs.jsonl` plus digest path     | `blob_objects`                 | immutable bytes by digest              |
+| BlobObject              | `BlobObject` with encryption projection | ingest result indirectly | `blobs.jsonl` plus digest path     | `blob_objects`                 | immutable encrypted bytes by digest    |
 | RevisionBlob            | persistence/fixture projection          | not directly exposed     | `revision-blobs.jsonl`             | `revision_blobs`               | none                                   |
 | Relation                | `Relation`, `RelationRecord`            | list                     | `relations.jsonl`                  | `relations`                    | none                                   |
 | Tombstone               | `Tombstone`, recoverable projection     | delete/restore/history   | `tombstones.jsonl`                 | `tombstones`                   | prevents premature byte purge          |
 | AuditEvent              | `ChainedAuditEvent`, `AuditEventRecord` | list                     | `audit-events.jsonl`               | `audit_events`                 | none                                   |
-| RetentionPolicy         | referenced identity only                | absent                   | `retention.jsonl`                  | referenced ID; table absent    | governs later deletion                 |
+| RetentionPolicy         | `RetentionPolicy`                       | list/get/create/update   | `retention.jsonl`                  | `retention_policies`           | governs later deletion                 |
 | ApplicationRegistration | policy/protocol registration            | list/create              | not currently exported             | `application_registrations`    | no direct access                       |
 | PolicyAssignment        | policy/protocol assignment              | evaluation only          | not currently exported             | `policy_assignments`           | no direct access                       |
 | BreakGlassGrant         | policy/protocol grant                   | evaluation only          | must not activate implicitly       | `break_glass_grants`           | no direct access                       |
 | IdentitySession         | identity provider session               | create/delete            | excluded                           | `identity_sessions`            | none                                   |
 | Operation               | operation summary/state machine         | get                      | import operation is separate       | `operations`                   | coordinates temporary/canonical writes |
 | UploadSession           | upload state                            | create/get/complete      | excluded                           | `upload_sessions`              | temporary upload then immutable blob   |
-| ImportPlan              | archive package                         | planned 0.2F             | derived from verified archive      | production persistence pending | no bytes until execution               |
-| ImportOperation         | archive execution port                  | planned 0.2F             | references export and plan IDs     | production persistence pending | operation-scoped staging pending       |
+| ImportPlan              | archive package                         | create/get               | derived from verified archive      | `portability_import_plans`     | no bytes until execution               |
+| ImportOperation         | archive execution port                  | execute/get              | references export and plan IDs     | `portability_import_operations` | operation-scoped staging               |
 | VerificationRun         | verification package/protocol           | run/list/get             | evidence may be regenerated        | `verification_runs`            | reads and hashes bytes                 |
 
 Security records are intentionally not part of ordinary dataset portability.
@@ -275,13 +275,13 @@ never activate authority in the target.
 
 | Finding                                                                                    | Current state               | Required resolution                                                                                   |
 | ------------------------------------------------------------------------------------------ | --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Retention policy identity exists but has no first-class physical table or public API       | Open                        | Define contract and migration before production import                                                |
-| Core `BlobObject` omits physical encryption fields present in PostgreSQL                   | Open, non-portable metadata | Add an explicit persistence projection or extend the core operational type before cloud recovery work |
+| Retention policy identity exists but has no first-class physical table or public API       | Resolved in 0.3 source      | Migration 0013 and public retention contracts preserve workspace scope and idempotency                 |
+| Core `BlobObject` omits physical encryption fields present in PostgreSQL                   | Resolved in 0.3 source      | Core, persistence and archive projections expose state and opaque key reference without secrets        |
 | Tombstone reason and restoration timestamp differed between domain and storage projections | Resolved in 0.2F source     | Core and PostgreSQL history projections now carry both fields                                         |
 | Archive records are intentionally structurally open                                        | Accepted                    | Validate required identity/reference fields during planning while preserving unknown fields           |
 | Identity sessions store actor claims as JSON rather than normalized principals             | Accepted for 0.1            | Treat sessions as authentication cache, never source-of-truth assignment data                         |
-| Imported audit partition/linkage                                                           | Contract resolved in 0.2F   | Manifest binds source boundaries; target-native linkage still requires 0.2H physical proof            |
+| Imported audit partition/linkage                                                           | Resolved in 0.2H            | Manifest binds source boundaries and the destructive Docker gate proved target-native linkage          |
 
-These findings do not invalidate the provider-neutral archive candidate. They
-are explicit inputs to the 0.2F public contract and the deferred 0.2H physical
-proof.
+The remaining accepted findings are intentional boundaries rather than missing
+production mappings. Security-policy portability remains a separate privileged
+contract and archive import never grants authority.

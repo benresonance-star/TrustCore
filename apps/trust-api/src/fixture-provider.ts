@@ -1,17 +1,33 @@
 import {
   createIvansDiaryFixture,
-  ivansDiarySchema,
+  createIvansDiaryPublicationRequest,
 } from "@trust-core/fixtures-ivans-diary";
 import {
   createWeSketchFixture,
-  weSketchSchema,
+  createWeSketchPublicationRequest,
 } from "@trust-core/fixtures-wesketch";
 import type { ControlCentreSnapshot } from "@trust-core/protocol";
 import { SchemaRegistry } from "@trust-core/schema-registry";
 
 const registry = new SchemaRegistry();
-registry.publish(ivansDiarySchema, "2026-08-04T09:00:00.000Z");
-registry.publish(weSketchSchema, "2026-08-04T10:00:00.000Z");
+const fixtureApproval = {
+  approvedBy: "fixture-release-controller",
+  approvalId: "release-0.4-fixture-schemas",
+} as const;
+registry.publishGoverned(
+  createIvansDiaryPublicationRequest(
+    fixtureApproval,
+    "release-0.4-ivans-diary-1.0.0",
+  ),
+  "2026-08-04T09:00:00.000Z",
+);
+registry.publishGoverned(
+  createWeSketchPublicationRequest(
+    fixtureApproval,
+    "release-0.4-wesketch-1.0.0",
+  ),
+  "2026-08-04T10:00:00.000Z",
+);
 const diary = createIvansDiaryFixture();
 const weSketch = createWeSketchFixture();
 

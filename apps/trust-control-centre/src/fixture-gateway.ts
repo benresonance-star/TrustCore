@@ -1,4 +1,4 @@
-import type { HistorySnapshot } from "@trust-core/protocol";
+import type { HistorySnapshot, PolicyAssignment } from "@trust-core/protocol";
 import type { ControlCentreGateway, ControlCentreSnapshot } from "./model";
 
 const snapshot: ControlCentreSnapshot = {
@@ -136,6 +136,48 @@ export const fixtureGateway: ControlCentreGateway = {
       ),
     });
   },
+  async createArchiveExport(workspaceId, datasetIds) {
+    return {
+      id: "fixture-preview-export",
+      workspaceId,
+      datasetIds,
+      status: "ready",
+      sha256: "0".repeat(64),
+      byteLength: 23,
+      createdAt: new Date().toISOString(),
+    };
+  },
+  async downloadArchiveExport(_workspaceId, exportId) {
+    return {
+      filename: `${exportId}.trustarchive`,
+      mediaType: "application/vnd.trust-core.archive+zip",
+      bytes: new TextEncoder().encode("fixture preview archive"),
+    };
+  },
+  async listPolicyAssignments(workspaceId) {
+    return structuredClone(
+      fixturePolicyAssignments.filter(
+        (assignment) => assignment.workspaceId === workspaceId,
+      ),
+    );
+  },
+  async createPolicyAssignment(workspaceId, input) {
+    return {
+      id: `fixture-preview-${Date.now()}`,
+      workspaceId,
+      ...input,
+      createdBy: "fixture-admin",
+      createdAt: new Date().toISOString(),
+    };
+  },
+  async revokePolicyAssignment(workspaceId, assignmentId) {
+    const assignment = fixturePolicyAssignments.find(
+      (candidate) =>
+        candidate.workspaceId === workspaceId && candidate.id === assignmentId,
+    );
+    if (!assignment) throw new Error("Preview assignment was not found.");
+    return { ...assignment, revokedAt: new Date().toISOString() };
+  },
   async restoreResource(workspaceId, resourceId) {
     const item = history.recoverable.find(
       (candidate) =>
@@ -252,6 +294,42 @@ export const fixtureGateway: ControlCentreGateway = {
     };
   },
 };
+
+const fixturePolicyAssignments: readonly PolicyAssignment[] = [
+  {
+    id: "fixture-policy-owner",
+    workspaceId: "workspace-demo",
+    principalType: "user",
+    principalId: "Ben Resonance",
+    role: "owner",
+    scopeKind: "workspace",
+    scopeId: "workspace-demo",
+    createdBy: "fixture-seed",
+    createdAt: "2026-08-03T00:00:00.000Z",
+  },
+  {
+    id: "fixture-policy-admin",
+    workspaceId: "workspace-demo",
+    principalType: "user",
+    principalId: "Trust Core operator",
+    role: "admin",
+    scopeKind: "workspace",
+    scopeId: "workspace-demo",
+    createdBy: "fixture-seed",
+    createdAt: "2026-08-03T00:00:00.000Z",
+  },
+  {
+    id: "fixture-policy-wesketch",
+    workspaceId: "workspace-demo",
+    principalType: "application",
+    principalId: "WeSketch application",
+    role: "editor",
+    scopeKind: "dataset",
+    scopeId: "wesketch",
+    createdBy: "fixture-seed",
+    createdAt: "2026-08-03T00:00:00.000Z",
+  },
+];
 
 let history: {
   recoverable: HistorySnapshot["recoverable"][number][];

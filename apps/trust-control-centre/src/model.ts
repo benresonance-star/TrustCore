@@ -10,16 +10,20 @@ export type Section =
 
 export type {
   ControlCentreSnapshot,
+  CreatePolicyAssignmentCommand,
   DatasetSummary,
   SystemStatus,
 } from "@trust-core/protocol";
 import type {
   AdminSession,
   ArchiveCandidate,
+  ArchiveExportSummary,
   ControlCentreSnapshot,
+  CreatePolicyAssignmentCommand,
   HistorySnapshot,
   ImportOperationSummary,
   ImportPlanSummary,
+  PolicyAssignment,
   RevisionCommandResult,
   ServiceHealth,
   VerificationRunResult,
@@ -30,6 +34,11 @@ export interface OperationalSnapshot {
   backup: ServiceHealth;
   latestVerification: VerificationRunResult | null;
 }
+export interface ArchiveBinaryDownload {
+  filename: string;
+  mediaType: "application/vnd.trust-core.archive+zip";
+  bytes: Uint8Array;
+}
 
 export interface ControlCentreGateway {
   readonly mode: "fixture" | "live";
@@ -37,6 +46,30 @@ export interface ControlCentreGateway {
   getSnapshot(): Promise<ControlCentreSnapshot>;
   getOperationalSnapshot(): Promise<OperationalSnapshot>;
   getHistory(workspaceId: string): Promise<HistorySnapshot>;
+  createArchiveExport(
+    workspaceId: string,
+    datasetIds: readonly string[],
+    reauthenticationProof: string,
+  ): Promise<ArchiveExportSummary>;
+  downloadArchiveExport(
+    workspaceId: string,
+    exportId: string,
+    reauthenticationProof: string,
+  ): Promise<ArchiveBinaryDownload>;
+  listPolicyAssignments(
+    workspaceId: string,
+  ): Promise<readonly PolicyAssignment[]>;
+  createPolicyAssignment(
+    workspaceId: string,
+    input: Omit<
+      CreatePolicyAssignmentCommand,
+      "workspaceId" | "idempotencyKey"
+    >,
+  ): Promise<PolicyAssignment>;
+  revokePolicyAssignment(
+    workspaceId: string,
+    assignmentId: string,
+  ): Promise<PolicyAssignment>;
   restoreResource(
     workspaceId: string,
     resourceId: string,

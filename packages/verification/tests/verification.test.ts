@@ -58,6 +58,8 @@ const blob: BlobObject = {
   mediaType: "text/plain",
   storageProvider: "memory",
   storageKey: "workspace/objects/blob",
+  encryptionState: "provider_managed",
+  encryptionKeyRef: null,
   verificationState: "pending",
   createdAt: "2026-01-01T00:00:00.000Z",
 };

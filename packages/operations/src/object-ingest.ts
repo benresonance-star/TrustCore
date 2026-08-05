@@ -233,6 +233,8 @@ export class ObjectIngestService {
             mediaType: input.mediaType,
             storageProvider: this.provider,
             storageKey: requiredContextString(context, "storageKey"),
+            encryptionState: "provider_managed",
+            encryptionKeyRef: null,
             verificationState: "verified",
             createdAt: this.now(),
           };
@@ -319,6 +321,8 @@ export class ImmutableObjectIngestor {
         mediaType: input.mediaType,
         storageProvider: this.provider,
         storageKey: stored.key,
+        encryptionState: "provider_managed",
+        encryptionKeyRef: null,
         verificationState: "verified",
         createdAt: new Date().toISOString(),
       };

@@ -257,10 +257,17 @@ function readLiveConfig(): MinioStorageConfig | undefined {
 
 function createClient(config: MinioStorageConfig): S3Client {
   return new S3Client({
-    endpoint: config.endpoint,
     region: config.region,
     forcePathStyle: config.forcePathStyle ?? true,
-    credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+    ...(config.endpoint ? { endpoint: config.endpoint } : {}),
+    ...(config.accessKeyId && config.secretAccessKey
+      ? {
+          credentials: {
+            accessKeyId: config.accessKeyId,
+            secretAccessKey: config.secretAccessKey,
+          },
+        }
+      : {}),
   });
 }
 

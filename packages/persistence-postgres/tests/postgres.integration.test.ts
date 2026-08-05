@@ -14,6 +14,7 @@ import {
   PostgresOutboxStore,
   PostgresPortabilityExportReader,
   PostgresPortabilityStore,
+  PostgresRetentionPolicyRepository,
   PostgresTrustRepository,
   PostgresVerificationCatalog,
   deterministicUuid,
@@ -84,6 +85,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "0010_ingest_principal_audit.sql",
       "0011_portability_persistence.sql",
       "0012_portability_correctness.sql",
+      "0013_retention_and_blob_encryption.sql",
     ]);
     await expect(runMigrations(pool, migrationsDirectory)).resolves.toEqual([]);
     const protectedTables = await owner.query<{
@@ -99,10 +101,12 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
           "portability_exports",
           "portability_import_operations",
           "portability_plans",
+          "retention_policies",
+          "retention_policy_requests",
         ],
       ],
     );
-    expect(protectedTables.rows).toHaveLength(5);
+    expect(protectedTables.rows).toHaveLength(7);
     expect(
       protectedTables.rows.every(
         ({ relrowsecurity, relforcerowsecurity }) =>
@@ -139,7 +143,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     }
   });
 
-  it("upgrades an applied 0011 database through migration 0012", async () => {
+  it("upgrades an applied 0011 database through migrations 0012 and 0013", async () => {
     const database = `trust_upgrade_${randomUUID().replaceAll("-", "")}`;
     const through0011 = await mkdtemp(join(tmpdir(), "trust-core-0011-"));
     const url = new URL(bootstrapUrl);
@@ -160,7 +164,10 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       );
       await expect(
         runMigrations(upgradePool, migrationsDirectory),
-      ).resolves.toEqual(["0012_portability_correctness.sql"]);
+      ).resolves.toEqual([
+        "0012_portability_correctness.sql",
+        "0013_retention_and_blob_encryption.sql",
+      ]);
       const primaryKey = await upgradeOwner.query<{ columns: string[] }>(
         "SELECT array_agg(a.attname ORDER BY key.ordinality)::text[] AS columns FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=key.attnum WHERE c.conrelid='portability_archives'::regclass AND c.contype='p' GROUP BY c.oid",
       );
@@ -319,6 +326,10 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
   it("exports a dataset retention assignment without nulling it", async () => {
     const fixture = await createFixture();
     const retentionPolicyId = randomUUID();
+    await owner.query(
+      "INSERT INTO retention_policies (id,workspace_id,name,recovery_window_days,minimum_history_days,backup_retention_days,purge_enabled,created_by,updated_by) VALUES ($1,$2,'Default',30,365,90,false,'test','test')",
+      [retentionPolicyId, fixture.workspaceA],
+    );
     const datasetId = (
       await owner.query<{ id: string }>(
         "INSERT INTO datasets (workspace_id,schema_package_id,dataset_type,name,retention_policy_id,created_by) VALUES ($1,$2,'test','Retained',$3,'test') RETURNING id",
@@ -339,6 +350,57 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     expect(source.records.datasets).toEqual([
       expect.objectContaining({ id: datasetId, retentionPolicyId }),
     ]);
+    expect(source.records.retention).toEqual([
+      expect.objectContaining({
+        id: retentionPolicyId,
+        purgeEnabled: false,
+        extensions: {},
+      }),
+    ]);
+  });
+
+  it("persists idempotent retention policy creates and guarded updates", async () => {
+    const fixture = await createFixture();
+    const repository = new PostgresRetentionPolicyRepository(pool);
+    const create = {
+      id: randomUUID(),
+      workspaceId: fixture.workspaceA,
+      name: "Operational",
+      recoveryWindowDays: 30,
+      minimumHistoryDays: 365,
+      backupRetentionDays: 90,
+      purgeEnabled: false as const,
+      actorId: "admin",
+      idempotencyKey: "retention-create",
+      extensions: { futureField: "preserved" },
+      at: "2026-08-05T00:00:00.000Z",
+    };
+    const created = await repository.create(create);
+    await expect(
+      repository.create({ ...create, id: randomUUID(), at: "2026-08-06T00:00:00.000Z" }),
+    ).resolves.toEqual(created);
+    const updated = await repository.update(created.id, {
+      ...create,
+      id: created.id,
+      name: "Operational updated",
+      idempotencyKey: "retention-update",
+      expectedUpdatedAt: created.updatedAt,
+      at: "2026-08-05T01:00:00.000Z",
+    });
+    expect(updated).toMatchObject({
+      name: "Operational updated",
+      extensions: { futureField: "preserved" },
+    });
+    await expect(
+      repository.update(created.id, {
+        ...create,
+        id: created.id,
+        name: "Stale",
+        idempotencyKey: "retention-stale",
+        expectedUpdatedAt: created.updatedAt,
+        at: "2026-08-05T02:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "RETENTION_POLICY_CONFLICT" });
   });
 
   it("denies application access across workspace RLS boundaries", async () => {

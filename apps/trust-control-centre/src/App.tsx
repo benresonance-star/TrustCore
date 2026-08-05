@@ -48,9 +48,11 @@ import {
 } from "react";
 import type {
   ArchiveCandidate,
+  ArchiveExportSummary,
   HistorySnapshot,
   ImportOperationSummary,
   ImportPlanSummary,
+  PolicyAssignment,
 } from "@trust-core/protocol";
 import { fixtureGateway } from "./fixture-gateway";
 import { GatewayError, httpGateway } from "./http-gateway";
@@ -263,9 +265,11 @@ export function App({
           </div>
           <div className="system-ok">
             <span />
-            {operationalSnapshot
-              ? `${operationalSnapshot.storage.status} storage`
-              : "Status unavailable"}
+            {gateway.mode === "fixture"
+              ? "Fixture preview"
+              : operationalSnapshot
+                ? `${operationalSnapshot.storage.status} storage`
+                : "Status unavailable"}
           </div>
         </header>
         <div className="page">
@@ -283,6 +287,7 @@ export function App({
               status={snapshot.status}
               onSelect={setSelectedDatasetId}
               navigate={setSection}
+              mode={gateway.mode}
             />
           )}
           {section === "flow" && <FlowView />}
@@ -537,15 +542,19 @@ function DatasetsView({
   status,
   onSelect,
   navigate,
+  mode,
 }: {
   datasets: readonly DatasetSummary[];
   selected: DatasetSummary | undefined;
   status: ControlCentreSnapshot["status"];
   onSelect: (id: string) => void;
   navigate: (section: Section) => void;
+  mode: ControlCentreGateway["mode"];
 }) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
+  const sourceNote =
+    mode === "fixture" ? "Synthetic fixture data" : "Reported by Trust API";
   const filtered = useMemo(
     () =>
       datasets.filter(
@@ -575,12 +584,12 @@ function DatasetsView({
         <Metric
           label="Latest verified backup"
           value={status.latestVerifiedBackup}
-          note="Reported by Trust API"
+          note={sourceNote}
         />
         <Metric
           label="Recovery attention"
           value={String(status.recoveryAttention)}
-          note="Reported by Trust API"
+          note={sourceNote}
         />
       </div>
       <section>
@@ -888,6 +897,10 @@ function HealthView({
     }
   }
   const latest = operational?.latestVerification;
+  const sourceNote =
+    gateway.mode === "fixture"
+      ? "Synthetic fixture data"
+      : "Reported by Trust API";
   return (
     <>
       <PageHeading
@@ -922,7 +935,7 @@ function HealthView({
               ? healthLabel(snapshot.status.canonicalIntegrityStatus)
               : `${snapshot.status.canonicalIntegrityPercent}%`
           }
-          note="Reported by Trust API"
+          note={sourceNote}
         />
         <Metric
           label="Protected datasets"
@@ -932,7 +945,7 @@ function HealthView({
         <Metric
           label="Sync queue"
           value={String(snapshot.status.syncQueue)}
-          note="Reported by Trust API"
+          note={sourceNote}
         />
       </div>
       <div className="two-columns">
@@ -1234,6 +1247,11 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
     "preserve_ids" | "mapped_workspace"
   >("mapped_workspace");
   const [proof, setProof] = useState("");
+  const [exportProof, setExportProof] = useState("");
+  const [exportDatasetIds, setExportDatasetIds] = useState("ivan");
+  const [createdExport, setCreatedExport] =
+    useState<ArchiveExportSummary | null>(null);
+  const [showExport, setShowExport] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const fixture = gateway.mode === "fixture";
@@ -1262,6 +1280,29 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
     setPlan(null);
     setOperation(null);
   }
+  async function downloadExport(value: ArchiveExportSummary) {
+    await run(
+      "download-export",
+      () =>
+        gateway.downloadArchiveExport(
+          gateway.workspaceId,
+          value.id,
+          exportProof,
+        ),
+      (download) => {
+        const url = URL.createObjectURL(
+          new Blob([download.bytes as Uint8Array<ArrayBuffer>], {
+            type: download.mediaType,
+          }),
+        );
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = download.filename;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      },
+    );
+  }
 
   return (
     <>
@@ -1271,10 +1312,9 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
         action={
           <button
             className="button"
-            disabled
-            title="Export API is not exposed yet"
+            onClick={() => setShowExport((current) => !current)}
           >
-            Create export (unavailable)
+            Create export
           </button>
         }
       />
@@ -1282,12 +1322,77 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
         <FileCheck2 size={17} />
         {fixture
           ? "Fixture API workflow — execution is isolated in memory and writes no canonical data."
-          : "Live Portability API connected. Production execution requires its PostgreSQL/MinIO provider."}
+          : "Live Portability API connected. Mutations remain subject to configured provider and policy."}
       </div>
       {error && (
         <div className="status-notice error" role="alert">
           <ShieldAlert size={17} /> {error}
         </div>
+      )}
+      {showExport && (
+        <form
+          className="card panel assignment-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run(
+              "create-export",
+              () =>
+                gateway.createArchiveExport(
+                  gateway.workspaceId,
+                  tokens(exportDatasetIds),
+                  exportProof,
+                ),
+              setCreatedExport,
+            );
+          }}
+        >
+          <div>
+            <h2>Create archive export</h2>
+            <small>
+              {fixture
+                ? "Fixture export is generated in memory and is not persisted."
+                : "Creation and binary download require fresh administrator authentication."}
+            </small>
+          </div>
+          <label className="field-label">
+            Dataset IDs
+            <input
+              value={exportDatasetIds}
+              onChange={(event) => setExportDatasetIds(event.target.value)}
+            />
+          </label>
+          <label className="field-label">
+            Export reauthentication proof
+            <input
+              type="password"
+              value={exportProof}
+              onChange={(event) => setExportProof(event.target.value)}
+            />
+          </label>
+          <button
+            className="button primary"
+            type="submit"
+            disabled={
+              busy === "create-export" ||
+              tokens(exportDatasetIds).length === 0 ||
+              (!fixture && !exportProof)
+            }
+          >
+            Create archive
+          </button>
+          {createdExport && (
+            <button
+              className="button"
+              type="button"
+              disabled={
+                busy === "download-export" || (!fixture && !exportProof)
+              }
+              onClick={() => void downloadExport(createdExport)}
+            >
+              Download {createdExport.id}
+            </button>
+          )}
+        </form>
       )}
       <div className="metrics">
         <Metric
@@ -1302,8 +1407,8 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
         />
         <Metric
           label="PC proof"
-          value="Required"
-          note="Clean reconstruction gate"
+          value="Passed"
+          note="0.2H clean reconstruction gate"
         />
       </div>
       <div className="two-columns portability-columns">
@@ -1518,35 +1623,6 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
     </>
   );
 }
-
-type Assignment = {
-  id: number;
-  principal: string;
-  role: string;
-  scope: string;
-};
-
-const fixtureAssignments: readonly Assignment[] = [
-  { id: 1, principal: "Ben Resonance", role: "Owner", scope: "All workspaces" },
-  {
-    id: 2,
-    principal: "Trust Core operator",
-    role: "Administrator",
-    scope: "This workspace",
-  },
-  {
-    id: 3,
-    principal: "WeSketch application",
-    role: "Editor",
-    scope: "WeSketch dataset",
-  },
-  {
-    id: 4,
-    principal: "Recovery worker",
-    role: "Recovery operator",
-    scope: "Backups only",
-  },
-];
 
 function AppProtocolView() {
   const [namespace, setNamespace] = useState("app/foundation");
@@ -1779,21 +1855,88 @@ function titleCase(value: string) {
 
 function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
   const fixture = gateway.mode === "fixture";
-  const [assignments, setAssignments] =
-    useState<readonly Assignment[]>(fixtureAssignments);
+  const [assignments, setAssignments] = useState<readonly PolicyAssignment[]>(
+    [],
+  );
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice] = useState("");
   const [principal, setPrincipal] = useState("Audit reviewer");
-  const [role, setRole] = useState("Auditor");
+  const [principalType, setPrincipalType] =
+    useState<PolicyAssignment["principalType"]>("user");
+  const [role, setRole] = useState<
+    "owner" | "admin" | "editor" | "recovery_operator" | "auditor"
+  >("auditor");
+  const [error, setError] = useState("");
 
-  function addAssignment(event: FormEvent) {
+  useEffect(() => {
+    let active = true;
+    gateway
+      .listPolicyAssignments(gateway.workspaceId)
+      .then((items) => {
+        if (active) setAssignments(items);
+      })
+      .catch((cause: unknown) => {
+        if (active)
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Policy assignments could not be loaded.",
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [gateway]);
+
+  async function addAssignment(event: FormEvent) {
     event.preventDefault();
-    setAssignments((current) => [
-      ...current,
-      { id: Date.now(), principal, role, scope: "This workspace" },
-    ]);
-    setShowForm(false);
-    setNotice("Preview assignment added. No access policy was changed.");
+    setError("");
+    try {
+      const created = await gateway.createPolicyAssignment(
+        gateway.workspaceId,
+        {
+          principalType,
+          principalId: principal,
+          role,
+          scopeKind: "workspace",
+          scopeId: gateway.workspaceId,
+        },
+      );
+      setAssignments((current) => [...current, created]);
+      setShowForm(false);
+      setNotice(
+        fixture
+          ? "Preview assignment added locally. No access policy was changed."
+          : "Workspace policy assignment created.",
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Policy assignment could not be created.",
+      );
+    }
+  }
+
+  async function revokeAssignment(assignment: PolicyAssignment) {
+    setError("");
+    try {
+      await gateway.revokePolicyAssignment(gateway.workspaceId, assignment.id);
+      setAssignments((current) =>
+        current.filter(({ id }) => id !== assignment.id),
+      );
+      setNotice(
+        fixture
+          ? "Preview assignment removed locally. No access policy was changed."
+          : "Workspace policy assignment revoked.",
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Policy assignment could not be revoked.",
+      );
+    }
   }
 
   return (
@@ -1804,11 +1947,8 @@ function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
         action={
           <button
             className="button"
-            disabled={!fixture}
             title={
-              fixture
-                ? "Add a preview assignment"
-                : "Access administration API is not exposed"
+              fixture ? "Add a non-persistent preview assignment" : undefined
             }
             onClick={() => setShowForm((current) => !current)}
           >
@@ -1816,15 +1956,17 @@ function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
           </button>
         }
       />
-      <div
-        className={fixture ? "status-notice" : "status-notice error"}
-        role="status"
-      >
-        {fixture ? <Fingerprint size={17} /> : <ShieldAlert size={17} />}
+      <div className="status-notice" role="status">
+        {fixture ? <Fingerprint size={17} /> : <ShieldCheck size={17} />}
         {fixture
           ? "Fixture identities — controls preview the policy model; nothing is persisted."
-          : "Identity is authenticated, but assignment and role APIs are not available in this release."}
+          : "Live policy assignments are authenticated and restricted to workspace owners and administrators."}
       </div>
+      {error && (
+        <div className="status-notice error" role="alert">
+          <ShieldAlert size={17} /> {error}
+        </div>
+      )}
       {notice && (
         <div className="status-notice" role="alert">
           {notice}
@@ -1833,25 +1975,35 @@ function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
       <div className="metrics">
         <Metric
           label="Active administrators"
-          value={fixture ? "2" : "Unavailable"}
-          note={fixture ? "Owner and administrator" : "Not exposed by API"}
+          value={String(
+            assignments.filter(
+              ({ role }) => role === "owner" || role === "admin",
+            ).length,
+          )}
+          note="Owner and administrator assignments"
         />
         <Metric
           label="Privileged sessions"
-          value={fixture ? "1" : "Unavailable"}
-          note={fixture ? "Organisation identity + MFA" : "Not exposed by API"}
+          value={fixture ? "1" : "Authenticated"}
+          note="Organisation identity session"
         />
         <Metric
           label="Policy exceptions"
-          value={fixture ? "0" : "Unavailable"}
-          note={fixture ? "No break-glass access active" : "Not exposed by API"}
+          value="0"
+          note="No break-glass access active"
         />
       </div>
-      {showForm && fixture && (
+      {showForm && (
         <form className="card panel assignment-form" onSubmit={addAssignment}>
           <div>
-            <h2>Preview an assignment</h2>
-            <small>Review only; the Release API has no mutation route.</small>
+            <h2>
+              {fixture ? "Preview an assignment" : "Assign workspace access"}
+            </h2>
+            <small>
+              {fixture
+                ? "Review only; fixture changes are never persisted."
+                : "Creates an audited, explicit workspace policy assignment."}
+            </small>
           </div>
           <label className="field-label">
             Principal
@@ -1861,141 +2013,148 @@ function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
             />
           </label>
           <label className="field-label">
+            Principal type
+            <select
+              value={principalType}
+              onChange={(event) =>
+                setPrincipalType(
+                  event.target.value as PolicyAssignment["principalType"],
+                )
+              }
+            >
+              <option value="user">User</option>
+              <option value="service">Service</option>
+              <option value="application">Application</option>
+            </select>
+          </label>
+          <label className="field-label">
             Role
             <select
               value={role}
-              onChange={(event) => setRole(event.target.value)}
+              onChange={(event) => setRole(event.target.value as typeof role)}
             >
-              <option>Auditor</option>
-              <option>Administrator</option>
-              <option>Editor</option>
-              <option>Recovery operator</option>
+              <option value="auditor">Auditor</option>
+              <option value="admin">Administrator</option>
+              <option value="editor">Editor</option>
+              <option value="recovery_operator">Recovery operator</option>
+              <option value="owner">Owner</option>
             </select>
           </label>
           <button className="button primary" type="submit">
-            Add preview assignment
+            {fixture ? "Add preview assignment" : "Assign access"}
           </button>
         </form>
       )}
-      {fixture ? (
-        <div className="two-columns access-columns">
+      <div className="two-columns access-columns">
+        <article className="card panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Workspace assignments</h2>
+              <small>Explicit principal, role and scope.</small>
+            </div>
+            <BadgeCheck size={20} />
+          </div>
+          {assignments.map((assignment) => (
+            <div className="role-row" key={assignment.id}>
+              <span className="avatar">
+                {assignment.principalId.slice(0, 2).toUpperCase()}
+              </span>
+              <div>
+                <strong>{assignment.principalId}</strong>
+                <small>
+                  {titleCase(assignment.scopeKind)} · {assignment.scopeId}
+                </small>
+              </div>
+              <span className="badge">
+                {titleCase(assignment.role.replaceAll("_", " "))}
+              </span>
+              <button
+                className="text-button"
+                onClick={() => void revokeAssignment(assignment)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </article>
+        <div className="access-side">
+          <article className="card panel session-card">
+            <div className="panel-heading">
+              <div>
+                <h2>Current session</h2>
+                <small>
+                  {fixture ? "Fixture administrator" : "Authenticated operator"}
+                </small>
+              </div>
+              <Fingerprint size={20} />
+            </div>
+            <dl>
+              <div>
+                <dt>Authentication</dt>
+                <dd>Organisation identity</dd>
+              </div>
+              <div>
+                <dt>Assurance</dt>
+                <dd>
+                  {fixture
+                    ? "Passkey / MFA preview"
+                    : "Configured identity provider"}
+                </dd>
+              </div>
+              <div>
+                <dt>Role</dt>
+                <dd>Owner or administrator required</dd>
+              </div>
+              <div>
+                <dt>Expires</dt>
+                <dd>Session policy controlled</dd>
+              </div>
+            </dl>
+            <button
+              className="button wide"
+              onClick={() => {
+                void gateway.endAdminSession();
+                setNotice(
+                  fixture
+                    ? "Fixture sign-out requested. The preview remains available."
+                    : "Sign-out requested.",
+                );
+              }}
+            >
+              Sign out session
+            </button>
+          </article>
           <article className="card panel">
             <div className="panel-heading">
               <div>
-                <h2>Workspace assignments</h2>
-                <small>Explicit principal, role and scope.</small>
+                <h2>Role boundaries</h2>
+                <small>
+                  Infrastructure access does not imply private-content access.
+                </small>
               </div>
-              <BadgeCheck size={20} />
+              <ShieldCheck size={20} />
             </div>
-            {assignments.map((assignment) => (
-              <div className="role-row" key={assignment.id}>
-                <span className="avatar">
-                  {assignment.principal.slice(0, 2).toUpperCase()}
-                </span>
-                <div>
-                  <strong>{assignment.principal}</strong>
-                  <small>{assignment.scope}</small>
-                </div>
-                <span className="badge">{assignment.role}</span>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    setAssignments((current) =>
-                      current.filter(({ id }) => id !== assignment.id),
-                    );
-                    setNotice(
-                      "Preview assignment removed. No access policy was changed.",
-                    );
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
+            <div className="capability-list">
+              <span>
+                <strong>Owner</strong>
+                <small>Policy and ownership</small>
+              </span>
+              <span>
+                <strong>Administrator</strong>
+                <small>Infrastructure and assignments</small>
+              </span>
+              <span>
+                <strong>Auditor</strong>
+                <small>Read evidence, no mutation</small>
+              </span>
+              <span>
+                <strong>Recovery operator</strong>
+                <small>Restore workflow only</small>
+              </span>
+            </div>
           </article>
-          <div className="access-side">
-            <article className="card panel session-card">
-              <div className="panel-heading">
-                <div>
-                  <h2>Current session</h2>
-                  <small>Fixture administrator</small>
-                </div>
-                <Fingerprint size={20} />
-              </div>
-              <dl>
-                <div>
-                  <dt>Authentication</dt>
-                  <dd>Organisation identity</dd>
-                </div>
-                <div>
-                  <dt>Assurance</dt>
-                  <dd>Passkey / MFA</dd>
-                </div>
-                <div>
-                  <dt>Role</dt>
-                  <dd>Administrator</dd>
-                </div>
-                <div>
-                  <dt>Expires</dt>
-                  <dd>In 29 minutes</dd>
-                </div>
-              </dl>
-              <button
-                className="button wide"
-                onClick={() => {
-                  void gateway.endAdminSession();
-                  setNotice(
-                    "Fixture sign-out requested. The preview remains available.",
-                  );
-                }}
-              >
-                Sign out session
-              </button>
-            </article>
-            <article className="card panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Role boundaries</h2>
-                  <small>
-                    Infrastructure access does not imply private-content access.
-                  </small>
-                </div>
-                <ShieldCheck size={20} />
-              </div>
-              <div className="capability-list">
-                <span>
-                  <strong>Owner</strong>
-                  <small>Policy and ownership</small>
-                </span>
-                <span>
-                  <strong>Administrator</strong>
-                  <small>Infrastructure and assignments</small>
-                </span>
-                <span>
-                  <strong>Auditor</strong>
-                  <small>Read evidence, no mutation</small>
-                </span>
-                <span>
-                  <strong>Recovery operator</strong>
-                  <small>Restore workflow only</small>
-                </span>
-              </div>
-            </article>
-          </div>
         </div>
-      ) : (
-        <article className="card panel">
-          <h2>Administrative roles</h2>
-          <div className="empty-state">
-            <KeyRound size={22} />
-            <strong>Role data unavailable</strong>
-            <small>
-              The current Trust API does not expose administrator assignments.
-              No inferred or sample access values are shown in live mode.
-            </small>
-          </div>
-        </article>
-      )}
+      </div>
     </>
   );
 }

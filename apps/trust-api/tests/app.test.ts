@@ -143,6 +143,58 @@ describe("Release 0.1 API routing", () => {
     ).toMatchObject({ code: "RESOURCE_NOT_FOUND", requestId: "request-1" });
   });
 
+  it("restricts policy assignment management and keeps fixture changes non-persistent", async () => {
+    const { route } = configured();
+    const initial = await route("GET", "/v1/policy-assignments", { headers });
+    expect(initial.body).toMatchObject({
+      items: [{ id: "fixture-policy-admin", role: "admin" }],
+    });
+    const created = await route("POST", "/v1/policy-assignments", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        principalType: "user",
+        principalId: "reviewer",
+        role: "auditor",
+        scopeKind: "workspace",
+        scopeId: "workspace-demo",
+        idempotencyKey: "assign-reviewer",
+      },
+    });
+    expect(created.body).toMatchObject({
+      principalId: "reviewer",
+      role: "auditor",
+    });
+    expect(
+      (await route("GET", "/v1/policy-assignments", { headers })).body,
+    ).toEqual(initial.body);
+    const revoked = await route(
+      "DELETE",
+      "/v1/policy-assignments/fixture-policy-admin",
+      {
+        headers,
+        body: {
+          workspaceId: "workspace-demo",
+          idempotencyKey: "revoke-admin",
+        },
+      },
+    );
+    expect(revoked.body).toMatchObject({
+      id: "fixture-policy-admin",
+      revokedAt: now.toISOString(),
+    });
+
+    const denied = configured({
+      id: "auditor",
+      displayName: "Auditor",
+      roles: ["auditor"],
+      workspaceIds: ["workspace-demo"],
+    }).route;
+    expect(
+      (await denied("GET", "/v1/policy-assignments", { headers })).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
   it("keeps every shared Release 0.1 contract wired to the router", async () => {
     const { route } = configured();
     for (const contract of release01Routes) {
@@ -150,6 +202,8 @@ describe("Release 0.1 API routing", () => {
       const path = contract.path
         .replace("{schemaKey}", "app%2Ftest%2F1.0.0")
         .replace("{datasetId}", "ivan")
+        .replace("{policyId}", "missing")
+        .replace("{assignmentId}", "fixture-policy-admin")
         .replace("{resourceId}", "diary-main")
         .replace("{reportId}", "missing")
         .replace("{operationId}", "missing")
@@ -199,6 +253,70 @@ describe("Release 0.1 API routing", () => {
         })
       ).body,
     ).toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  it("creates, reads, and updates retention policies without enabling purge", async () => {
+    const { route } = configured();
+    const created = await route("POST", "/v1/retention-policies", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        name: "Default",
+        recoveryWindowDays: 30,
+        minimumHistoryDays: 365,
+        backupRetentionDays: 90,
+        purgeEnabled: false,
+        idempotencyKey: "retention-create",
+        futureField: "preserved",
+      },
+    });
+    expect(created.status).toBe(200);
+    const policy = created.body as {
+      id: string;
+      updatedAt: string;
+      extensions: Record<string, unknown>;
+    };
+    expect(policy.extensions.futureField).toBe("preserved");
+    expect(
+      (
+        await route("GET", `/v1/retention-policies/${policy.id}`, {
+          headers,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await route("PUT", `/v1/retention-policies/${policy.id}`, {
+          headers,
+          body: {
+            workspaceId: "workspace-demo",
+            name: "Default",
+            recoveryWindowDays: 60,
+            minimumHistoryDays: 365,
+            backupRetentionDays: 90,
+            purgeEnabled: false,
+            idempotencyKey: "retention-update",
+            expectedUpdatedAt: policy.updatedAt,
+          },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await route("POST", "/v1/retention-policies", {
+          headers,
+          body: {
+            workspaceId: "workspace-demo",
+            name: "Unsafe",
+            recoveryWindowDays: 0,
+            minimumHistoryDays: 0,
+            backupRetentionDays: 0,
+            purgeEnabled: true,
+            idempotencyKey: "retention-purge",
+          },
+        })
+      ).body,
+    ).toMatchObject({ code: "INVALID_COMMAND" });
   });
 
   it("derives and filters dataset-scoped policy boundaries", async () => {
@@ -748,6 +866,8 @@ describe("Release 0.1 API routing", () => {
           mediaType: "text/plain",
           storageProvider: "test",
           storageKey: "object",
+          encryptionState: "provider_managed" as const,
+          encryptionKeyRef: null,
           verificationState: "verified" as const,
           createdAt: now.toISOString(),
         },
@@ -1002,6 +1122,25 @@ describe("Release 0.1 API routing", () => {
     const parsed = await readTrustArchive(bytes);
     expect(parsed.verification.valid).toBe(true);
     expect(parsed.manifest.datasetIds).toEqual(["dataset-demo-ivan-001"]);
+    const binary = await route(
+      "GET",
+      `/v1/portability/exports/${exportId}/download`,
+      {
+        headers: {
+          ...exportHeaders,
+          accept: "application/vnd.trust-core.archive+zip",
+          "x-trust-reauth": "valid",
+        },
+      },
+    );
+    expect(binary.headers).toMatchObject({
+      "content-type": "application/vnd.trust-core.archive+zip",
+      "content-disposition": `attachment; filename="${exportId}.trustarchive"`,
+    });
+    expect(binary.body).toBeInstanceOf(Uint8Array);
+    expect(
+      (await readTrustArchive(binary.body as Uint8Array)).verification.valid,
+    ).toBe(true);
 
     const weSketchActor: AuthenticatedActor = {
       ...admin,
@@ -1108,6 +1247,21 @@ function bodyFor(
         capabilities: [],
         idempotencyKey: "contract",
       };
+    case "policyAssignments.create":
+      return {
+        workspaceId: "workspace-demo",
+        principalType: "user",
+        principalId: "reviewer",
+        role: "auditor",
+        scopeKind: "workspace",
+        scopeId: "workspace-demo",
+        idempotencyKey: "contract-policy",
+      };
+    case "policyAssignments.revoke":
+      return {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "contract-policy-revoke",
+      };
     case "revisions.create":
       return {
         workspaceId: "workspace-demo",
@@ -1124,6 +1278,27 @@ function bodyFor(
       };
     case "resources.restore":
       return { workspaceId: "workspace-demo" };
+    case "retentionPolicies.create":
+      return {
+        workspaceId: "workspace-demo",
+        name: "Contract retention",
+        recoveryWindowDays: 30,
+        minimumHistoryDays: 365,
+        backupRetentionDays: 90,
+        purgeEnabled: false,
+        idempotencyKey: "contract-retention",
+      };
+    case "retentionPolicies.update":
+      return {
+        workspaceId: "workspace-demo",
+        name: "Contract retention",
+        recoveryWindowDays: 60,
+        minimumHistoryDays: 365,
+        backupRetentionDays: 90,
+        purgeEnabled: false,
+        idempotencyKey: "contract-retention-update",
+        expectedUpdatedAt: now.toISOString(),
+      };
     case "uploads.create":
       return {
         workspaceId: "workspace-demo",
@@ -1176,10 +1351,13 @@ function bodyFor(
     case "auth.sessionDelete":
     case "workspaces.list":
     case "applications.list":
+    case "policyAssignments.list":
     case "schemas.list":
     case "schemas.get":
     case "datasets.list":
     case "datasets.get":
+    case "retentionPolicies.list":
+    case "retentionPolicies.get":
     case "resources.list":
     case "resources.get":
     case "revisions.graph":

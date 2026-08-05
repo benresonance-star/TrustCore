@@ -26,9 +26,11 @@
     "db:test:postgres": "node scripts/postgres-integration.mjs",
     "trust:test:docker": "node scripts/trust-test-docker.mjs",
     "trust:test:portability:docker": "node scripts/trust-test-portability-docker.mjs",
+    "test:e2e": "playwright test",
     "check": "pnpm audit:prod && pnpm typecheck && pnpm test && pnpm trust:test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.0.0",
     "prettier": "^3.9.6",
     "typescript": "^5.9.0",

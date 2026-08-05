@@ -30,6 +30,7 @@ describe("Trust Core Control Centre", () => {
     expect(
       screen.getByRole("heading", { name: "Dataset registry" }),
     ).toBeVisible();
+    expect(screen.getAllByText("Synthetic fixture data")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Flow" }));
     expect(screen.getByRole("heading", { name: "System flow" })).toBeVisible();
     expect(screen.getByRole("button", { name: /Trust API/ })).toBeVisible();
@@ -69,7 +70,9 @@ describe("Trust Core Control Centre", () => {
   it("runs a full-byte verification from System health", async () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
+    expect(screen.getByText("Fixture preview")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
+    expect(screen.getAllByText("Synthetic fixture data")).toHaveLength(2);
     fireEvent.click(
       screen.getByRole("button", { name: "Run full verification" }),
     );
@@ -108,15 +111,76 @@ describe("Trust Core Control Centre", () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
     fireEvent.click(screen.getByRole("button", { name: "Access" }));
-    expect(screen.getByText("Ben Resonance")).toBeVisible();
+    expect(await screen.findByText("Ben Resonance")).toBeVisible();
     expect(screen.getByText("Organisation identity")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Assign access" }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Assign access" }).at(-1)!,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Add preview assignment" }),
     );
-    expect(screen.getByText("Audit reviewer")).toBeVisible();
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    expect(await screen.findByText("Audit reviewer")).toBeVisible();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "No access policy was changed",
+    );
+  });
+
+  it("manages authenticated live workspace assignments", async () => {
+    const listPolicyAssignments = vi.fn(async () => [
+      {
+        id: "assignment-1",
+        workspaceId: "workspace-live",
+        principalType: "user" as const,
+        principalId: "Current admin",
+        role: "admin",
+        scopeKind: "workspace" as const,
+        scopeId: "workspace-live",
+        createdBy: "owner",
+        createdAt: "2026-08-05T00:00:00.000Z",
+      },
+    ]);
+    const createPolicyAssignment = vi.fn(
+      async (
+        workspaceId: string,
+        input: Parameters<typeof fixtureGateway.createPolicyAssignment>[1],
+      ) => ({
+        id: "assignment-2",
+        workspaceId,
+        ...input,
+        createdBy: "Current admin",
+        createdAt: "2026-08-05T00:01:00.000Z",
+      }),
+    );
+    const revokePolicyAssignment = vi.fn(fixtureGateway.revokePolicyAssignment);
+    const gateway = {
+      ...fixtureGateway,
+      mode: "live" as const,
+      workspaceId: "workspace-live",
+      listPolicyAssignments,
+      createPolicyAssignment,
+      revokePolicyAssignment,
+    };
+    render(<App gateway={gateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Access" }));
+    expect(await screen.findByText("Current admin")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Assign access" }));
+    fireEvent.change(screen.getByLabelText("Principal"), {
+      target: { value: "Live reviewer" },
+    });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Assign access" }).at(-1)!,
+    );
+    expect(await screen.findByText("Live reviewer")).toBeVisible();
+    expect(createPolicyAssignment).toHaveBeenCalledWith("workspace-live", {
+      principalType: "user",
+      principalId: "Live reviewer",
+      role: "auditor",
+      scopeKind: "workspace",
+      scopeId: "workspace-live",
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Workspace policy assignment created",
     );
   });
 
@@ -124,6 +188,15 @@ describe("Trust Core Control Centre", () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
     fireEvent.click(screen.getByRole("button", { name: "Portability" }));
+    expect(screen.getByText("0.2H clean reconstruction gate")).toBeVisible();
+    expect(screen.getByText("Passed")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Create export" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create archive" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Download fixture-preview-export",
+      }),
+    ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Verify archive" }));
     expect(await screen.findByText("18 entries")).toBeVisible();
     fireEvent.click(

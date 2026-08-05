@@ -3,6 +3,10 @@ dist/
 *.tsbuildinfo
 .env
 coverage/
+playwright-report/
+test-results/
+.build/
+.swiftpm/
 .DS_Store
 *.log
 .trust-test/

@@ -1,4 +1,7 @@
-import type { SchemaPackageManifest } from "@trust-core/schema-registry";
+import type {
+  GovernedPublicationRequest,
+  SchemaPackageManifest,
+} from "@trust-core/schema-registry";
 
 const commonFields = {
   createdAt: {
@@ -198,3 +201,27 @@ export const weSketchSchema: SchemaPackageManifest = {
     },
   ],
 };
+
+export function createWeSketchPublicationRequest(
+  approval: GovernedPublicationRequest["approval"],
+  idempotencyKey: string,
+): GovernedPublicationRequest {
+  return {
+    manifest: weSketchSchema,
+    application: {
+      protocolVersion: "TCAP/1.0",
+      namespace: "app/wesketch",
+      applicationVersion: "1.0.0",
+      schemaPackage: {
+        key: "app/wesketch/1.0.0",
+        version: "1.0.0",
+        resourceTypes: weSketchSchema.resourceTypes.map(({ name }) => name),
+        relationTypes: weSketchSchema.relationships.map(({ type }) => type),
+        additionalFields: "reject",
+      },
+    },
+    approval,
+    idempotencyKey,
+    expectedCompatibility: "initial",
+  };
+}

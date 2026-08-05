@@ -1,4 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import type { DatasetRecord } from "../src/index.js";
 import {
   operationStates,
   publicErrorCodes,
@@ -36,5 +38,24 @@ describe("Release 0.1 public contracts", () => {
     expect(
       new Set(release01Routes.map(({ operationId }) => operationId)).size,
     ).toBe(release01Routes.length);
+  });
+
+  it("decodes the shared TypeScript and Swift dataset fixture", async () => {
+    const fixture = JSON.parse(
+      await readFile(
+        new URL(
+          "../../../swift/TrustCoreKit/Tests/TrustCoreKitTests/Fixtures/typescript-compatibility.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { items: DatasetRecord[] };
+    expect(fixture.items.map((item) => item.datasetType)).toEqual([
+      "personal-archive",
+      "creative-workspace",
+    ]);
+    expect(fixture.items.every((item) => item.retentionPolicyId === null)).toBe(
+      true,
+    );
   });
 });

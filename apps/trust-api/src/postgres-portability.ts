@@ -24,7 +24,6 @@ import {
 } from "@trust-core/persistence-postgres";
 import type {
   ArchiveCandidate,
-  ArchiveDownload,
   ArchiveExportSummary,
   AuthenticatedActor,
   CreateArchiveExportCommand,
@@ -36,6 +35,7 @@ import type {
 } from "@trust-core/protocol";
 import type { MinioObjectStorage } from "@trust-core/storage-minio";
 import type { PortabilityProvider } from "./portability.js";
+import type { ArchiveExportTransfer } from "./portability.js";
 
 const archiveLimits = {
   maxContainerBytes: 8_000_000,
@@ -146,16 +146,16 @@ export class PostgresPortabilityProvider implements PortabilityProvider {
   async downloadExport(
     workspaceId: string,
     exportId: string,
-  ): Promise<ArchiveDownload | undefined> {
+  ): Promise<ArchiveExportTransfer | undefined> {
     const durable = await this.store.getExport(workspaceId, exportId);
     if (!durable || durable.status !== "ready" || !durable.storage) return;
     const bytes = await this.objects.read(durable.storage);
     assertStoredBytes(durable.archiveSha256, durable.byteLength, bytes);
     return {
-      ...exportSummary(durable),
+      summary: exportSummary(durable),
       mediaType: "application/vnd.trust-core.archive+zip",
       filename: `${durable.id}.trustarchive`,
-      archiveBase64: Buffer.from(bytes).toString("base64"),
+      bytes,
     };
   }
 

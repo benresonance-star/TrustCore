@@ -14,11 +14,11 @@ import { Readable } from "node:stream";
 const TEMPORARY_KEY_PATTERN = /^workspaces\/[A-Za-z0-9_-]+\/temporary\/[A-Za-z0-9_-]+$/;
 
 export interface MinioStorageConfig {
-  endpoint: string;
+  endpoint?: string;
   region: string;
   bucket: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
   forcePathStyle?: boolean;
 }
 
@@ -26,13 +26,23 @@ export class MinioObjectStorage implements ObjectStorage {
   private readonly client: S3Client;
 
   constructor(private readonly config: MinioStorageConfig) {
+    if ((config.accessKeyId === undefined) !== (config.secretAccessKey === undefined)) {
+      throw new Error("MinIO static credentials require both accessKeyId and secretAccessKey");
+    }
     this.client = new S3Client({
-      endpoint: config.endpoint,
       region: config.region,
       forcePathStyle: config.forcePathStyle ?? true,
-      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
+      ...(config.endpoint ? { endpoint: config.endpoint } : {}),
+      ...(config.accessKeyId && config.secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: config.accessKeyId,
+              secretAccessKey: config.secretAccessKey,
+            },
+          }
+        : {}),
     });
   }
 

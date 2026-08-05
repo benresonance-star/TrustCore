@@ -281,6 +281,7 @@ createServer(async (request, response) => {
     const result = await route(request.method ?? "GET", pathname, {
       headers: {
         authorization: header(request.headers.authorization),
+        accept: header(request.headers.accept),
         cookie: header(request.headers.cookie),
         "x-request-id": requestId,
         "x-trust-csrf": header(request.headers["x-trust-csrf"]),
@@ -293,7 +294,9 @@ createServer(async (request, response) => {
       },
       body,
     });
-    send(response, result.status, result.body);
+    if (result.body instanceof Uint8Array)
+      sendBinary(response, result.status, result.body, result.headers);
+    else send(response, result.status, result.body, result.headers);
   } catch (error) {
     const tooLarge =
       error instanceof Error && error.message === "request_too_large";
@@ -373,7 +376,7 @@ function send(
   response: ServerResponse,
   status: number,
   body: unknown,
-  headers: Record<string, string | string[]> = {},
+  headers: Readonly<Record<string, string | string[]>> = {},
 ): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -382,6 +385,20 @@ function send(
     ...headers,
   });
   response.end(body === undefined ? undefined : JSON.stringify(body));
+}
+function sendBinary(
+  response: ServerResponse,
+  status: number,
+  body: Uint8Array,
+  headers: Readonly<Record<string, string>> = {},
+): void {
+  response.writeHead(status, {
+    "content-type": "application/octet-stream",
+    "cache-control": "no-store",
+    ...securityResponseHeaders(),
+    ...headers,
+  });
+  response.end(body);
 }
 function securityResponseHeaders(): Record<string, string> {
   return {

@@ -130,7 +130,9 @@ GRANT SELECT, INSERT, UPDATE ON
   portability_archives,
   portability_plans,
   portability_import_operations,
-  imported_archive_audit_events
+  imported_archive_audit_events,
+  retention_policies,
+  retention_policy_requests
 TO trust_application;
 REVOKE INSERT, UPDATE, DELETE ON
   policy_assignments,
@@ -168,7 +170,8 @@ GRANT SELECT ON
   portability_archives,
   portability_plans,
   portability_import_operations,
-  imported_archive_audit_events
+  imported_archive_audit_events,
+  retention_policies
 TO trust_verification;
 GRANT SELECT, INSERT, UPDATE ON verification_runs TO trust_verification;
 

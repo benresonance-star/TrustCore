@@ -65,6 +65,78 @@ describe("Trust Core TypeScript SDK", () => {
       .catch((error) => expect(error).toBeInstanceOf(TrustApiError));
   });
 
+  it("sends typed retention create and guarded update requests", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () =>
+        json({ id: "retention", purgeEnabled: false }),
+      );
+    const client = createTrustClient({
+      baseUrl: "https://trust.example",
+      workspaceId: "workspace",
+      fetch,
+    });
+    const values = {
+      name: "Default",
+      recoveryWindowDays: 30,
+      minimumHistoryDays: 365,
+      backupRetentionDays: 90,
+      purgeEnabled: false as const,
+      idempotencyKey: "create-retention",
+    };
+    await client.retentionPolicies.create(values);
+    await client.retentionPolicies.update("retention", {
+      ...values,
+      idempotencyKey: "update-retention",
+      expectedUpdatedAt: "2026-08-05T00:00:00.000Z",
+    });
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({
+      workspaceId: "workspace",
+      expectedUpdatedAt: "2026-08-05T00:00:00.000Z",
+    });
+  });
+
+  it("lists, creates and revokes policy assignments with workspace context", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(json({ items: [] }))
+      .mockResolvedValueOnce(json({ id: "assignment", role: "auditor" }))
+      .mockResolvedValueOnce(
+        json({ id: "assignment", role: "auditor", revokedAt: "now" }),
+      );
+    const client = createTrustClient({
+      baseUrl: "https://trust.example",
+      workspaceId: "workspace",
+      csrfToken: "csrf",
+      fetch,
+    });
+    await client.policyAssignments.list();
+    await client.policyAssignments.create({
+      principalType: "user",
+      principalId: "reviewer",
+      role: "auditor",
+      scopeKind: "workspace",
+      scopeId: "workspace",
+      idempotencyKey: "assign-reviewer",
+    });
+    await client.policyAssignments.revoke("assignment", {
+      idempotencyKey: "revoke-reviewer",
+    });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://trust.example/v1/policy-assignments",
+      "https://trust.example/v1/policy-assignments",
+      "https://trust.example/v1/policy-assignments/assignment",
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+    expect(fetch.mock.calls[2]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({
+      workspaceId: "workspace",
+      idempotencyKey: "revoke-reviewer",
+    });
+  });
+
   it("runs the bounded expected-hash upload flow", async () => {
     const bytes = new TextEncoder().encode("bounded");
     const expectedSha256 = createHash("sha256").update(bytes).digest("hex");
@@ -165,6 +237,15 @@ describe("Trust Core TypeScript SDK", () => {
       .mockResolvedValueOnce(json({ id: "export", status: "ready" }))
       .mockResolvedValueOnce(
         json({ id: "export", archiveBase64: "YXJjaGl2ZQ==" }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new TextEncoder().encode("archive"), {
+          headers: {
+            "content-type": "application/vnd.trust-core.archive+zip",
+            "content-disposition": 'attachment; filename="export.trustarchive"',
+            "x-trust-archive-sha256": "digest",
+          },
+        }),
       );
     const client = createTrustClient({
       baseUrl: "https://trust.example",
@@ -191,6 +272,13 @@ describe("Trust Core TypeScript SDK", () => {
       reauthenticationProof: "fresh-export-proof",
     });
     await client.portability.exports.download("export", "fresh-download-proof");
+    const binary = await client.portability.exports.downloadBytes(
+      "export",
+      "fresh-download-proof",
+    );
+    expect(new TextDecoder().decode(binary.bytes)).toBe("archive");
+    expect(binary.filename).toBe("export.trustarchive");
+    expect(binary.sha256).toBe("digest");
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
       workspaceId: "workspace",
       idempotencyKey: "archive-key",
@@ -218,6 +306,9 @@ describe("Trust Core TypeScript SDK", () => {
     expect(
       new Headers(fetch.mock.calls[4]?.[1]?.headers).get("x-trust-reauth"),
     ).toBe("fresh-download-proof");
+    expect(new Headers(fetch.mock.calls[5]?.[1]?.headers).get("accept")).toBe(
+      "application/vnd.trust-core.archive+zip",
+    );
   });
 
   it("reads both application fixtures through only the public SDK surface", async () => {

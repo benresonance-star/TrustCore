@@ -67,6 +67,8 @@ export interface BlobObject {
   mediaType: string;
   storageProvider: string;
   storageKey: string;
+  encryptionState: "provider_managed" | "customer_managed";
+  encryptionKeyRef: string | null;
   verificationState: "pending" | "verified" | "failed";
   createdAt: IsoTimestamp;
 }
@@ -109,7 +111,10 @@ export interface RetentionPolicy {
   recoveryWindowDays: number;
   minimumHistoryDays: number;
   backupRetentionDays: number;
-  purgeEnabled: boolean;
+  purgeEnabled: false;
+  createdBy: TrustId;
+  updatedBy: TrustId;
+  extensions: Readonly<Record<string, unknown>>;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

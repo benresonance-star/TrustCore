@@ -184,10 +184,17 @@ evidence.
 The source-only `pnpm trust:test` command deliberately retains its weaker
 `TRUST TEST CANDIDATE` marker.
 
-## Remaining post-0.1 operational hardening
+## Completed subsequent gate
+
+Release 0.2 archive/export/import portability passed at checkpoint 0.2H on
+clean commit `24d125a7953395c0711c11f0a664d537feb27025`. See
+`CHECKPOINT_0.2H.md` and `reports/release-0.2-portability-gate.md`.
+
+## Remaining Release 0.3 operational hardening
 
 - integrate organisation identity against a real external OIDC provider tenant
   and verify its production claim mapping, MFA/passkey and session behavior;
 - execute production backup/restore and credential-rotation drills in the
   target operating environment;
-- implement and prove Release 0.2 archive/export/import portability.
+- prove monitoring, alert delivery and recovery while the primary environment
+  is unavailable.

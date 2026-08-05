@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
+    "conformance:live": "tsx scripts/conformance-live.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

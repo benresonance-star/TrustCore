@@ -30,6 +30,7 @@ export function createIvansDiaryFixture(): IvansDiaryFixture {
     ["sketchbook-stories", "Sketchbook", "Stories for Tuesday", { title: "Stories for Tuesday", createdAt: at, modifiedAt: at }],
     ["sketch-boat", "SketchPage", "Boat sketch", { pageNumber: 1, canvasWidth: 2048, canvasHeight: 1536, createdAt: at, modifiedAt: at }],
     ["drawing-boat", "Drawing", "Boat drawing strokes", { blobSha256: "a".repeat(64), mediaType: "application/vnd.apple.pencilkit", createdAt: at, modifiedAt: at }],
+    ["photo-boat", "Photo", "Boat reference photo", { blobSha256: "c".repeat(64), mediaType: "image/jpeg", caption: "Synthetic boat reference", createdAt: at, modifiedAt: at }],
     ["audio-reflection", "Audio", "Hospital reflection", { blobSha256: "b".repeat(64), mediaType: "audio/mp4", durationSeconds: 43.2, createdAt: at, modifiedAt: at }],
     ["bookmark-tuesday", "Bookmark", "Show on Tuesday", { label: "Show on Tuesday", createdAt: at, modifiedAt: at }],
   ] as const;
@@ -39,7 +40,8 @@ export function createIvansDiaryFixture(): IvansDiaryFixture {
   const relationData = [
     ["rel-diary-entry", "diary-main", "entry-hospital", "contains"], ["rel-entry-page", "entry-hospital", "page-hospital-1", "contains"],
     ["rel-entry-text", "entry-hospital", "text-hospital-1", "contains"], ["rel-sketchbook-page", "sketchbook-stories", "sketch-boat", "contains"],
-    ["rel-entry-drawing", "entry-hospital", "drawing-boat", "contains"], ["rel-entry-audio", "entry-hospital", "audio-reflection", "contains"],
+    ["rel-entry-drawing", "entry-hospital", "drawing-boat", "contains"], ["rel-entry-photo", "entry-hospital", "photo-boat", "contains"],
+    ["rel-entry-audio", "entry-hospital", "audio-reflection", "contains"],
     ["rel-bookmark-page", "bookmark-tuesday", "sketch-boat", "references"],
   ] as const;
   const relations: Relation[] = relationData.map(([id, sourceId, targetId, relationType]) => ({ id, workspaceId, datasetId, sourceKind: "resource", sourceId, targetKind: "resource", targetId, relationType, metadata: {}, createdBy: actorId, createdAt: at, endedAt: null }));

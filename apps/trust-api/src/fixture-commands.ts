@@ -3,6 +3,8 @@ import type {
   ApplicationRegistration,
   AuthenticatedActor,
   DeleteResourceResult,
+  RetentionPolicyRecord,
+  PolicyAssignment,
   RecoverableItem,
   RevisionCommandResult,
   TrustEventSummary,
@@ -10,6 +12,18 @@ import type {
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type { CommandProvider } from "./app.js";
+
+const retentionKnownFields = new Set([
+  "workspaceId",
+  "name",
+  "recoveryWindowDays",
+  "minimumHistoryDays",
+  "backupRetentionDays",
+  "purgeEnabled",
+  "idempotencyKey",
+  "expectedUpdatedAt",
+  "extensions",
+]);
 
 export function createFixtureCommands(
   clock: () => Date = () => new Date(),
@@ -29,6 +43,7 @@ export function createFixtureCommands(
     datasetType: "diary",
     name: "Ivan's diary",
     status: "active" as const,
+    retentionPolicyId: null,
     createdAt: workspace.createdAt,
     updatedAt: workspace.updatedAt,
   };
@@ -68,12 +83,26 @@ export function createFixtureCommands(
     },
   ];
   const applications: ApplicationRegistration[] = [];
+  const policyAssignments: readonly PolicyAssignment[] = [
+    {
+      id: "fixture-policy-admin",
+      workspaceId: workspace.id,
+      principalType: "user",
+      principalId: "fixture-admin",
+      role: "admin",
+      scopeKind: "workspace",
+      scopeId: workspace.id,
+      createdBy: "fixture-seed",
+      createdAt: workspace.createdAt,
+    },
+  ];
   const applicationRequests = new Map<
     string,
     { fingerprint: string; registration: ApplicationRegistration }
   >();
   const reports: VerificationRunResult[] = [];
   const uploads = new Map<string, UploadSession>();
+  const retentionPolicies = new Map<string, RetentionPolicyRecord>();
   const uploadOwners = new Map<string, string>();
   const uploadRequests = new Map<
     string,
@@ -156,6 +185,38 @@ export function createFixtureCommands(
       applicationRequests.set(requestKey, { fingerprint, registration });
       return registration;
     },
+    async listPolicyAssignments(workspaceId) {
+      return {
+        items: policyAssignments.filter(
+          (assignment) => assignment.workspaceId === workspaceId,
+        ),
+      };
+    },
+    async createPolicyAssignment(actor, command) {
+      return {
+        id: `fixture-preview-${command.idempotencyKey}`,
+        workspaceId: command.workspaceId,
+        principalType: command.principalType,
+        principalId: command.principalId,
+        role: command.role,
+        scopeKind: command.scopeKind,
+        scopeId: command.scopeId,
+        createdBy: actor.id,
+        createdAt: clock().toISOString(),
+      };
+    },
+    async revokePolicyAssignment(assignmentId, _actor, command) {
+      const assignment = policyAssignments.find(
+        (candidate) =>
+          candidate.workspaceId === command.workspaceId &&
+          candidate.id === assignmentId,
+      );
+      if (!assignment)
+        throw Object.assign(new Error("Policy assignment was not found."), {
+          code: "POLICY_ASSIGNMENT_NOT_FOUND",
+        });
+      return { ...assignment, revokedAt: clock().toISOString() };
+    },
     async listDatasets(workspaceId) {
       return { items: workspaceId === workspace.id ? [dataset] : [] };
     },
@@ -163,6 +224,59 @@ export function createFixtureCommands(
       return workspaceId === workspace.id && datasetId === dataset.id
         ? dataset
         : undefined;
+    },
+    async listRetentionPolicies(workspaceId) {
+      return {
+        items: [...retentionPolicies.values()].filter(
+          (policy) => policy.workspaceId === workspaceId,
+        ),
+      };
+    },
+    async getRetentionPolicy(workspaceId, policyId) {
+      const policy = retentionPolicies.get(policyId);
+      return policy?.workspaceId === workspaceId ? policy : undefined;
+    },
+    async createRetentionPolicy(actor, command) {
+      const at = clock().toISOString();
+      const policy: RetentionPolicyRecord = {
+        id: randomUUID(),
+        workspaceId: command.workspaceId,
+        name: command.name,
+        recoveryWindowDays: command.recoveryWindowDays,
+        minimumHistoryDays: command.minimumHistoryDays,
+        backupRetentionDays: command.backupRetentionDays,
+        purgeEnabled: false,
+        extensions: retentionExtensions(command),
+        createdBy: actor.id,
+        updatedBy: actor.id,
+        createdAt: at,
+        updatedAt: at,
+      };
+      retentionPolicies.set(policy.id, policy);
+      return policy;
+    },
+    async updateRetentionPolicy(policyId, actor, command) {
+      const existing = retentionPolicies.get(policyId);
+      if (!existing || existing.workspaceId !== command.workspaceId)
+        throw Object.assign(new Error("Retention policy not found."), {
+          code: "RETENTION_POLICY_NOT_FOUND",
+        });
+      if (existing.updatedAt !== command.expectedUpdatedAt)
+        throw Object.assign(new Error("Retention policy changed."), {
+          code: "RETENTION_POLICY_CONFLICT",
+        });
+      const policy: RetentionPolicyRecord = {
+        ...existing,
+        name: command.name,
+        recoveryWindowDays: command.recoveryWindowDays,
+        minimumHistoryDays: command.minimumHistoryDays,
+        backupRetentionDays: command.backupRetentionDays,
+        extensions: retentionExtensions(command),
+        updatedBy: actor.id,
+        updatedAt: clock().toISOString(),
+      };
+      retentionPolicies.set(policyId, policy);
+      return policy;
     },
     async listResources(workspaceId, datasetId) {
       return {
@@ -410,6 +524,17 @@ export function createFixtureCommands(
           uploadRequests.set(key, { ...request, session: completed });
       return completed;
     },
+  };
+}
+
+function retentionExtensions(
+  command: object & { extensions?: Readonly<Record<string, unknown>> },
+): Readonly<Record<string, unknown>> {
+  return {
+    ...Object.fromEntries(
+      Object.entries(command).filter(([key]) => !retentionKnownFields.has(key)),
+    ),
+    ...(command.extensions ?? {}),
   };
 }
 

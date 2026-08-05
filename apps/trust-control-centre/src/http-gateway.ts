@@ -34,6 +34,29 @@ export const httpGateway: ControlCentreGateway = {
     };
   },
   getHistory: (workspaceId) => client.history.list({ workspaceId }),
+  createArchiveExport: (workspaceId, datasetIds, reauthenticationProof) =>
+    client.datasetsContext({ workspaceId }).portability.exports.create({
+      datasetIds,
+      reauthenticationProof,
+    }),
+  downloadArchiveExport: (workspaceId, exportId, reauthenticationProof) =>
+    client
+      .datasetsContext({ workspaceId })
+      .portability.exports.downloadBytes(exportId, reauthenticationProof),
+  async listPolicyAssignments(workspaceId) {
+    return (
+      await client.datasetsContext({ workspaceId }).policyAssignments.list()
+    ).items;
+  },
+  createPolicyAssignment: (workspaceId, input) =>
+    client.datasetsContext({ workspaceId }).policyAssignments.create({
+      ...input,
+      idempotencyKey: client.idempotency.create("policy-assignment"),
+    }),
+  revokePolicyAssignment: (workspaceId, assignmentId) =>
+    client
+      .datasetsContext({ workspaceId })
+      .policyAssignments.revoke(assignmentId),
   restoreResource: (workspaceId, resourceId) =>
     client.datasetsContext({ workspaceId }).resources.restore(resourceId, {
       changeNote: "Restored from Trust Core Control Centre",

@@ -1,0 +1,7 @@
+{
+  "framework": null,
+  "installCommand": "corepack pnpm@10.15.0 install --frozen-lockfile",
+  "buildCommand": "corepack pnpm@10.15.0 --filter @trust-core/control-centre build",
+  "outputDirectory": "apps/trust-control-centre/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

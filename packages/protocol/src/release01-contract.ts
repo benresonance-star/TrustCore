@@ -1,4 +1,4 @@
-export type Release01Method = "GET" | "POST" | "DELETE";
+export type Release01Method = "GET" | "POST" | "PUT" | "DELETE";
 export interface RouteContract {
   method: Release01Method;
   path: string;
@@ -15,7 +15,10 @@ export const publicErrorCodes = [
   "SCHEMA_NOT_FOUND",
   "RESOURCE_NOT_FOUND",
   "DATASET_NOT_FOUND",
+  "RETENTION_POLICY_NOT_FOUND",
+  "RETENTION_POLICY_CONFLICT",
   "APPLICATION_NOT_FOUND",
+  "POLICY_ASSIGNMENT_NOT_FOUND",
   "VERIFICATION_REPORT_NOT_FOUND",
   "OPERATION_NOT_FOUND",
   "ARCHIVE_NOT_FOUND",
@@ -58,6 +61,21 @@ export const release01Routes = [
     path: "/v1/applications",
     operationId: "applications.register",
   },
+  {
+    method: "GET",
+    path: "/v1/policy-assignments",
+    operationId: "policyAssignments.list",
+  },
+  {
+    method: "POST",
+    path: "/v1/policy-assignments",
+    operationId: "policyAssignments.create",
+  },
+  {
+    method: "DELETE",
+    path: "/v1/policy-assignments/{assignmentId}",
+    operationId: "policyAssignments.revoke",
+  },
   { method: "GET", path: "/v1/schemas", operationId: "schemas.list" },
   {
     method: "GET",
@@ -69,6 +87,26 @@ export const release01Routes = [
     method: "GET",
     path: "/v1/datasets/{datasetId}",
     operationId: "datasets.get",
+  },
+  {
+    method: "GET",
+    path: "/v1/retention-policies",
+    operationId: "retentionPolicies.list",
+  },
+  {
+    method: "POST",
+    path: "/v1/retention-policies",
+    operationId: "retentionPolicies.create",
+  },
+  {
+    method: "GET",
+    path: "/v1/retention-policies/{policyId}",
+    operationId: "retentionPolicies.get",
+  },
+  {
+    method: "PUT",
+    path: "/v1/retention-policies/{policyId}",
+    operationId: "retentionPolicies.update",
   },
   { method: "GET", path: "/v1/resources", operationId: "resources.list" },
   {
@@ -261,6 +299,49 @@ export const release01Schemas = {
     capabilities: array({ type: "string" }),
     idempotencyKey: { type: "string", minLength: 1 },
   }),
+  PolicyAssignment: object({
+    id,
+    workspaceId: id,
+    principalType: {
+      type: "string",
+      enum: ["user", "service", "application"],
+    },
+    principalId: id,
+    role: {
+      type: "string",
+      enum: ["owner", "admin", "editor", "recovery_operator", "auditor"],
+    },
+    scopeKind: {
+      type: "string",
+      enum: ["workspace", "dataset", "application"],
+    },
+    scopeId: id,
+    createdBy: id,
+    createdAt: dateTime,
+    revokedAt: nullable(dateTime),
+  }),
+  CreatePolicyAssignment: object({
+    workspaceId: id,
+    principalType: {
+      type: "string",
+      enum: ["user", "service", "application"],
+    },
+    principalId: id,
+    role: {
+      type: "string",
+      enum: ["owner", "admin", "editor", "recovery_operator", "auditor"],
+    },
+    scopeKind: {
+      type: "string",
+      enum: ["workspace", "dataset", "application"],
+    },
+    scopeId: id,
+    idempotencyKey: { type: "string", minLength: 1 },
+  }),
+  RevokePolicyAssignment: object({
+    workspaceId: id,
+    idempotencyKey: { type: "string", minLength: 1 },
+  }),
   SchemaPackage: object({
     id,
     key: { type: "string" },
@@ -279,9 +360,112 @@ export const release01Schemas = {
       type: "string",
       enum: ["active", "archived", "deleted_logically", "legal_hold"],
     },
+    retentionPolicyId: nullable(id),
     createdAt: dateTime,
     updatedAt: dateTime,
   }),
+  RetentionPolicy: object(
+    {
+      id,
+      workspaceId: id,
+      name: { type: "string", minLength: 1 },
+      recoveryWindowDays: { type: "integer", minimum: 0, maximum: 36500 },
+      minimumHistoryDays: { type: "integer", minimum: 0, maximum: 36500 },
+      backupRetentionDays: { type: "integer", minimum: 0, maximum: 36500 },
+      purgeEnabled: { const: false },
+      extensions: stringMap,
+      createdBy: id,
+      updatedBy: id,
+      createdAt: dateTime,
+      updatedAt: dateTime,
+    },
+    undefined,
+    true,
+  ),
+  CreateRetentionPolicy: object(
+    {
+      workspaceId: id,
+      name: { type: "string", minLength: 1 },
+      recoveryWindowDays: { type: "integer", minimum: 0, maximum: 36500 },
+      minimumHistoryDays: { type: "integer", minimum: 0, maximum: 36500 },
+      backupRetentionDays: { type: "integer", minimum: 0, maximum: 36500 },
+      purgeEnabled: { const: false },
+      idempotencyKey: { type: "string", minLength: 1 },
+      extensions: stringMap,
+    },
+    [
+      "workspaceId",
+      "name",
+      "recoveryWindowDays",
+      "minimumHistoryDays",
+      "backupRetentionDays",
+      "purgeEnabled",
+      "idempotencyKey",
+    ],
+    true,
+  ),
+  UpdateRetentionPolicy: object(
+    {
+      workspaceId: id,
+      name: { type: "string", minLength: 1 },
+      recoveryWindowDays: { type: "integer", minimum: 0, maximum: 36500 },
+      minimumHistoryDays: { type: "integer", minimum: 0, maximum: 36500 },
+      backupRetentionDays: { type: "integer", minimum: 0, maximum: 36500 },
+      purgeEnabled: { const: false },
+      idempotencyKey: { type: "string", minLength: 1 },
+      expectedUpdatedAt: dateTime,
+      extensions: stringMap,
+    },
+    [
+      "workspaceId",
+      "name",
+      "recoveryWindowDays",
+      "minimumHistoryDays",
+      "backupRetentionDays",
+      "purgeEnabled",
+      "idempotencyKey",
+      "expectedUpdatedAt",
+    ],
+    true,
+  ),
+  BlobOperationalMetadata: object(
+    {
+      encryptionState: {
+        type: "string",
+        enum: ["provider_managed", "customer_managed"],
+      },
+      encryptionKeyRef: nullable({ type: "string" }),
+      verificationState: {
+        type: "string",
+        enum: ["pending", "verified", "failed"],
+      },
+    },
+    undefined,
+    true,
+  ),
+  BlobObject: object(
+    {
+      id,
+      workspaceId: id,
+      sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+      byteLength: { type: "integer", minimum: 0 },
+      mediaType: { type: "string" },
+      storageProvider: { type: "string" },
+      storageKey: { type: "string" },
+      encryptionState: {
+        type: "string",
+        enum: ["provider_managed", "customer_managed"],
+      },
+      encryptionKeyRef: nullable({ type: "string" }),
+      verificationState: {
+        type: "string",
+        enum: ["pending", "verified", "failed"],
+      },
+      createdAt: dateTime,
+    },
+    undefined,
+    true,
+  ),
   Resource: object({
     id,
     workspaceId: id,
@@ -480,7 +664,7 @@ export const release01Schemas = {
   }),
   ObjectIngestResult: object({
     operationId: id,
-    blob: stringMap,
+    blob: ref("BlobObject"),
     deduplicated: { type: "boolean" },
     resumed: { type: "boolean" },
   }),
@@ -638,8 +822,10 @@ export const release01Schemas = {
   }),
   WorkspaceList: list("Workspace"),
   ApplicationList: list("Application"),
+  PolicyAssignmentList: list("PolicyAssignment"),
   SchemaPackageList: list("SchemaPackage"),
   DatasetList: list("Dataset"),
+  RetentionPolicyList: list("RetentionPolicy"),
   ResourceList: list("Resource"),
   RecoverableList: list("RecoverableItem"),
   RelationList: list("Relation"),
@@ -775,6 +961,21 @@ export const release01OpenApi = {
         parameters: bodyContextParameters,
       }),
     },
+    "/v1/policy-assignments": {
+      get: operation("policyAssignments.list", "PolicyAssignmentList", {
+        parameters: readContextParameters,
+      }),
+      post: operation("policyAssignments.create", "PolicyAssignment", {
+        body: "CreatePolicyAssignment",
+        parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/policy-assignments/{assignmentId}": {
+      delete: operation("policyAssignments.revoke", "PolicyAssignment", {
+        body: "RevokePolicyAssignment",
+        parameters: [pathParameter("assignmentId"), ...bodyContextParameters],
+      }),
+    },
     "/v1/schemas": {
       get: operation("schemas.list", "SchemaPackageList", {
         parameters: readContextParameters,
@@ -793,6 +994,24 @@ export const release01OpenApi = {
     "/v1/datasets/{datasetId}": {
       get: operation("datasets.get", "Dataset", {
         parameters: [pathParameter("datasetId"), ...readContextParameters],
+      }),
+    },
+    "/v1/retention-policies": {
+      get: operation("retentionPolicies.list", "RetentionPolicyList", {
+        parameters: readContextParameters,
+      }),
+      post: operation("retentionPolicies.create", "RetentionPolicy", {
+        body: "CreateRetentionPolicy",
+        parameters: bodyContextParameters,
+      }),
+    },
+    "/v1/retention-policies/{policyId}": {
+      get: operation("retentionPolicies.get", "RetentionPolicy", {
+        parameters: [pathParameter("policyId"), ...readContextParameters],
+      }),
+      put: operation("retentionPolicies.update", "RetentionPolicy", {
+        body: "UpdateRetentionPolicy",
+        parameters: [pathParameter("policyId"), ...bodyContextParameters],
       }),
     },
     "/v1/resources": {

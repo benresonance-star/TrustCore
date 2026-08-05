@@ -1,0 +1,16 @@
+{
+  "name": "@trust-core/storage-s3",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1102.0",
+    "@aws-sdk/lib-storage": "^3.1101.0",
+    "@trust-core/storage": "workspace:*"
+  }
+}

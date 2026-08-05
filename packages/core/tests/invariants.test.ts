@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { assertBlobHash, assertNextRevision, TrustInvariantError } from "../src/index.js";
+import {
+  assertBlobEncryptionMetadata,
+  assertBlobHash,
+  assertNextRevision,
+  assertRetentionPolicy,
+  TrustInvariantError,
+} from "../src/index.js";
 import type { Resource, Revision } from "../src/index.js";
 
 const now = "2026-08-03T00:00:00.000Z";
@@ -29,5 +35,23 @@ describe("Trust Core invariants", () => {
     } catch (error) {
       expect((error as TrustInvariantError).code).toBe("BASE_REVISION_CONFLICT");
     }
+  });
+
+  it("rejects purge enablement and secret encryption metadata", () => {
+    expect(() =>
+      assertRetentionPolicy({
+        name: "Default",
+        recoveryWindowDays: 30,
+        minimumHistoryDays: 365,
+        backupRetentionDays: 90,
+        purgeEnabled: true,
+      }),
+    ).toThrowError(TrustInvariantError);
+    expect(() =>
+      assertBlobEncryptionMetadata({
+        encryptionState: "customer_managed",
+        encryptionKeyRef: "secret=plaintext",
+      }),
+    ).toThrowError(TrustInvariantError);
   });
 });

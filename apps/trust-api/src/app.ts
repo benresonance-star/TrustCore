@@ -5,16 +5,21 @@ import type {
   AuthenticatedActor,
   CompleteUploadCommand,
   ControlCentreSnapshot,
+  CreatePolicyAssignmentCommand,
   CreateArchiveExportCommand,
   CreateUploadCommand,
   CreateImportPlanCommand,
+  CreateRetentionPolicyCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
   HealthResponse,
   HistorySnapshot,
   PublicErrorCode,
+  PolicyAssignment,
   RegisterApplicationCommand,
   RestoreResourceCommand,
+  RevokePolicyAssignmentCommand,
+  RetentionPolicyRecord,
   RevisionCommand,
   RevisionCommandResult,
   RunVerificationCommand,
@@ -22,6 +27,7 @@ import type {
   TrustAction,
   UploadSession,
   UploadArchiveCommand,
+  UpdateRetentionPolicyCommand,
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type { ObjectIngestResult } from "@trust-core/operations";
@@ -47,6 +53,7 @@ export interface SchemaProvider {
 export interface ApiResult {
   status: number;
   body: unknown;
+  headers?: Readonly<Record<string, string>>;
 }
 export interface ApiRequest {
   headers?: Readonly<Record<string, string | undefined>>;
@@ -60,11 +67,35 @@ export interface CommandProvider {
     actor: AuthenticatedActor,
     command: RegisterApplicationCommand,
   ): Promise<ApplicationRegistration>;
+  listPolicyAssignments(workspaceId: string): Promise<unknown>;
+  createPolicyAssignment(
+    actor: AuthenticatedActor,
+    command: CreatePolicyAssignmentCommand,
+  ): Promise<PolicyAssignment>;
+  revokePolicyAssignment(
+    assignmentId: string,
+    actor: AuthenticatedActor,
+    command: RevokePolicyAssignmentCommand,
+  ): Promise<PolicyAssignment>;
   listDatasets(workspaceId: string): Promise<unknown>;
   getDataset(
     workspaceId: string,
     datasetId: string,
   ): Promise<unknown | undefined>;
+  listRetentionPolicies(workspaceId: string): Promise<unknown>;
+  getRetentionPolicy(
+    workspaceId: string,
+    policyId: string,
+  ): Promise<RetentionPolicyRecord | undefined>;
+  createRetentionPolicy(
+    actor: AuthenticatedActor,
+    command: CreateRetentionPolicyCommand,
+  ): Promise<RetentionPolicyRecord>;
+  updateRetentionPolicy(
+    policyId: string,
+    actor: AuthenticatedActor,
+    command: UpdateRetentionPolicyCommand,
+  ): Promise<RetentionPolicyRecord>;
   listResources(workspaceId: string, datasetId?: string): Promise<unknown>;
   getResource(
     workspaceId: string,
@@ -198,6 +229,14 @@ export function createApi(
 
     const datasetMatch = match(pathname, /^\/v1\/datasets\/([^/]+)$/);
     const resourceMatch = match(pathname, /^\/v1\/resources\/([^/]+)$/);
+    const retentionPolicyMatch = match(
+      pathname,
+      /^\/v1\/retention-policies\/([^/]+)$/,
+    );
+    const policyAssignmentMatch = match(
+      pathname,
+      /^\/v1\/policy-assignments\/([^/]+)$/,
+    );
     const revisionGraphMatch = match(
       pathname,
       /^\/v1\/resources\/([^/]+)\/revision-graph$/,
@@ -272,6 +311,44 @@ export function createApi(
           ),
         validApplication,
       );
+    if (pathname === "/v1/policy-assignments" && method === "GET")
+      return secured(
+        "access:manage",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.listPolicyAssignments(workspaceId),
+      );
+    if (pathname === "/v1/policy-assignments" && method === "POST")
+      return secured(
+        "access:manage",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.createPolicyAssignment(
+            actor,
+            request.body as CreatePolicyAssignmentCommand,
+          ),
+        validPolicyAssignment,
+      );
+    if (policyAssignmentMatch && method === "DELETE")
+      return secured(
+        "access:manage",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.revokePolicyAssignment(
+            policyAssignmentMatch,
+            actor,
+            request.body as RevokePolicyAssignmentCommand,
+          ),
+        validPolicyRevocation,
+      );
     if (pathname === "/v1/schemas" && method === "GET")
       return secured(
         "workspace:read",
@@ -319,6 +396,61 @@ export function createApi(
           ),
         undefined,
         { datasetId: datasetMatch },
+      );
+    if (pathname === "/v1/retention-policies" && method === "GET")
+      return secured(
+        "dataset:read",
+        method,
+        request,
+        commands,
+        access,
+        (workspaceId) => commands!.listRetentionPolicies(workspaceId),
+      );
+    if (pathname === "/v1/retention-policies" && method === "POST")
+      return secured(
+        "retention:manage",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.createRetentionPolicy(
+            actor,
+            request.body as CreateRetentionPolicyCommand,
+          ),
+        validRetentionPolicy,
+      );
+    if (retentionPolicyMatch && method === "GET")
+      return secured(
+        "dataset:read",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId) =>
+          found(
+            await commands!.getRetentionPolicy(
+              workspaceId,
+              retentionPolicyMatch,
+            ),
+            "RETENTION_POLICY_NOT_FOUND",
+            "The requested retention policy was not found.",
+          ),
+      );
+    if (retentionPolicyMatch && method === "PUT")
+      return secured(
+        "retention:manage",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) =>
+          commands!.updateRetentionPolicy(
+            retentionPolicyMatch,
+            actor,
+            request.body as UpdateRetentionPolicyCommand,
+          ),
+        validRetentionPolicyUpdate,
       );
     if (pathname === "/v1/resources" && method === "GET")
       return secured(
@@ -628,13 +760,16 @@ export function createApi(
             commands,
             access,
             async (workspaceId) =>
-              found(
-                await portability.downloadExport(
-                  workspaceId,
-                  exportDownloadMatch,
+              archiveDownloadResult(
+                found(
+                  await portability.downloadExport(
+                    workspaceId,
+                    exportDownloadMatch,
+                  ),
+                  "ARCHIVE_NOT_FOUND",
+                  "The requested archive export was not found.",
                 ),
-                "ARCHIVE_NOT_FOUND",
-                "The requested archive export was not found.",
+                request.headers?.accept,
               ),
             undefined,
             {},
@@ -855,7 +990,8 @@ async function secured(
       request,
     );
   try {
-    return { status: 200, body: await execute(workspaceId, actor) };
+    const body = await execute(workspaceId, actor);
+    return isApiResult(body) ? body : { status: 200, body };
   } catch (error) {
     if (error instanceof ApiRouteError)
       return failure(error.status, error.code, error.message, request);
@@ -872,6 +1008,27 @@ async function secured(
         409,
         "IDEMPOTENCY_CONFLICT",
         "The idempotency key was already used for a different request.",
+        request,
+      );
+    if (code === "RETENTION_POLICY_NOT_FOUND")
+      return failure(
+        404,
+        "RETENTION_POLICY_NOT_FOUND",
+        "The requested retention policy was not found.",
+        request,
+      );
+    if (code === "POLICY_ASSIGNMENT_NOT_FOUND")
+      return failure(
+        404,
+        "POLICY_ASSIGNMENT_NOT_FOUND",
+        "The requested policy assignment was not found.",
+        request,
+      );
+    if (code === "RETENTION_POLICY_CONFLICT")
+      return failure(
+        409,
+        "RETENTION_POLICY_CONFLICT",
+        "The retention policy changed before this update.",
         request,
       );
     if (code === "INVALID_COMMAND")
@@ -916,6 +1073,13 @@ async function secured(
       request,
     );
   }
+}
+function isApiResult(value: unknown): value is ApiResult {
+  return (
+    record(value) &&
+    typeof value.status === "number" &&
+    Object.prototype.hasOwnProperty.call(value, "body")
+  );
 }
 
 class ApiRouteError extends Error {
@@ -1006,6 +1170,24 @@ function validRevision(body: unknown): boolean {
     (body.changeNote === undefined || typeof body.changeNote === "string")
   );
 }
+function validPolicyAssignment(body: unknown): boolean {
+  if (
+    !validWorkspaceBody(body) ||
+    !nonEmpty(body.principalId) ||
+    !nonEmpty(body.scopeId) ||
+    !nonEmpty(body.idempotencyKey) ||
+    !["user", "service", "application"].includes(String(body.principalType)) ||
+    !["owner", "admin", "editor", "recovery_operator", "auditor"].includes(
+      String(body.role),
+    ) ||
+    !["workspace", "dataset", "application"].includes(String(body.scopeKind))
+  )
+    return false;
+  return body.scopeKind !== "workspace" || body.scopeId === body.workspaceId;
+}
+function validPolicyRevocation(body: unknown): boolean {
+  return validWorkspaceBody(body) && nonEmpty(body.idempotencyKey);
+}
 function validDelete(body: unknown): boolean {
   return (
     validWorkspaceBody(body) &&
@@ -1014,6 +1196,31 @@ function validDelete(body: unknown): boolean {
       (nonEmpty(body.recoverUntil) &&
         Number.isFinite(Date.parse(body.recoverUntil)))) &&
     (body.reason === undefined || typeof body.reason === "string")
+  );
+}
+function validRetentionPolicy(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.name) &&
+    nonEmpty(body.idempotencyKey) &&
+    validRetentionDays(body.recoveryWindowDays) &&
+    validRetentionDays(body.minimumHistoryDays) &&
+    validRetentionDays(body.backupRetentionDays) &&
+    body.purgeEnabled === false &&
+    (body.extensions === undefined || record(body.extensions))
+  );
+}
+function validRetentionPolicyUpdate(body: unknown): boolean {
+  return (
+    record(body) &&
+    validRetentionPolicy(body) &&
+    nonEmpty(body.expectedUpdatedAt) &&
+    Number.isFinite(Date.parse(body.expectedUpdatedAt))
+  );
+}
+function validRetentionDays(value: unknown): boolean {
+  return (
+    Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 36500
   );
 }
 function validRestore(body: unknown): boolean {
@@ -1119,6 +1326,31 @@ function validBase64(value: unknown, maxLength = 1_400_000): value is string {
       value,
     )
   );
+}
+function archiveDownloadResult(
+  transfer: Awaited<ReturnType<PortabilityProvider["downloadExport"]>> & object,
+  accept: string | undefined,
+): ApiResult {
+  if (accept?.includes("application/vnd.trust-core.archive+zip"))
+    return {
+      status: 200,
+      body: transfer.bytes,
+      headers: {
+        "content-type": transfer.mediaType,
+        "content-disposition": `attachment; filename="${transfer.filename}"`,
+        "content-length": String(transfer.bytes.byteLength),
+        "x-trust-archive-sha256": transfer.summary.sha256,
+      },
+    };
+  return {
+    status: 200,
+    body: {
+      ...transfer.summary,
+      mediaType: transfer.mediaType,
+      filename: transfer.filename,
+      archiveBase64: Buffer.from(transfer.bytes).toString("base64"),
+    },
+  };
 }
 function failure(
   status: number,

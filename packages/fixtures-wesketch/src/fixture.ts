@@ -306,6 +306,8 @@ export function createWeSketchFixture(): WeSketchFixture {
       mediaType,
       storageProvider: "minio",
       storageKey,
+      encryptionState: "provider_managed",
+      encryptionKeyRef: null,
       verificationState: "pending",
       createdAt: at,
     }),

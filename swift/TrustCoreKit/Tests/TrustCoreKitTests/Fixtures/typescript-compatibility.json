@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "id": "dataset-ivans-diary",
+      "workspaceId": "workspace-synthetic",
+      "schemaPackageId": "schema-ivans-diary-1",
+      "datasetType": "personal-archive",
+      "name": "Synthetic continuity fixture",
+      "status": "active",
+      "retentionPolicyId": null,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "dataset-wesketch",
+      "workspaceId": "workspace-synthetic",
+      "schemaPackageId": "schema-wesketch-1",
+      "datasetType": "creative-workspace",
+      "name": "Synthetic lineage fixture",
+      "status": "active",
+      "retentionPolicyId": null,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
