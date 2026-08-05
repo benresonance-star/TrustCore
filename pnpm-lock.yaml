@@ -411,9 +411,6 @@ importers:
 
   packages/sdk-typescript:
     dependencies:
-      "@trust-core/app-protocol":
-        specifier: workspace:*
-        version: link:../app-protocol
       "@trust-core/protocol":
         specifier: workspace:*
         version: link:../protocol
