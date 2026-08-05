@@ -15,6 +15,7 @@
     "test:interruption:docker": "vitest run tests/docker.integration.test.ts -t \"terminates and restarts\""
   },
   "dependencies": {
+    "@trust-core/archive": "workspace:*",
     "@trust-core/fixtures-ivans-diary": "workspace:*",
     "@trust-core/fixtures-wesketch": "workspace:*",
     "@trust-core/identity": "workspace:*",

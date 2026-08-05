@@ -195,6 +195,62 @@ export const fixtureGateway: ControlCentreGateway = {
       issues: [],
     };
   },
+  async uploadArchive(workspaceId) {
+    return {
+      id: "fixture-archive-wesketch",
+      workspaceId,
+      exportId: "fixture-export-wesketch",
+      status: "verified",
+      checkedEntries: 18,
+      issueCount: 0,
+      recordCounts: { resources: 14, revisions: 19, relations: 11 },
+      blobCount: 6,
+      totalBlobBytes: 284_912,
+      createdAt: new Date().toISOString(),
+    };
+  },
+  async createImportPlan(workspaceId, archiveId, mode) {
+    return {
+      id: "fixture-plan-wesketch",
+      archiveId,
+      workspaceId,
+      sourceWorkspaceId: "workspace-wesketch-source",
+      mode,
+      conflictMode: "reject_on_error",
+      status: "ready",
+      issueCount: 0,
+      counts: { insert: 50, alreadyPresent: 0, blocked: 0 },
+      createdAt: new Date().toISOString(),
+    };
+  },
+  async executeImportPlan(workspaceId, planId) {
+    const updatedAt = new Date().toISOString();
+    return {
+      id: "fixture-import-operation",
+      workspaceId,
+      planId,
+      archiveId: "fixture-archive-wesketch",
+      checkpoint: "completed",
+      status: "completed",
+      resumed: false,
+      updatedAt,
+      completedAt: updatedAt,
+    };
+  },
+  async getImportOperation(workspaceId, operationId) {
+    const updatedAt = new Date().toISOString();
+    return {
+      id: operationId,
+      workspaceId,
+      planId: "fixture-plan-wesketch",
+      archiveId: "fixture-archive-wesketch",
+      checkpoint: "completed",
+      status: "completed",
+      resumed: true,
+      updatedAt,
+      completedAt: updatedAt,
+    };
+  },
 };
 
 let history: {

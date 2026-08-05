@@ -156,6 +156,48 @@ describe("Trust Core TypeScript SDK", () => {
     expect(client.idempotency.create("revision")).toMatch(/^revision-/);
   });
 
+  it("exposes typed portability upload, planning and guarded execution", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(json({ id: "archive", status: "verified" }))
+      .mockResolvedValueOnce(json({ id: "plan", status: "ready" }))
+      .mockResolvedValueOnce(
+        json({ id: "operation", checkpoint: "completed" }),
+      );
+    const client = createTrustClient({
+      baseUrl: "https://trust.example",
+      workspaceId: "workspace",
+      fetch,
+    });
+    await client.portability.archives.upload({
+      bytes: new TextEncoder().encode("archive"),
+      idempotencyKey: "archive-key",
+    });
+    await client.portability.plans.create({
+      archiveId: "archive",
+      idempotencyKey: "plan-key",
+      mode: "mapped_workspace",
+      conflictMode: "reject_on_error",
+    });
+    await client.portability.plans.execute("plan", {
+      idempotencyKey: "execute-key",
+      reauthenticationProof: "fresh-proof",
+    });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      workspaceId: "workspace",
+      idempotencyKey: "archive-key",
+      archiveBase64: "YXJjaGl2ZQ==",
+    });
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({
+      workspaceId: "workspace",
+      idempotencyKey: "execute-key",
+      confirmation: "IMPORT",
+    });
+    expect(
+      new Headers(fetch.mock.calls[2]?.[1]?.headers).get("x-trust-reauth"),
+    ).toBe("fresh-proof");
+  });
+
   it("reads both application fixtures through only the public SDK surface", async () => {
     const fixtures = [createIvansDiaryFixture(), createWeSketchFixture()];
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {

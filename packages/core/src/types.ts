@@ -1,7 +1,8 @@
 export type TrustId = string;
 export type IsoTimestamp = string;
 
-export type ResourceStatus = "active" | "archived" | "deleted_logically" | "legal_hold";
+export type ResourceStatus =
+  "active" | "archived" | "deleted_logically" | "legal_hold";
 
 export interface Workspace {
   id: TrustId;
@@ -93,7 +94,21 @@ export interface Tombstone {
   subjectId: TrustId;
   deletedBy: TrustId;
   deletedAt: IsoTimestamp;
+  reason?: string | null;
   recoverUntil: IsoTimestamp | null;
   priorRevisionId: TrustId | null;
+  restoredAt?: IsoTimestamp | null;
   purgeState: "not_eligible" | "eligible" | "planned" | "purged";
+}
+
+export interface RetentionPolicy {
+  id: TrustId;
+  workspaceId: TrustId;
+  name: string;
+  recoveryWindowDays: number;
+  minimumHistoryDays: number;
+  backupRetentionDays: number;
+  purgeEnabled: boolean;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
 }

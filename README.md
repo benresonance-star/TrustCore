@@ -88,10 +88,9 @@ it exits non-zero and writes sanitized JSON and Markdown diagnostics under
 `reports/`. See [the Docker gate runbook](docs/docker-gate-runbook.md) for
 exact start, diagnosis, restart, and narrowly scoped cleanup procedures.
 
-The latest verified 0.1L report records `win32 x64`, Node `v25.2.1`, Docker
-Linux engine `29.6.2`, PostgreSQL 18 and MinIO
-`RELEASE.2025-04-22T22-12-26Z`. It completed in 30.856 seconds and records
-repository HEAD `3ce47f9271c39e01741fad2de34ff20fe4c85521`.
+Historical local Docker proofs are recorded in `CHECKPOINT.md`. A release is
+current only when the Docker gate succeeds for the exact committed release SHA;
+local dirty-tree reports are supporting diagnostics, not release evidence.
 
 With `DATABASE_URL` present the API reports `mode: live` and reads PostgreSQL. Without it, the API deliberately reports `mode: fixture`.
 
@@ -110,7 +109,24 @@ Trust Core validates issuer, audience, signature, algorithm, subject, nonce,
 one-use state and a separate browser-binding cookie before creating a hashed,
 shared PostgreSQL session. Passkeys and MFA belong at the identity provider.
 
-The bootstrap-token flow remains available for controlled local development and emergency design work. It must not be the ordinary production sign-in path.
+The bootstrap-token flow remains available for controlled local development and
+emergency exchange. In production, direct bootstrap bearer authentication is
+disabled unless `TRUST_ALLOW_BOOTSTRAP_BEARER=true` is explicitly set. It must
+not be the ordinary production sign-in path.
+
+Production deployments must satisfy the ingress and operational controls in
+[`docs/production-deployment.md`](docs/production-deployment.md).
+
+Release 0.2 portability is in progress. `@trust-core/archive` now provides the
+0.2A deterministic logical archive/verifier, the 0.2B hardened ZIP64 container,
+and the 0.2C non-mutating import planner. These are source candidates; the
+PC/Docker reconstruction gates are recorded in the checkpoint documents and the
+governing specification.
+
+The 0.2D provider-neutral execution kernel is also present, including durable
+checkpoint ports, staged/verified blob flow, atomic metadata handoff and
+interruption/resumption tests. PostgreSQL/MinIO execution remains a deliberately
+unclaimed PC/Docker gate.
 
 The Control Centre uses its typed fixture adapter unless
 `VITE_TRUST_API_BASE` is set. Its HTTP gateway uses the authenticated live

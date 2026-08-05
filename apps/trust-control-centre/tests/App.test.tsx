@@ -104,11 +104,40 @@ describe("Trust Core Control Centre", () => {
     expect(getHistory).toHaveBeenCalledWith("workspace-wesketch");
   });
 
-  it("labels unsupported access data as unavailable", async () => {
+  it("previews scoped access assignments without claiming persistence", async () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
     fireEvent.click(screen.getByRole("button", { name: "Access" }));
-    expect(screen.getAllByText("Unavailable")).toHaveLength(3);
-    expect(screen.getByText("Fixture preview only")).toBeVisible();
+    expect(screen.getByText("Ben Resonance")).toBeVisible();
+    expect(screen.getByText("Organisation identity")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Assign access" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add preview assignment" }),
+    );
+    expect(screen.getByText("Audit reviewer")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "No access policy was changed",
+    );
+  });
+
+  it("verifies a fixture archive and creates a non-mutating import plan", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Portability" }));
+    fireEvent.click(screen.getByRole("button", { name: "Verify archive" }));
+    expect(await screen.findByText("18 entries")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate dry-run plan" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Plan ready" }),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Reauthentication proof"), {
+      target: { value: "trust-core-fixture-admin" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm and execute" }),
+    );
+    expect(await screen.findByText(/Import operation completed/)).toBeVisible();
   });
 });

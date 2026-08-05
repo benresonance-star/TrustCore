@@ -37,6 +37,7 @@ import { AdminSessionGateway } from "./access.js";
 import { createFixtureCommands } from "./fixture-commands.js";
 import { PostgresCommandProvider } from "./postgres-commands.js";
 import { fixtureProvider } from "./fixture-provider.js";
+import { FixturePortabilityProvider } from "./portability.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const pgPool = databaseUrl
@@ -108,7 +109,16 @@ const actor: AuthenticatedActor = {
 const oidc = createOidc();
 const access =
   adminToken || oidc
-    ? new AdminSessionGateway(adminToken, actor, 30 * 60_000, oidc, contracts)
+    ? new AdminSessionGateway(
+        adminToken,
+        actor,
+        30 * 60_000,
+        oidc,
+        contracts,
+        () => new Date(),
+        process.env.NODE_ENV !== "production" ||
+          process.env.TRUST_ALLOW_BOOTSTRAP_BEARER === "true",
+      )
     : undefined;
 const route = createApi(
   snapshots,
@@ -117,6 +127,7 @@ const route = createApi(
   repository ? "live" : "fixture",
   commandProvider,
   access,
+  repository ? undefined : new FixturePortabilityProvider(),
 );
 const port = Number(process.env.TRUST_API_PORT ?? process.env.PORT ?? 4310);
 
@@ -142,6 +153,7 @@ createServer(async (request, response) => {
         requestUrl.searchParams.get("returnTo") ?? "/",
       );
       response.writeHead(302, {
+        ...securityResponseHeaders(),
         location: login.authorizationUrl,
         "cache-control": "no-store",
         "set-cookie": oidcBindingCookie(login.browserBinding),
@@ -186,6 +198,7 @@ createServer(async (request, response) => {
         browserBinding,
       });
       response.writeHead(302, {
+        ...securityResponseHeaders(),
         location: completed.returnTo,
         "cache-control": "no-store",
         "set-cookie": [
@@ -349,9 +362,22 @@ function send(
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    ...securityResponseHeaders(),
     ...headers,
   });
   response.end(body === undefined ? undefined : JSON.stringify(body));
+}
+function securityResponseHeaders(): Record<string, string> {
+  return {
+    "content-security-policy":
+      "default-src 'none'; frame-ancestors 'none'; sandbox",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    ...(process.env.NODE_ENV === "production"
+      ? { "strict-transport-security": "max-age=31536000; includeSubDomains" }
+      : {}),
+  };
 }
 function apiError(
   code: PublicErrorCode,

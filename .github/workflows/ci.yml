@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
   schedule:
@@ -29,6 +30,8 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: pnpm audit:prod
       - name: Check formatting
         run: pnpm lint
       - name: Typecheck
@@ -44,7 +47,7 @@ jobs:
 
   docker-integration:
     name: Docker integration
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 30

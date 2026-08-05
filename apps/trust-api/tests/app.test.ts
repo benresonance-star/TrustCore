@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { assembleArchiveEntries, writeTrustArchive } from "@trust-core/archive";
 import { release01Routes, release01Schemas } from "@trust-core/protocol";
 import type { AuthenticatedActor } from "@trust-core/protocol";
 import { describe, expect, it } from "vitest";
 import { StaticTokenAccessGateway } from "../src/access.js";
 import { createApi, roleAllows } from "../src/app.js";
 import { createFixtureCommands } from "../src/fixture-commands.js";
+import { FixturePortabilityProvider } from "../src/portability.js";
 
 const now = new Date("2026-08-04T12:00:00.000Z");
 const snapshot = {
@@ -58,6 +60,14 @@ function configured(actor: AuthenticatedActor = admin) {
   const access = {
     authenticate: async (token: string) =>
       token === "valid" ? actor : undefined,
+    confirmsPrivilegedAction: async (
+      authenticatedActor: AuthenticatedActor,
+      proof: string,
+    ) =>
+      proof === "valid" &&
+      authenticatedActor.id === actor.id &&
+      (authenticatedActor.principalType ?? "user") ===
+        (actor.principalType ?? "user"),
     allows: roleAllows,
   };
   return {
@@ -69,6 +79,7 @@ function configured(actor: AuthenticatedActor = admin) {
       "fixture",
       commands,
       access,
+      new FixturePortabilityProvider(() => now),
     ),
   };
 }
@@ -138,7 +149,9 @@ describe("Release 0.1 API routing", () => {
         .replace("{resourceId}", "diary-main")
         .replace("{reportId}", "missing")
         .replace("{operationId}", "missing")
-        .replace("{uploadId}", "missing");
+        .replace("{uploadId}", "missing")
+        .replace("{archiveId}", "missing")
+        .replace("{planId}", "missing");
       const body = bodyFor(contract.operationId);
       const result = await route(contract.method, path, {
         headers,
@@ -835,6 +848,102 @@ describe("Release 0.1 API routing", () => {
     });
   });
 
+  it("verifies, plans and executes an idempotent fixture archive import", async () => {
+    const { route } = configured();
+    const archiveBase64 = await fixtureArchiveBase64();
+    const uploadBody = {
+      workspaceId: "workspace-demo",
+      idempotencyKey: "archive-one",
+      archiveBase64,
+    };
+    const uploaded = await route("POST", "/v1/portability/archives", {
+      headers,
+      body: uploadBody,
+    });
+    expect(uploaded.status).toBe(200);
+    expect(uploaded.body).toMatchObject({ status: "verified", issueCount: 0 });
+    const archiveId = (uploaded.body as { id: string }).id;
+    expect(
+      await route("POST", "/v1/portability/archives", {
+        headers,
+        body: uploadBody,
+      }),
+    ).toEqual(uploaded);
+    const conflict = await route("POST", "/v1/portability/archives", {
+      headers,
+      body: { ...uploadBody, archiveBase64: "YQ==" },
+    });
+    expect(conflict.body).toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+
+    const planned = await route("POST", "/v1/portability/plans", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        archiveId,
+        idempotencyKey: "plan-one",
+        mode: "mapped_workspace",
+        conflictMode: "reject_on_error",
+      },
+    });
+    expect(planned.body).toMatchObject({ status: "ready", issueCount: 0 });
+    const planId = (planned.body as { id: string }).id;
+    expect(
+      (
+        await route("POST", `/v1/portability/plans/${planId}/execute`, {
+          headers,
+          body: {
+            workspaceId: "workspace-demo",
+            idempotencyKey: "execute-without-reauth",
+            confirmation: "IMPORT",
+          },
+        })
+      ).body,
+    ).toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
+    const executed = await route(
+      "POST",
+      `/v1/portability/plans/${planId}/execute`,
+      {
+        headers: { ...headers, "x-trust-reauth": "valid" },
+        body: {
+          workspaceId: "workspace-demo",
+          idempotencyKey: "execute-one",
+          confirmation: "IMPORT",
+        },
+      },
+    );
+    expect(executed.body).toMatchObject({
+      planId,
+      checkpoint: "completed",
+      status: "completed",
+    });
+    const operationId = (executed.body as { id: string }).id;
+    expect(
+      (
+        await route("GET", `/v1/portability/operations/${operationId}`, {
+          headers,
+        })
+      ).body,
+    ).toMatchObject({ id: operationId, checkpoint: "completed" });
+  });
+
+  it("denies portability mutation to read-only roles", async () => {
+    const { route } = configured({
+      id: "auditor",
+      displayName: "Auditor",
+      roles: ["auditor"],
+      workspaceIds: ["workspace-demo"],
+    });
+    const result = await route("POST", "/v1/portability/archives", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "denied",
+        archiveBase64: await fixtureArchiveBase64(),
+      },
+    });
+    expect(result.body).toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
   it("keeps representative live route responses conformant with OpenAPI schemas", async () => {
     const { route } = configured();
     const health = await route("GET", "/health");
@@ -845,6 +954,30 @@ describe("Release 0.1 API routing", () => {
     expect(conforms(error.body, release01Schemas.ApiError)).toBe(true);
   });
 });
+
+async function fixtureArchiveBase64(): Promise<string> {
+  const logical = assembleArchiveEntries({
+    exportId: "export-api-candidate",
+    workspaceId: "source-workspace",
+    datasetIds: [],
+    createdAt: now.toISOString(),
+    createdBy: "fixture-exporter",
+    sourceVersion: "0.2F-test",
+    records: {
+      workspaces: [
+        {
+          id: "source-workspace",
+          name: "Source",
+          slug: "source",
+          status: "active",
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+      ],
+    },
+  });
+  return Buffer.from(await writeTrustArchive(logical)).toString("base64");
+}
 
 function bodyFor(
   operationId: (typeof release01Routes)[number]["operationId"],
@@ -895,6 +1028,26 @@ function bodyFor(
       };
     case "verification.run":
       return { workspaceId: "workspace-demo", level: "metadata" };
+    case "portability.archives.create":
+      return {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "contract-archive",
+        archiveBase64: "YQ==",
+      };
+    case "portability.plans.create":
+      return {
+        workspaceId: "workspace-demo",
+        archiveId: "missing",
+        idempotencyKey: "contract-plan",
+        mode: "mapped_workspace",
+        conflictMode: "reject_on_error",
+      };
+    case "portability.plans.execute":
+      return {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "contract-execute",
+        confirmation: "IMPORT",
+      };
     case "health.get":
     case "auth.oidcStart":
     case "auth.oidcCallback":
@@ -920,6 +1073,9 @@ function bodyFor(
     case "storage.health":
     case "backup.health":
     case "control.snapshot":
+    case "portability.archives.get":
+    case "portability.plans.get":
+    case "portability.operations.get":
       return undefined;
     default:
       return assertNever(operationId);

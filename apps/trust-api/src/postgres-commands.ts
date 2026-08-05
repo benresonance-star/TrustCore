@@ -171,6 +171,7 @@ export class PostgresCommandProvider implements CommandProvider {
       expectedRevisionId: command.expectedRevisionId,
       actorId: actor.id,
       recoverUntil: command.recoverUntil,
+      reason: command.reason,
     });
     return {
       resourceId,
@@ -281,11 +282,7 @@ export class PostgresCommandProvider implements CommandProvider {
       ).toISOString(),
     });
   }
-  getUpload(
-    workspaceId: string,
-    uploadId: string,
-    actor: AuthenticatedActor,
-  ) {
+  getUpload(workspaceId: string, uploadId: string, actor: AuthenticatedActor) {
     return this.contracts.getUploadSession(workspaceId, uploadId, actor);
   }
   async completeUpload(

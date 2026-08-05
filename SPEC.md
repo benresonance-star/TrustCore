@@ -87,15 +87,15 @@ Without domain logic in its kernel, Trust Core must support:
 - future web, desktop and mobile applications;
 - personal archives and organisational datasets.
 
-| Trust primitive | Foundation | Ivan’s Diary | WeSketch |
-|---|---|---|---|
-| Workspace | Architecture practice | Private account | User or studio |
-| Dataset | Project or library | Personal archive | Sketch project |
-| Resource | Document, note, task | Book, page, entry | Canvas, layer, generation |
-| Revision | Drawing/file version | Page state | Canvas state |
-| Blob | PDF, IFC, image | Audio, photo, strokes | Source, mask, generated image |
-| Relation | Drawing → project | Audio → transcript | Generation → source selection |
-| Tombstone | Deleted document | Deleted page | Deleted layer or variant |
+| Trust primitive | Foundation            | Ivan’s Diary          | WeSketch                      |
+| --------------- | --------------------- | --------------------- | ----------------------------- |
+| Workspace       | Architecture practice | Private account       | User or studio                |
+| Dataset         | Project or library    | Personal archive      | Sketch project                |
+| Resource        | Document, note, task  | Book, page, entry     | Canvas, layer, generation     |
+| Revision        | Drawing/file version  | Page state            | Canvas state                  |
+| Blob            | PDF, IFC, image       | Audio, photo, strokes | Source, mask, generated image |
+| Relation        | Drawing → project     | Audio → transcript    | Generation → source selection |
+| Tombstone       | Deleted document      | Deleted page          | Deleted layer or variant      |
 
 The kernel must not contain concepts such as apartment, diary, page, canvas, project stage or prompt. Apps define those through schema packages.
 
@@ -397,6 +397,17 @@ Later local-first identity: actor, public key reference, platform, app version, 
 
 Policy-driven recovery window, minimum history, backup retention, purge eligibility, holds and separate derived-data treatment.
 
+## Logical Data Model contract
+
+Maintain a provider-independent Logical Data Model describing entity meaning,
+ownership, cardinality and lifecycle. It is not a mirror of PostgreSQL tables.
+It must map canonical identities, tenancy and policy scopes, immutable history,
+archive/import operations, deletion and recovery semantics across the public
+contracts, `.trustarchive` representation and physical PostgreSQL/MinIO model.
+
+The mapping must explicitly distinguish stable portable IDs from provider IDs,
+canonical from derived data, and domain invariants from physical enforcement.
+
 ---
 
 # 10. Database and storage requirements
@@ -418,7 +429,9 @@ Provider-neutral interface:
 
 ```ts
 interface ObjectStorage {
-  createTemporaryUpload(input: CreateTemporaryUploadInput): Promise<TemporaryObject>;
+  createTemporaryUpload(
+    input: CreateTemporaryUploadInput,
+  ): Promise<TemporaryObject>;
   writeTemporary(input: WriteTemporaryInput): Promise<WriteResult>;
   commitImmutable(input: CommitImmutableInput): Promise<StoredObject>;
   openReadStream(input: ObjectLocator): Promise<NodeJS.ReadableStream>;
@@ -550,13 +563,13 @@ Export requirements:
 - no provider-specific data required for reconstruction;
 - preserve proprietary editable originals and universal fallbacks where the app declares them.
 
-| Content | Original/editable | Portable fallback |
-|---|---|---|
-| Pencil drawing | PencilKit/app strokes | SVG/PDF + PNG |
-| Audio | Original M4A/WAV | Standard audio + transcript |
-| Page composition | Structured payload | PDF preview |
-| Canvas | Editable scene/strokes | PNG/PDF |
-| Rich text | Structured spans | UTF-8 Markdown/text |
+| Content          | Original/editable      | Portable fallback           |
+| ---------------- | ---------------------- | --------------------------- |
+| Pencil drawing   | PencilKit/app strokes  | SVG/PDF + PNG               |
+| Audio            | Original M4A/WAV       | Standard audio + transcript |
+| Page composition | Structured payload     | PDF preview                 |
+| Canvas           | Editable scene/strokes | PNG/PDF                     |
+| Rich text        | Structured spans       | UTF-8 Markdown/text         |
 
 Fallbacks never replace originals.
 
@@ -790,7 +803,7 @@ const trust = createTrustClient({ baseUrl, getAccessToken, applicationKey });
 const resource = await trust.resources.create({
   workspaceId,
   datasetId,
-  resourceType: "com.example.wesketch.canvas"
+  resourceType: "com.example.wesketch.canvas",
 });
 
 await trust.revisions.commit({
@@ -799,7 +812,7 @@ await trust.revisions.commit({
   schemaVersion: "1.0.0",
   payload,
   blobRefs,
-  idempotencyKey
+  idempotencyKey,
 });
 ```
 
@@ -961,6 +974,29 @@ Success prints `TRUST TEST: PASS`; failure prints `TRUST TEST: FAIL`, writes a m
 
 # 30. Release sequence
 
+## PC/Docker and external acceptance gates
+
+Source-only implementation may proceed while the following proofs are deferred
+to the authorised PC or target operating environment, but no affected release
+gate may be described as passed until its evidence is attached to the exact
+clean commit under test:
+
+- `pnpm trust:test:docker` against PostgreSQL and MinIO, including RLS,
+  least-privilege roles, live API/worker flows and all interruption checkpoints;
+- Release 0.2 export, source-store destruction, clean PostgreSQL/MinIO import and
+  independent reconstruction of Ivan's Diary and WeSketch;
+- corrupt, missing, oversized, path-traversing and interrupted archive cases
+  exercised through the real import boundary;
+- real organisation OIDC claim mapping, MFA/passkey, disablement and session
+  revocation;
+- production TLS/rate-limiting ingress, secret rotation, monitoring and alert
+  delivery;
+- combined PostgreSQL and object-store backup/restore followed by full Trust
+  Core verification.
+
+The corresponding source checkpoint must print a candidate marker, never the
+final `TRUST TEST: PASS`, until these gates succeed.
+
 ## 0.1 Central trust loop
 
 Modular monolith, PostgreSQL, MinIO, core generic model, upload state machine, immutable storage, hashes, idempotency, policy, minimal Control Centre, verification and failure tests.
@@ -972,6 +1008,27 @@ Modular monolith, PostgreSQL, MinIO, core generic model, upload state machine, i
 `.trustarchive`, export/import, clean reconstruction, viewer, two app schemas and Trust Test.
 
 **Gate:** independent reconstruction succeeds after source destruction.
+
+Source work is staged as: 0.2A deterministic archive model and verifier; 0.2B
+ZIP64 container and malicious-archive reader; 0.2C dry-run/import planning and
+conflict mapping; 0.2D provider-neutral executable import kernel; 0.2E Logical
+Data Model and contract alignment; 0.2F authenticated Portability API
+candidate; 0.2G Control Centre integration and independent viewer candidate;
+and 0.2H PC/Docker production adapters, source destruction and clean
+reconstruction. Source-only work through 0.2G may proceed without Docker. Only
+0.2H can satisfy the portability gate.
+
+The 0.2F candidate routes are authenticated archive upload/verification,
+dry-run planning, plan retrieval, guarded execution and import-operation status.
+They are published in OpenAPI and the handwritten TypeScript SDK. Fixture mode
+may execute the provider-neutral kernel; live execution remains unconfigured
+until the 0.2H PostgreSQL/MinIO adapters and proof.
+
+The 0.2G candidate connects those routes to the Control Centre and requires a
+fresh same-principal credential for privileged execution. A separate read-only
+viewer reconstructs Ivan's Diary and WeSketch from verified archive bytes with
+no source app, API or database. Real OIDC step-up and live-store destruction and
+reconstruction remain explicitly assigned to the PC/Docker acceptance gate.
 
 ## 0.3 Cloud/recovery proof
 
@@ -996,6 +1053,22 @@ SQLite, encrypted local blobs, devices, sync cursors/queue, branching conflicts,
 ProcessingJob, explicit handoff, derived-result contract, lineage and rebuild/deletion rules—without canonical mutation rights.
 
 **Gate:** derived system can be destroyed/rebuilt without affecting Trust Core.
+
+## 0.7 Practice intelligence and Large Database Model readiness
+
+A future Large Database Model is a permissioned derived system over governed
+practice records, not part of the canonical kernel and not the same artifact as
+the Logical Data Model. Prepare permissioned analytical snapshots, temporal
+history, outcome labels, lineage and human feedback first. Benchmark SQL/graph
+queries, embeddings, statistics and conventional machine learning before model
+training.
+
+Learned outputs must preserve source snapshot, scope, model/data version,
+confidence basis and review state and must never rewrite canonical facts or
+policy.
+
+**Gate:** held-out evaluations prove useful improvement over simpler baselines
+without permission leakage or loss of source-level explanation.
 
 ---
 

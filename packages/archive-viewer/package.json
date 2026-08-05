@@ -1,0 +1,21 @@
+{
+  "name": "@trust-core/archive-viewer",
+  "version": "0.2.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@trust-core/archive": "workspace:*"
+  },
+  "devDependencies": {
+    "@trust-core/fixtures-ivans-diary": "workspace:*",
+    "@trust-core/fixtures-wesketch": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

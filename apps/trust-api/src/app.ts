@@ -6,6 +6,7 @@ import type {
   CompleteUploadCommand,
   ControlCentreSnapshot,
   CreateUploadCommand,
+  CreateImportPlanCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
   HealthResponse,
@@ -16,14 +17,17 @@ import type {
   RevisionCommand,
   RevisionCommandResult,
   RunVerificationCommand,
+  ExecuteImportCommand,
   TrustAction,
   UploadSession,
+  UploadArchiveCommand,
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type { ObjectIngestResult } from "@trust-core/operations";
 import { evaluatePolicy } from "@trust-core/policy";
 import type { PolicyScope } from "@trust-core/policy";
 import type { PublishedSchemaPackage } from "@trust-core/schema-registry";
+import type { PortabilityProvider } from "./portability.js";
 
 export type ApiAction = TrustAction;
 export interface ObjectIngestCommand {
@@ -142,6 +146,10 @@ export interface AccessGateway {
     action: ApiAction,
     scope: AuthorizationScope,
   ): boolean | Promise<boolean>;
+  confirmsPrivilegedAction?(
+    actor: AuthenticatedActor,
+    proof: string | undefined,
+  ): boolean | Promise<boolean>;
 }
 
 export function roleAllows(
@@ -169,6 +177,7 @@ export function createApi(
   mode: "fixture" | "live" = "fixture",
   commands?: CommandProvider,
   access?: AccessGateway,
+  portability?: PortabilityProvider,
 ) {
   return async function route(
     method: string,
@@ -208,6 +217,22 @@ export function createApi(
     const uploadCompleteMatch = match(
       pathname,
       /^\/v1\/uploads\/([^/]+)\/complete$/,
+    );
+    const archiveMatch = match(
+      pathname,
+      /^\/v1\/portability\/archives\/([^/]+)$/,
+    );
+    const importPlanMatch = match(
+      pathname,
+      /^\/v1\/portability\/plans\/([^/]+)$/,
+    );
+    const importExecuteMatch = match(
+      pathname,
+      /^\/v1\/portability\/plans\/([^/]+)\/execute$/,
+    );
+    const importOperationMatch = match(
+      pathname,
+      /^\/v1\/portability\/operations\/([^/]+)$/,
     );
 
     if (pathname === "/v1/workspaces" && method === "GET")
@@ -564,6 +589,109 @@ export function createApi(
         { applicationScopeAllowed: true },
         true,
       );
+    if (pathname === "/v1/portability/archives" && method === "POST")
+      return portability
+        ? secured(
+            "portability:plan",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              portability.uploadArchive(
+                actor,
+                request.body as UploadArchiveCommand,
+              ),
+            validArchiveUpload,
+          )
+        : unavailable(request);
+    if (archiveMatch && method === "GET")
+      return portability
+        ? secured(
+            "portability:read",
+            method,
+            request,
+            commands,
+            access,
+            async (workspaceId) =>
+              found(
+                await portability.getArchive(workspaceId, archiveMatch),
+                "ARCHIVE_NOT_FOUND",
+                "The requested archive candidate was not found.",
+              ),
+          )
+        : unavailable(request);
+    if (pathname === "/v1/portability/plans" && method === "POST")
+      return portability
+        ? secured(
+            "portability:plan",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              portability.createPlan(
+                actor,
+                request.body as CreateImportPlanCommand,
+              ),
+            validImportPlan,
+          )
+        : unavailable(request);
+    if (importPlanMatch && method === "GET")
+      return portability
+        ? secured(
+            "portability:read",
+            method,
+            request,
+            commands,
+            access,
+            async (workspaceId) =>
+              found(
+                await portability.getPlan(workspaceId, importPlanMatch),
+                "IMPORT_PLAN_NOT_FOUND",
+                "The requested import plan was not found.",
+              ),
+          )
+        : unavailable(request);
+    if (importExecuteMatch && method === "POST")
+      return portability
+        ? secured(
+            "portability:execute",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              portability.executePlan(
+                importExecuteMatch,
+                actor,
+                request.body as ExecuteImportCommand,
+              ),
+            validExecuteImport,
+            {},
+            false,
+            true,
+          )
+        : unavailable(request);
+    if (importOperationMatch && method === "GET")
+      return portability
+        ? secured(
+            "portability:read",
+            method,
+            request,
+            commands,
+            access,
+            async (workspaceId) =>
+              found(
+                await portability.getImportOperation(
+                  workspaceId,
+                  importOperationMatch,
+                ),
+                "OPERATION_NOT_FOUND",
+                "The requested import operation was not found.",
+              ),
+          )
+        : unavailable(request);
     if (pathname === "/v1/control-centre/snapshot" && method === "GET")
       return secured("control:read", method, request, commands, access, () =>
         provider.getSnapshot(),
@@ -597,6 +725,7 @@ async function secured(
     | Partial<AuthorizationScope>
     | ((workspaceId: string) => Promise<Partial<AuthorizationScope>>) = {},
   needsIngest = false,
+  requiresReauthentication = false,
 ): Promise<ApiResult> {
   if (!commands || !access || (needsIngest && !commands.ingestObject))
     return failure(
@@ -652,6 +781,19 @@ async function secured(
       "The actor is not permitted to perform this action.",
       request,
     );
+  if (
+    requiresReauthentication &&
+    !(await access.confirmsPrivilegedAction?.(
+      actor,
+      request.headers?.["x-trust-reauth"],
+    ))
+  )
+    return failure(
+      401,
+      "REAUTHENTICATION_REQUIRED",
+      "Fresh administrator authentication is required for this action.",
+      request,
+    );
   if (validate && !validate(request.body))
     return failure(
       400,
@@ -698,6 +840,20 @@ async function secured(
         404,
         "OPERATION_NOT_FOUND",
         "The requested operation was not found.",
+        request,
+      );
+    if (code === "ARCHIVE_NOT_FOUND")
+      return failure(
+        404,
+        "ARCHIVE_NOT_FOUND",
+        "Archive candidate was not found.",
+        request,
+      );
+    if (code === "IMPORT_PLAN_NOT_FOUND")
+      return failure(
+        404,
+        "IMPORT_PLAN_NOT_FOUND",
+        "Import plan was not found.",
         request,
       );
     return failure(
@@ -867,11 +1023,35 @@ function validCreateUpload(body: unknown): boolean {
 function validCompleteUpload(body: unknown): boolean {
   return validWorkspaceBody(body) && validBase64(body.bytesBase64);
 }
-function validBase64(value: unknown): value is string {
+function validArchiveUpload(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.idempotencyKey) &&
+    validBase64(body.archiveBase64, 12_000_000)
+  );
+}
+function validImportPlan(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.archiveId) &&
+    nonEmpty(body.idempotencyKey) &&
+    (body.mode === "preserve_ids" || body.mode === "mapped_workspace") &&
+    (body.conflictMode === "reject_on_error" ||
+      body.conflictMode === "report_only")
+  );
+}
+function validExecuteImport(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.idempotencyKey) &&
+    body.confirmation === "IMPORT"
+  );
+}
+function validBase64(value: unknown, maxLength = 1_400_000): value is string {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    value.length <= 1_400_000 &&
+    value.length <= maxLength &&
     /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
       value,
     )
@@ -891,6 +1071,14 @@ function failure(
   };
   return { status, body };
 }
+function unavailable(request: ApiRequest): ApiResult {
+  return failure(
+    501,
+    "COMMAND_BOUNDARY_UNAVAILABLE",
+    "The portability command boundary is not configured.",
+    request,
+  );
+}
 function verificationAuthorizationScope(
   commands: CommandProvider | undefined,
   body: unknown,
@@ -898,8 +1086,7 @@ function verificationAuthorizationScope(
   return async (workspaceId) => {
     if (!record(body) || !record(body.scope) || !nonEmpty(body.scope.id))
       return {};
-    if (body.scope.kind === "dataset")
-      return { datasetId: body.scope.id };
+    if (body.scope.kind === "dataset") return { datasetId: body.scope.id };
     if (body.scope.kind !== "resource") return {};
     const resource = (await commands?.getResource(
       workspaceId,

@@ -85,15 +85,15 @@ The kernel must not contain concepts such as apartment, diary page, canvas, proj
 
 # 4. Target applications
 
-| Trust primitive | Foundation | Ivan’s Diary | WeSketch |
-|---|---|---|---|
-| Workspace | Architecture practice | Private account | User or studio |
-| Dataset | Project or library | Personal archive | Sketch project |
-| Resource | Document, note, task | Book, page, entry | Canvas, layer, generation |
-| Revision | Drawing/file state | Page state | Canvas state |
-| Blob | PDF, IFC, image | Audio, photo, strokes | Source, mask, generated image |
-| Relation | Drawing → project | Audio → transcript | Generation → selected source |
-| Tombstone | Deleted document | Deleted page | Deleted layer or variant |
+| Trust primitive | Foundation            | Ivan’s Diary          | WeSketch                      |
+| --------------- | --------------------- | --------------------- | ----------------------------- |
+| Workspace       | Architecture practice | Private account       | User or studio                |
+| Dataset         | Project or library    | Personal archive      | Sketch project                |
+| Resource        | Document, note, task  | Book, page, entry     | Canvas, layer, generation     |
+| Revision        | Drawing/file state    | Page state            | Canvas state                  |
+| Blob            | PDF, IFC, image       | Audio, photo, strokes | Source, mask, generated image |
+| Relation        | Drawing → project     | Audio → transcript    | Generation → selected source  |
+| Tombstone       | Deleted document      | Deleted page          | Deleted layer or variant      |
 
 Original human material remains first-class. Original audio is not replaced by transcript text. Editable drawing strokes are not replaced by a rendered image. Universal previews supplement rather than replace originals.
 
@@ -279,7 +279,8 @@ The current source includes:
 - public queries and commands for workspaces, applications, schemas, datasets, resources, relations, uploads, operations, history, audit, verification and service health;
 - materially different WeSketch schema and deterministic canvas/lineage fixture;
 - live PostgreSQL/MinIO proof reading both Ivan's Diary and WeSketch through the public SDK;
-- Control Centre sections for Home, Datasets, Flow, Health, History and Access;
+- Control Centre sections for Home, Datasets, Flow, Health, History,
+  Portability and Access;
 - interactive recovery and verification fixture workflows plus live SDK-backed snapshot, health, history, restoration and verification paths;
 - React-Flow-style system topology;
 - compatibility, retention, trust-boundary, threat-model, identity-provider and recovery documentation;
@@ -426,6 +427,31 @@ Append-only significant event containing actor, action, subject, request/correla
 
 Durable cross-store workflow state and transactionally emitted asynchronous work. Operation identity includes operation type, workspace and idempotency key.
 
+## Logical Data Model contract
+
+Before adding the public Release 0.2 portability routes, maintain a
+provider-independent Logical Data Model describing the meaning, ownership,
+cardinality and lifecycle of the canonical entities above. It is an
+architectural contract, not a diagram of PostgreSQL tables.
+
+It must identify:
+
+- tenancy, dataset and application ownership boundaries;
+- stable portable identities versus provider and physical-store identifiers;
+- immutable records, mutable pointers and append-only histories;
+- principal, role, capability, assignment and scope relationships;
+- archive, manifest, import-plan, identity-map, operation and checkpoint
+  relationships;
+- deletion, retention, restoration and purge states;
+- identities and relations that must survive export and reconstruction;
+- canonical, derived, operational and audit classifications;
+- invariants enforced by contracts, services, PostgreSQL, object storage and
+  policy respectively.
+
+The canonical API schemas, `.trustarchive` logical representation and physical
+PostgreSQL/MinIO model must be checked against this contract. Physical storage
+details must not leak back into the logical model as domain meaning.
+
 ---
 
 # 11. Cross-store upload contract
@@ -532,6 +558,7 @@ Required sections:
 - System flow;
 - Health;
 - History and recovery;
+- Portability;
 - Access.
 
 It must not expose raw SQL, arbitrary object editing or direct storage access. Operational integrity access is separate from content preview permission. Every mutation uses the public API.
@@ -542,6 +569,17 @@ the public TypeScript SDK for authenticated live snapshot, storage/backup
 health, verification reports, history, restoration and verification commands.
 Vercel hosts only this static SPA; the Trust API, worker, PostgreSQL and
 canonical object storage are separately operated services.
+
+The Portability screen uses the public SDK for archive verification, dry-run
+planning and guarded import execution. Execution requires both explicit
+confirmation and a fresh same-principal administrator credential; the UI does
+not retain that proof. Live execution remains unavailable while the production
+provider is deliberately unconfigured pending the deferred PC/Docker proof. The
+Access screen exposes fixture identities, scoped assignments, role boundaries,
+session assurance and preview-only assignment controls. Live assignment data
+and mutations remain unavailable until public policy-administration routes are
+implemented; authentication and authorization continue to be enforced by the
+Trust API rather than by UI state.
 
 ---
 
@@ -637,6 +675,16 @@ Required:
 
 **Gate:** independent reconstruction succeeds without the source app or provider.
 
+### Deferred PC/Docker proof
+
+Source-only archive implementation may proceed, but the portability gate remains
+open until a Docker-capable PC runs export, destroys the isolated PostgreSQL and
+MinIO source stores, imports into clean stores, verifies both Ivan's Diary and
+WeSketch, and exercises corrupted, missing, oversized, traversal and interrupted
+archive cases. The report must identify the exact clean commit. Real OIDC,
+production ingress, secret rotation, monitoring, and combined-store recovery are
+separate external 0.1P/0.3 gates recorded in `CHECKPOINT_0.1P.md`.
+
 ## 0.3 — Cloud and recovery proof
 
 - Amazon S3 adapter;
@@ -684,6 +732,65 @@ Required:
 - rebuild without canonical mutation rights.
 
 **Gate:** the derived system can be destroyed and rebuilt without affecting Trust Core.
+
+## 0.7 — Practice intelligence and Large Database Model readiness
+
+A Large Database Model is a future derived intelligence system trained or
+adapted over governed enterprise records. It is distinct from the Logical Data
+Model contract and must never become part of the canonical Trust Core kernel.
+
+Prepare for it through permissioned analytical snapshots, stable semantics,
+temporal history, outcome labels, lineage and explicit human feedback. Begin
+with explainable baselines—SQL and graph queries, similarity embeddings,
+statistics and conventional anomaly detection—before training or adopting a
+specialised model.
+
+Every learned output must record its source snapshot, permission scope, model
+and dataset version, creation time, confidence or similarity basis and human
+acceptance or rejection. It remains derived evidence and may not silently
+rewrite canonical facts, permissions, history or retention state.
+
+**Gate:** on held-out practice questions, a learned database model produces a
+measurable improvement over simpler baselines without tenant leakage,
+permission bypass or loss of source-level explanation.
+
+## Next source-only checkpoints before Docker is available
+
+1. **0.2E — Logical model and contract alignment:** publish the Logical Data
+   Model, invariant matrix and mappings to API, archive and physical stores;
+   resolve identity or lifecycle inconsistencies.
+2. **0.2F — Portability API candidate:** add authenticated upload,
+   verification, dry-run planning, operation-status and guarded execute
+   contracts using the provider-neutral executor; prove authorization,
+   idempotency and failure behavior with source tests.
+3. **0.2G — Control Centre and independent viewer candidate:** connect live UI
+   states to the public contracts, retain explicit re-authentication and
+   confirmation boundaries, and build a read-only reference viewer for both
+   synthetic fixtures.
+4. **0.2H — PC/Docker portability proof (deferred):** implement PostgreSQL and
+   MinIO production adapters, terminate and resume real processes, destroy the
+   isolated source stores, reconstruct both fixtures and attach sanitized
+   evidence to the exact clean commit.
+
+Checkpoints 0.2E through 0.2G may produce candidate evidence without Docker.
+Only 0.2H may close the Release 0.2 portability gate.
+
+Checkpoint 0.2E is recorded in `CHECKPOINT_0.2E.md`; its authoritative model and
+matrix are `docs/logical-data-model.md` and
+`contracts/logical-data-model-invariants.md`.
+
+Checkpoint 0.2F is recorded in `CHECKPOINT_0.2F.md`. The source candidate now
+has authenticated archive upload/verification, dry-run planning, guarded
+execution and operation-status contracts plus the handwritten SDK surface.
+Fixture mode executes the provider-neutral kernel; live PostgreSQL/MinIO
+adapters remain deliberately unavailable until 0.2H.
+
+Checkpoint 0.2G is recorded in `CHECKPOINT_0.2G.md`. The Control Centre now
+drives the SDK portability lifecycle, privileged execution has a same-principal
+re-authentication boundary, and `@trust-core/archive-viewer` reconstructs both
+fixtures directly from verified archive bytes. The checkpoint lists the
+remaining PC/Docker destruction, reconstruction, interruption and real-OIDC
+tests; none are claimed by the source candidate.
 
 ---
 

@@ -150,7 +150,7 @@ export class PostgresVerificationCatalog implements StructuralVerificationCatalo
         [workspaceId],
       );
       const tombstones = await db.query<TombstoneRow>(
-        "SELECT id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,recover_until,prior_revision_id,purge_state FROM tombstones WHERE workspace_id=$1 AND restored_at IS NULL ORDER BY id",
+        "SELECT id,workspace_id,dataset_id,subject_kind,subject_id,deleted_by,deleted_at,reason,recover_until,prior_revision_id,restored_at,purge_state FROM tombstones WHERE workspace_id=$1 AND restored_at IS NULL ORDER BY id",
         [workspaceId],
       );
       const auditEvents = await db.query<AuditRow>(
@@ -272,8 +272,10 @@ interface TombstoneRow {
   subject_id: string;
   deleted_by: string;
   deleted_at: string | Date;
+  reason: string | null;
   recover_until: string | Date | null;
   prior_revision_id: string | null;
+  restored_at: string | Date | null;
   purge_state: Tombstone["purgeState"];
 }
 interface AuditRow {
@@ -404,8 +406,10 @@ function mapTombstone(row: TombstoneRow): Tombstone {
     subjectId: row.subject_id,
     deletedBy: row.deleted_by,
     deletedAt: iso(row.deleted_at),
+    reason: row.reason,
     recoverUntil: nullableIso(row.recover_until),
     priorRevisionId: row.prior_revision_id,
+    restoredAt: nullableIso(row.restored_at),
     purgeState: row.purge_state,
   };
 }

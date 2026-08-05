@@ -133,6 +133,22 @@ export class StaticTokenAccessGateway implements AccessGateway {
     }
     return decision.allowed;
   }
+  async confirmsPrivilegedAction(
+    actor: AuthenticatedActor,
+    proof: string | undefined,
+  ): Promise<boolean> {
+    if (!proof) return false;
+    const confirmed = await this.authenticateForReauthentication(proof);
+    return (
+      confirmed?.id === actor.id &&
+      actorPrincipalType(confirmed) === actorPrincipalType(actor)
+    );
+  }
+  protected authenticateForReauthentication(
+    proof: string,
+  ): Promise<AuthenticatedActor | undefined> {
+    return this.authenticate(proof);
+  }
 }
 
 interface StoredSession {
@@ -149,11 +165,24 @@ export class AdminSessionGateway extends StaticTokenAccessGateway {
     private readonly oidc?: OidcIdentityService,
     policies?: PolicyDataSource,
     clock: () => Date = () => new Date(),
+    private readonly allowBootstrapBearer = true,
   ) {
     super(token, actor, policies, clock);
     this.bootstrapActor = actor;
   }
   private readonly bootstrapActor: AuthenticatedActor;
+  override authenticate(
+    candidate: string,
+  ): Promise<AuthenticatedActor | undefined> {
+    return this.allowBootstrapBearer
+      ? super.authenticate(candidate)
+      : Promise.resolve(undefined);
+  }
+  protected override authenticateForReauthentication(
+    proof: string,
+  ): Promise<AuthenticatedActor | undefined> {
+    return super.authenticate(proof);
+  }
   async createSession(
     candidate: string,
   ): Promise<{ sessionId: string; session: AdminSession } | undefined> {

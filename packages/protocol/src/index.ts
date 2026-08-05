@@ -108,7 +108,10 @@ export type TrustAction =
   | "history:read"
   | "audit:read"
   | "verification:run"
-  | "health:read";
+  | "health:read"
+  | "portability:read"
+  | "portability:plan"
+  | "portability:execute";
 export interface AuthenticatedActor {
   id: string;
   displayName: string;
@@ -262,6 +265,67 @@ export interface AuditEventRecord {
   operationId: string | null;
   eventHash: string;
   metadata: Readonly<Record<string, unknown>>;
+}
+
+export interface ArchiveCandidate {
+  id: string;
+  workspaceId: string;
+  exportId: string;
+  status: "verified" | "rejected";
+  checkedEntries: number;
+  issueCount: number;
+  recordCounts: Readonly<Record<string, number>>;
+  blobCount: number;
+  totalBlobBytes: number;
+  createdAt: string;
+}
+export interface UploadArchiveCommand {
+  workspaceId: string;
+  idempotencyKey: string;
+  archiveBase64: string;
+}
+export interface CreateImportPlanCommand {
+  workspaceId: string;
+  archiveId: string;
+  idempotencyKey: string;
+  mode: "preserve_ids" | "mapped_workspace";
+  conflictMode: "reject_on_error" | "report_only";
+}
+export interface ImportPlanSummary {
+  id: string;
+  archiveId: string;
+  workspaceId: string;
+  sourceWorkspaceId: string;
+  mode: "preserve_ids" | "mapped_workspace";
+  conflictMode: "reject_on_error" | "report_only";
+  status: "ready" | "rejected" | "report_only";
+  issueCount: number;
+  counts: Readonly<Record<"insert" | "alreadyPresent" | "blocked", number>>;
+  createdAt: string;
+}
+export interface ExecuteImportCommand {
+  workspaceId: string;
+  idempotencyKey: string;
+  confirmation: "IMPORT";
+}
+export interface ImportOperationSummary {
+  id: string;
+  workspaceId: string;
+  planId: string;
+  archiveId: string;
+  checkpoint:
+    | "authorised"
+    | "target_revalidated"
+    | "temporary_blobs_staged"
+    | "staged_blobs_verified"
+    | "immutable_blobs_committed"
+    | "metadata_committed"
+    | "audit_committed"
+    | "completed";
+  status: "running" | "completed";
+  resumed: boolean;
+  updatedAt: string;
+  completedAt: string | null;
 }
 export interface ServiceHealth {
   status: "healthy" | "degraded" | "not_configured";

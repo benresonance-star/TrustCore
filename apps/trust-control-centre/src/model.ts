@@ -1,5 +1,11 @@
 export type Section =
-  "home" | "datasets" | "flow" | "health" | "history" | "access";
+  | "home"
+  | "datasets"
+  | "flow"
+  | "health"
+  | "history"
+  | "portability"
+  | "access";
 
 export type {
   ControlCentreSnapshot,
@@ -8,8 +14,11 @@ export type {
 } from "@trust-core/protocol";
 import type {
   AdminSession,
+  ArchiveCandidate,
   ControlCentreSnapshot,
   HistorySnapshot,
+  ImportOperationSummary,
+  ImportPlanSummary,
   RevisionCommandResult,
   ServiceHealth,
   VerificationRunResult,
@@ -38,4 +47,22 @@ export interface ControlCentreGateway {
     workspaceId: string,
     level: "metadata" | "full_blob",
   ): Promise<VerificationRunResult>;
+  uploadArchive(
+    workspaceId: string,
+    bytes: Uint8Array,
+  ): Promise<ArchiveCandidate>;
+  createImportPlan(
+    workspaceId: string,
+    archiveId: string,
+    mode: "preserve_ids" | "mapped_workspace",
+  ): Promise<ImportPlanSummary>;
+  executeImportPlan(
+    workspaceId: string,
+    planId: string,
+    reauthenticationProof: string,
+  ): Promise<ImportOperationSummary>;
+  getImportOperation(
+    workspaceId: string,
+    operationId: string,
+  ): Promise<ImportOperationSummary>;
 }

@@ -843,6 +843,158 @@ tbody tr.selected {
 .role-row:last-child {
   border-bottom: 0;
 }
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.panel-heading h2,
+.panel-heading small {
+  margin: 0;
+}
+.panel-heading > div {
+  display: grid;
+  gap: 4px;
+}
+.panel-heading small,
+.field-label,
+.upload-box small,
+.plan-grid small,
+.execution-row small,
+.capability-list small {
+  color: var(--muted);
+}
+.control-stack,
+.access-side,
+.capability-list {
+  display: grid;
+  gap: 14px;
+}
+.portability-columns,
+.access-columns {
+  align-items: start;
+}
+.upload-box {
+  min-height: 148px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 18px;
+  text-align: center;
+  cursor: pointer;
+}
+.upload-box input {
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+}
+.field-label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.field-label input,
+.field-label select {
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 9px 10px;
+}
+.check-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.check-list span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: var(--good);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+.manifest-summary {
+  padding: 12px 0;
+}
+.plan-panel {
+  margin-top: 14px;
+}
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.plan-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 9px;
+  background: var(--soft);
+}
+.plan-grid strong {
+  font-size: 20px;
+}
+.execution-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.execution-row > div {
+  display: grid;
+  gap: 4px;
+}
+.reauth-controls {
+  min-width: min(340px, 100%);
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+}
+.assignment-form {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 1fr) minmax(180px, 1fr) minmax(150px, 0.6fr)
+    auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.assignment-form h2,
+.assignment-form small {
+  margin: 0;
+}
+.assignment-form > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.session-card dl {
+  margin-bottom: 14px;
+}
+.capability-list > span {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.capability-list > span:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
 
 @media (prefers-color-scheme: dark) {
   :root {
@@ -926,7 +1078,7 @@ tbody tr.selected {
     gap: 12px;
   }
   .sidebar nav {
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
   }
   .nav-item {
     justify-content: center;
@@ -945,7 +1097,16 @@ tbody tr.selected {
     padding: 20px 16px;
   }
   .metrics,
-  .two-columns {
+  .two-columns,
+  .plan-grid,
+  .assignment-form {
+    grid-template-columns: 1fr;
+  }
+  .execution-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .reauth-controls {
     grid-template-columns: 1fr;
   }
   .flow-canvas {
