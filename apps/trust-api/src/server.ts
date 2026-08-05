@@ -14,6 +14,7 @@ import {
   type QueryResult,
   type TransactionClient,
 } from "@trust-core/persistence-postgres";
+import type { ArchiveImportCheckpoint } from "@trust-core/archive";
 import {
   ObjectIngestService,
   type IngestCheckpoint,
@@ -38,6 +39,7 @@ import { createFixtureCommands } from "./fixture-commands.js";
 import { PostgresCommandProvider } from "./postgres-commands.js";
 import { fixtureProvider } from "./fixture-provider.js";
 import { FixturePortabilityProvider } from "./portability.js";
+import { PostgresPortabilityProvider } from "./postgres-portability.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const pgPool = databaseUrl
@@ -82,6 +84,19 @@ const ingest =
 const commandProvider = pool
   ? new PostgresCommandProvider(pool, verification, ingest)
   : createFixtureCommands();
+const portability =
+  pool && storage
+    ? new PostgresPortabilityProvider(
+        pool,
+        storage,
+        "minio",
+        process.env.NODE_ENV !== "production" &&
+          process.env.TRUST_ALLOW_LOCAL_UNSIGNED_ARCHIVES === "true",
+        afterImportEffect,
+      )
+    : pool
+      ? undefined
+      : new FixturePortabilityProvider();
 const adminToken =
   process.env.TRUST_ADMIN_TOKEN ??
   (repository ? undefined : "trust-core-fixture-admin");
@@ -127,7 +142,7 @@ const route = createApi(
   repository ? "live" : "fixture",
   commandProvider,
   access,
-  repository ? undefined : new FixturePortabilityProvider(),
+  portability,
 );
 const port = Number(process.env.TRUST_API_PORT ?? process.env.PORT ?? 4310);
 
@@ -269,6 +284,7 @@ createServer(async (request, response) => {
         cookie: header(request.headers.cookie),
         "x-request-id": requestId,
         "x-trust-csrf": header(request.headers["x-trust-csrf"]),
+        "x-trust-reauth": header(request.headers["x-trust-reauth"]),
         "x-trust-workspace-id": header(request.headers["x-trust-workspace-id"]),
         "x-trust-dataset-id": header(request.headers["x-trust-dataset-id"]),
         "x-trust-application-id": header(
@@ -461,6 +477,16 @@ async function afterIngestEffect(checkpoint: IngestCheckpoint): Promise<void> {
   if (process.env.TRUST_FAIL_AFTER_CHECKPOINT === checkpoint) {
     process.stderr.write(`Injected process termination after ${checkpoint}\n`);
     process.exit(86);
+  }
+}
+async function afterImportEffect(
+  checkpoint: ArchiveImportCheckpoint,
+): Promise<void> {
+  if (process.env.TRUST_FAIL_AFTER_IMPORT_CHECKPOINT === checkpoint) {
+    process.stderr.write(
+      `Injected import process termination after ${checkpoint}\n`,
+    );
+    process.exit(87);
   }
 }
 function parsePrincipalType(

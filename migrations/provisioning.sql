@@ -125,7 +125,12 @@ GRANT SELECT, INSERT, UPDATE ON
   verification_runs,
   reconciliation_incidents,
   application_registrations,
-  upload_sessions
+  upload_sessions,
+  portability_exports,
+  portability_archives,
+  portability_plans,
+  portability_import_operations,
+  imported_archive_audit_events
 TO trust_application;
 REVOKE INSERT, UPDATE, DELETE ON
   policy_assignments,
@@ -158,11 +163,16 @@ GRANT SELECT ON
   tombstones,
   operations,
   upload_sessions,
-  audit_events
+  audit_events,
+  portability_exports,
+  portability_archives,
+  portability_plans,
+  portability_import_operations,
+  imported_archive_audit_events
 TO trust_verification;
 GRANT SELECT, INSERT, UPDATE ON verification_runs TO trust_verification;
 
-GRANT SELECT ON audit_events TO trust_audit_reader;
+GRANT SELECT ON audit_events, imported_archive_audit_events TO trust_audit_reader;
 GRANT SELECT, INSERT ON audit_events TO trust_audit_writer;
 
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO trust_backup_restore;

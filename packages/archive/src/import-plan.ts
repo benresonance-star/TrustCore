@@ -65,19 +65,24 @@ export function planArchiveImport(
 
   const actions: ArchiveImportAction[] = [];
   for (const kind of archiveRecordKinds) {
-    for (const record of transformed[kind] ?? []) {
-      const sourceId = recordId(record, kind);
-      const targetId = sourceId;
-      const existing = request.target.records?.[kind]?.[targetId];
+    const sourceRecords = request.archive.verification.records[kind] ?? [];
+    const transformedRecords = transformed[kind] ?? [];
+    for (const [recordIndex, record] of transformedRecords.entries()) {
+      const sourceId = recordId(sourceRecords[recordIndex] ?? record, kind);
+      const transformedId = recordId(record, kind);
+      const existing = request.target.records?.[kind]?.[transformedId];
       let disposition: ArchiveImportAction["disposition"] = "insert";
       if (existing) {
-        if (canonicalJson(existing) === canonicalJson(record))
+        if (
+          (kind === "workspaces" && request.mode === "mapped_workspace") ||
+          canonicalJson(existing) === canonicalJson(record)
+        )
           disposition = "already_present";
         else {
           disposition = "blocked";
           issues.push({
             code: "IMPORT_ID_CONFLICT",
-            message: `${kind} ID already exists with different content: ${targetId}`,
+            message: `${kind} ID already exists with different content: ${transformedId}`,
           });
         }
       }
@@ -89,7 +94,7 @@ export function planArchiveImport(
           kind === "workspaces" && request.mode === "mapped_workspace"
             ? sourceWorkspaceId
             : sourceId,
-        targetId,
+        targetId: transformedId,
         disposition,
         record,
         dependsOn: dependencies(kind, record),
@@ -189,26 +194,179 @@ function transformRecords(
   sourceWorkspaceId: string,
   targetWorkspaceId: string,
 ): Partial<Record<ArchiveRecordKind, readonly ArchiveRecord[]>> {
+  const mappings = buildIdMappings(
+    source,
+    sourceWorkspaceId,
+    targetWorkspaceId,
+  );
   return Object.fromEntries(
     archiveRecordKinds.map((kind) => [
       kind,
       (source[kind] ?? []).map((record) =>
-        mapWorkspace(record, sourceWorkspaceId, targetWorkspaceId),
+        mapRecord(kind, record, sourceWorkspaceId, targetWorkspaceId, mappings),
       ),
     ]),
   );
 }
 
-function mapWorkspace(
+function buildIdMappings(
+  source: Partial<Record<ArchiveRecordKind, readonly ArchiveRecord[]>>,
+  sourceWorkspaceId: string,
+  targetWorkspaceId: string,
+): Readonly<Record<string, ReadonlyMap<string, string>>> {
+  const scopedKinds = [
+    "datasets",
+    "resources",
+    "revisions",
+    "revision-blobs",
+    "blobs",
+    "relations",
+    "tombstones",
+  ] as const;
+  return Object.fromEntries([
+    ["workspaces", new Map([[sourceWorkspaceId, targetWorkspaceId]])],
+    ...scopedKinds.map((kind) => [
+      kind,
+      new Map(
+        (source[kind] ?? []).flatMap((record) =>
+          typeof record.id === "string"
+            ? [
+                [
+                  record.id,
+                  sourceWorkspaceId === targetWorkspaceId
+                    ? record.id
+                    : mappedEntityId(targetWorkspaceId, kind, record.id),
+                ] as const,
+              ]
+            : [],
+        ),
+      ),
+    ]),
+  ]);
+}
+
+function mapRecord(
+  kind: ArchiveRecordKind,
   record: ArchiveRecord,
   sourceWorkspaceId: string,
   targetWorkspaceId: string,
+  mappings: Readonly<Record<string, ReadonlyMap<string, string>>>,
 ): ArchiveRecord {
   const mapped = { ...record };
   if (mapped.workspaceId === sourceWorkspaceId)
     mapped.workspaceId = targetWorkspaceId;
-  if (mapped.id === sourceWorkspaceId) mapped.id = targetWorkspaceId;
+  mapped.id = mapReference(mappings[kind], mapped.id);
+  switch (kind) {
+    case "workspaces":
+    case "schema-packages":
+    case "audit-events":
+    case "retention":
+      break;
+    case "datasets":
+      break;
+    case "resources":
+      mapped.datasetId = mapReference(mappings.datasets, mapped.datasetId);
+      mapped.currentRevisionId = mapReference(
+        mappings.revisions,
+        mapped.currentRevisionId,
+      );
+      break;
+    case "revisions":
+      mapped.datasetId = mapReference(mappings.datasets, mapped.datasetId);
+      mapped.resourceId = mapReference(mappings.resources, mapped.resourceId);
+      mapped.parentRevisionId = mapReference(
+        mappings.revisions,
+        mapped.parentRevisionId,
+      );
+      mapped.restoredFromRevisionId = mapReference(
+        mappings.revisions,
+        mapped.restoredFromRevisionId,
+      );
+      if (Array.isArray(mapped.mergeParentRevisionIds))
+        mapped.mergeParentRevisionIds = mapped.mergeParentRevisionIds.map(
+          (value) => mapReference(mappings.revisions, value),
+        );
+      break;
+    case "revision-blobs":
+      mapped.revisionId = mapReference(mappings.revisions, mapped.revisionId);
+      mapped.blobObjectId = mapReference(mappings.blobs, mapped.blobObjectId);
+      break;
+    case "blobs":
+      break;
+    case "relations":
+      mapped.datasetId = mapReference(mappings.datasets, mapped.datasetId);
+      mapped.sourceId = mapRelationReference(
+        mappings,
+        mapped.sourceKind,
+        mapped.sourceId,
+      );
+      mapped.targetId = mapRelationReference(
+        mappings,
+        mapped.targetKind,
+        mapped.targetId,
+      );
+      break;
+    case "tombstones":
+      mapped.datasetId = mapReference(mappings.datasets, mapped.datasetId);
+      mapped.subjectId = mapRelationReference(
+        mappings,
+        mapped.subjectKind,
+        mapped.subjectId,
+      );
+      mapped.priorRevisionId = mapReference(
+        mappings.revisions,
+        mapped.priorRevisionId,
+      );
+      break;
+    default: {
+      const exhaustive: never = kind;
+      throw new Error(`Unsupported archive record kind: ${exhaustive}`);
+    }
+  }
   return mapped;
+}
+
+function mapReference(
+  mapping: ReadonlyMap<string, string> | undefined,
+  value: unknown,
+): unknown {
+  return typeof value === "string" ? (mapping?.get(value) ?? value) : value;
+}
+
+function mapRelationReference(
+  mappings: Readonly<Record<string, ReadonlyMap<string, string>>>,
+  kind: unknown,
+  value: unknown,
+): unknown {
+  const recordKind =
+    kind === "resource"
+      ? "resources"
+      : kind === "revision"
+        ? "revisions"
+        : kind === "blob"
+          ? "blobs"
+          : kind === "relation"
+            ? "relations"
+            : kind === "dataset"
+              ? "datasets"
+              : undefined;
+  return recordKind ? mapReference(mappings[recordKind], value) : value;
+}
+
+function mappedEntityId(
+  workspaceId: string,
+  kind: ArchiveRecordKind,
+  sourceId: string,
+): string {
+  const digest = sha256(
+    canonicalJson({
+      format: "trust-import-mapped-id-v1",
+      workspaceId,
+      kind,
+      sourceId,
+    }),
+  );
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-${((Number.parseInt(digest.slice(16, 18), 16) & 0x3f) | 0x80).toString(16)}${digest.slice(18, 20)}-${digest.slice(20, 32)}`;
 }
 
 function validateGraph(

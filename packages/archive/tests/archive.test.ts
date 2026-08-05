@@ -310,6 +310,13 @@ describe("Trust Archive 0.2C dry-run import planning", () => {
           (action) => action.record?.workspaceId === "workspace-import-target",
         ),
     ).toBe(true);
+    const sourceDatasetId = archive.verification.records.datasets?.[0]?.id;
+    const dataset = plan.actions.find((action) => action.kind === "datasets");
+    expect(dataset?.sourceId).toBe(sourceDatasetId);
+    expect(dataset?.targetId).not.toBe(sourceDatasetId);
+    expect(dataset?.record?.id).toBe(dataset?.targetId);
+    const resource = plan.actions.find((action) => action.kind === "resources");
+    expect(resource?.record?.datasetId).toBe(dataset?.targetId);
   });
 
   it("classifies identical records as resumable and rejects divergent IDs", async () => {

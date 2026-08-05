@@ -5,12 +5,17 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { ObjectStorage } from "@trust-core/storage";
 import {
+  PostgresArchiveImportOperationStore,
+  PostgresArchiveImportTarget,
   PostgresContractRepository,
   PostgresIngestOperationStore,
   PostgresOutboxStore,
+  PostgresPortabilityStore,
   PostgresTrustRepository,
   PostgresVerificationCatalog,
+  deterministicUuid,
   runMigrations,
   type DatabasePool,
   type QueryResult,
@@ -76,8 +81,32 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "0008_application_registration_idempotency.sql",
       "0009_upload_principal_ownership.sql",
       "0010_ingest_principal_audit.sql",
+      "0011_portability_persistence.sql",
     ]);
     await expect(runMigrations(pool, migrationsDirectory)).resolves.toEqual([]);
+    const protectedTables = await owner.query<{
+      relname: string;
+      relrowsecurity: boolean;
+      relforcerowsecurity: boolean;
+    }>(
+      "SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname = ANY($1::text[]) ORDER BY relname",
+      [
+        [
+          "imported_archive_audit_events",
+          "portability_archives",
+          "portability_exports",
+          "portability_import_operations",
+          "portability_plans",
+        ],
+      ],
+    );
+    expect(protectedTables.rows).toHaveLength(5);
+    expect(
+      protectedTables.rows.every(
+        ({ relrowsecurity, relforcerowsecurity }) =>
+          relrowsecurity && relforcerowsecurity,
+      ),
+    ).toBe(true);
   });
 
   it("rejects an altered migration by checksum", async () => {
@@ -151,6 +180,24 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
         ],
       ),
     ).rejects.toMatchObject({ code: "23514" });
+    const workspaceBDataset = (
+      await owner.query<{ id: string }>(
+        "SELECT id FROM datasets WHERE workspace_id=$1",
+        [fixture.workspaceB],
+      )
+    ).rows[0]!.id;
+    await expect(
+      owner.query(
+        "INSERT INTO portability_exports (id,workspace_id,dataset_ids,status,signature_profile,requested_by,requested_by_principal_type,idempotency_key,request_fingerprint) VALUES ($1,$2,$3::uuid[],'pending','unsigned','actor','user',$4,$5)",
+        [
+          `invalid-export-${randomUUID()}`,
+          fixture.workspaceA,
+          [workspaceBDataset],
+          `invalid-${randomUUID()}`,
+          "f".repeat(64),
+        ],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
   it("denies application access across workspace RLS boundaries", async () => {
@@ -306,6 +353,229 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "temporary_upload_created",
     ]);
     expect(restarted.context).toEqual({ temporaryKey: "temporary/object" });
+  });
+
+  it("durably resumes imports and separates source evidence from the native audit chain", async () => {
+    const fixture = await createFixture();
+    const archiveId = "7".repeat(64);
+    const planId = "8".repeat(64);
+    const operationId = deterministicUuid(
+      `archive-import:${fixture.workspaceA}:${planId}`,
+    );
+    const plan = {
+      planId,
+      archiveExportId: "source-export",
+      sourceWorkspaceId: fixture.workspaceB,
+      targetWorkspaceId: fixture.workspaceA,
+      mode: "mapped_workspace" as const,
+      conflictMode: "reject_on_error" as const,
+      status: "ready" as const,
+      issues: [],
+      actions: [],
+      counts: { insert: 0, already_present: 0, blocked: 0 },
+      futurePlanField: { preserved: true },
+    };
+    await owner.query(
+      "INSERT INTO portability_archives (id,workspace_id,source_export_id,source_workspace_id,status,signature_profile,checked_entries,issue_count,archive_sha256,byte_length,storage_provider,storage_key,manifest_json,verification_json,uploaded_by,uploaded_by_principal_type,idempotency_key,request_fingerprint) VALUES ($1,$2,'source-export',$3,'verified','unsigned',1,0,$1,1,'test',$4,$5::jsonb,$6::jsonb,'actor','user',$7,$8)",
+      [
+        archiveId,
+        fixture.workspaceA,
+        fixture.workspaceB,
+        `archives/${archiveId}`,
+        JSON.stringify({
+          format: "trustarchive",
+          formatVersion: "0.2",
+          signatureProfile: "unsigned",
+          futureManifestField: "preserved",
+        }),
+        JSON.stringify({ valid: true, issues: [], records: {} }),
+        `archive-${randomUUID()}`,
+        "9".repeat(64),
+      ],
+    );
+    await owner.query(
+      "INSERT INTO portability_plans (id,workspace_id,archive_id,source_workspace_id,mode,conflict_mode,status,plan_json,requested_by,requested_by_principal_type,idempotency_key,request_fingerprint) VALUES ($1,$2,$3,$4,'mapped_workspace','reject_on_error','ready',$5::jsonb,'actor','user',$6,$7)",
+      [
+        planId,
+        fixture.workspaceA,
+        archiveId,
+        fixture.workspaceB,
+        JSON.stringify(plan),
+        `plan-${randomUUID()}`,
+        "a".repeat(64),
+      ],
+    );
+    const portability = new PostgresPortabilityStore(pool, {
+      allowLocalUnsignedProfile: true,
+    });
+    await expect(
+      portability.getArchive(fixture.workspaceA, archiveId),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: archiveId,
+        signatureProfile: "unsigned",
+        manifest: expect.objectContaining({
+          futureManifestField: "preserved",
+        }),
+      }),
+    );
+    await expect(
+      portability.getPlan(fixture.workspaceA, planId),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          futurePlanField: { preserved: true },
+        }),
+      }),
+    );
+
+    const operations = new PostgresArchiveImportOperationStore(
+      pool,
+      fixture.workspaceA,
+      {
+        principalType: "user",
+        idempotencyKey: "execute-one",
+        fingerprint: "c".repeat(64),
+      },
+    );
+    const started = await operations.begin({
+      planId,
+      archiveExportId: "source-export",
+      requestedBy: "actor",
+      at: "2026-08-05T00:00:00.000Z",
+    });
+    expect(started.id).toBe(operationId);
+    const advanced = await operations.advance({
+      operationId: started.id,
+      planId,
+      expected: "authorised",
+      next: "target_revalidated",
+      at: "2026-08-05T00:00:01.000Z",
+    });
+    await expect(
+      new PostgresArchiveImportOperationStore(pool, fixture.workspaceA, {
+        principalType: "user",
+        idempotencyKey: "execute-one",
+        fingerprint: "c".repeat(64),
+      }).begin({
+        planId,
+        archiveExportId: "source-export",
+        requestedBy: "actor",
+        at: "2026-08-05T00:00:02.000Z",
+      }),
+    ).resolves.toMatchObject({
+      id: started.id,
+      checkpoint: "target_revalidated",
+    });
+    await expect(
+      new PostgresArchiveImportOperationStore(pool, fixture.workspaceA, {
+        principalType: "user",
+        idempotencyKey: "execute-one",
+        fingerprint: "d".repeat(64),
+      }).begin({
+        planId,
+        archiveExportId: "source-export",
+        requestedBy: "actor",
+        at: "2026-08-05T00:00:03.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect(advanced.checkpoint).toBe("target_revalidated");
+
+    const target = new PostgresArchiveImportTarget(
+      pool,
+      unusedStorage(),
+      fixture.workspaceA,
+      "test",
+    );
+    const sourceEvent = {
+      id: "source-event",
+      eventHash: "b".repeat(64),
+      previousEventHash: null,
+      futureEvidenceField: { preserved: true },
+    };
+    const auditAction = {
+      index: 0,
+      phase: 100,
+      kind: "audit-events" as const,
+      sourceId: sourceEvent.id,
+      targetId: sourceEvent.id,
+      disposition: "insert" as const,
+      record: sourceEvent,
+      dependsOn: [],
+    };
+    await target.commitMetadata({
+      operationId: started.id,
+      plan,
+      actions: [auditAction],
+    });
+    await target.commitMetadata({
+      operationId: started.id,
+      plan,
+      actions: [auditAction],
+    });
+    const append = {
+      operationId: started.id,
+      plan,
+      requestedBy: "actor",
+      at: "2026-08-05T00:00:03.000Z",
+      sourceAuditLineage: {
+        mode: "source_chain" as const,
+        sourceWorkspaceId: fixture.workspaceB,
+        eventCount: 1,
+        firstEventHash: sourceEvent.eventHash,
+        lastEventHash: sourceEvent.eventHash,
+      },
+    };
+    await target.appendAudit(append);
+    await target.appendAudit(append);
+    const evidence = await owner.query<{
+      source_event_json: {
+        futureEvidenceField: { preserved: boolean };
+      };
+    }>(
+      "SELECT source_event_json FROM imported_archive_audit_events WHERE import_operation_id=$1",
+      [started.id],
+    );
+    expect(evidence.rows).toEqual([
+      {
+        source_event_json: expect.objectContaining({
+          futureEvidenceField: { preserved: true },
+        }),
+      },
+    ]);
+    expect(
+      (
+        await owner.query(
+          "SELECT id FROM audit_events WHERE workspace_id=$1 AND action='archive.imported' AND correlation_id=$2",
+          [fixture.workspaceA, started.id],
+        )
+      ).rowCount,
+    ).toBe(1);
+    expect(await target.inventory()).toEqual(
+      expect.objectContaining({
+        workspaceId: fixture.workspaceA,
+        blobDigests: ["e".repeat(64)],
+      }),
+    );
+    const app = new Pool({ connectionString: appUrl, max: 1 });
+    try {
+      await app.query("SELECT set_config('trust.workspace_id',$1,false)", [
+        fixture.workspaceA,
+      ]);
+      expect(
+        (await app.query("SELECT id FROM imported_archive_audit_events"))
+          .rowCount,
+      ).toBe(1);
+      await app.query("SELECT set_config('trust.workspace_id',$1,false)", [
+        fixture.workspaceB,
+      ]);
+      expect(
+        (await app.query("SELECT id FROM imported_archive_audit_events"))
+          .rowCount,
+      ).toBe(0);
+    } finally {
+      await app.end();
+    }
   });
 
   it("enforces lease ownership, stale completion, retry, and quarantine incidents", async () => {
@@ -680,8 +950,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       ...input,
       actorId: "application.b",
     };
-    const otherCreated =
-      await contracts.createUploadSession(otherApplication);
+    const otherCreated = await contracts.createUploadSession(otherApplication);
     expect(otherCreated.id).not.toBe(created.id);
     const actorA = {
       id: input.actorId,
@@ -860,5 +1129,22 @@ function adaptPool(source: Pool): DatabasePool {
       } satisfies TransactionClient;
     },
     end: () => source.end(),
+  };
+}
+
+function unusedStorage(): ObjectStorage {
+  const unused = async (): Promise<never> => {
+    throw new Error(
+      "Object storage was not expected in this integration path.",
+    );
+  };
+  return {
+    createTemporaryUpload: unused,
+    writeTemporary: unused,
+    commitImmutable: unused,
+    openReadStream: unused,
+    head: unused,
+    exists: unused,
+    deleteTemporary: unused,
   };
 }

@@ -26,6 +26,13 @@ The API returns archive bytes as bounded base64 for this candidate contract. A
 production implementation should stream large downloads or issue tightly
 scoped, short-lived download URLs without weakening authorization or audit.
 
+The live 0.2H adapter deliberately preserves that bounded base64 public
+contract for the synthetic gate. PostgreSQL extraction and MinIO object reads
+are verified against declared byte lengths and SHA-256 digests, but archive
+assembly and delivery remain memory-bounded by the existing 8 MB container
+limit. A streaming public upload/download contract is deferred to a later
+contract revision rather than being introduced incompatibly in 0.2H.
+
 ## Deliberate limits
 
 This checkpoint does not claim:

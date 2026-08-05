@@ -17,3 +17,20 @@ export { PostgresReconciliationCatalog } from "./reconciliation-catalog.js";
 export { PostgresIngestOperationStore } from "./operation-store.js";
 export { PostgresContractRepository } from "./contract-repository.js";
 export type { RelationQuery } from "./contract-repository.js";
+export {
+  PostgresArchiveImportOperationStore,
+  PostgresArchiveImportTarget,
+  loadArchiveImportInventory,
+} from "./archive-import.js";
+export {
+  PortabilityArchiveObjectStore,
+  PostgresPortabilityStore,
+} from "./portability-store.js";
+export { PostgresPortabilityExportReader } from "./portability-export.js";
+export type {
+  DurablePortabilityArchive,
+  DurablePortabilityExport,
+  DurablePortabilityPlan,
+  PortabilityPrincipalType,
+  PortabilityStorageLocation,
+} from "./portability-store.js";
