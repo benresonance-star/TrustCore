@@ -84,6 +84,9 @@ importers:
 
   apps/trust-control-centre:
     dependencies:
+      '@trust-core/app-protocol':
+        specifier: workspace:*
+        version: link:../../packages/app-protocol
       '@trust-core/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -149,6 +152,18 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+
+  packages/app-protocol:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
 
   packages/archive:
     dependencies:

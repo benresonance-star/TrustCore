@@ -802,6 +802,23 @@ destructive reconstruction remain unproved until the PC/Docker gate.
 
 # 18. Application integration requirements
 
+All applications implement the versioned Trust Core Application Protocol
+`TCAP/1.0`, defined in `contracts/application-protocol.md` and the machine
+manifest schema `contracts/application-manifest.schema.json`. The authoritative
+source validator and deterministic method/agent-brief generator live in
+`@trust-core/app-protocol`.
+
+TCAP registration identifies an application and its requested schema packages
+and capabilities; it never grants access by itself. Apps use the public SDK/API,
+stable idempotency keys, optimistic revision concurrency, declared blob roles,
+append-only history, logical-first deletion and archive round-trip proof. Direct
+application access to Trust Core PostgreSQL, object storage or server packages
+is prohibited.
+
+The Control Centre App Protocol section generates a candidate manifest, method
+map and agent handoff locally. Generation is not schema publication or access
+approval; administrator review and the governed API lifecycle remain required.
+
 Every future application must provide:
 
 1. globally unique application namespace;

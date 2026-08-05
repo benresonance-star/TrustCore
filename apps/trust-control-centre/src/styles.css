@@ -1055,6 +1055,148 @@ tbody tr.selected {
   }
 }
 
+.protocol-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(440px, 1.1fr);
+  gap: 18px;
+  align-items: start;
+}
+.protocol-form {
+  display: grid;
+  gap: 16px;
+}
+.protocol-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.protocol-form input,
+.protocol-form textarea {
+  width: 100%;
+}
+.protocol-form textarea {
+  resize: vertical;
+}
+.protocol-form label small {
+  font-weight: 400;
+}
+.protocol-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.capability-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.capability-fieldset legend {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.capability-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.capability-option {
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px !important;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+.capability-option input {
+  width: auto;
+  margin: 0;
+}
+.protocol-output {
+  min-height: 620px;
+  padding: 0;
+  overflow: hidden;
+}
+.protocol-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+}
+.protocol-tabs button {
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.protocol-tabs button.active {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.method-list {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+}
+.method-list article {
+  display: grid;
+  gap: 7px;
+  padding: 16px 18px;
+  background: var(--panel);
+}
+.method-list article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.method-list article span {
+  color: var(--good);
+  font-size: 11px;
+}
+.method-list code,
+.protocol-code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+.method-list code {
+  color: var(--accent);
+  font-size: 12px;
+}
+.protocol-code {
+  min-height: 520px;
+  margin: 0;
+  padding: 20px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.protocol-empty {
+  display: grid;
+  place-items: center;
+  min-height: 480px;
+  padding: 30px;
+  color: var(--muted);
+  text-align: center;
+}
+.protocol-note {
+  margin: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 @media (max-width: 900px) {
   .project-grid,
   .component-grid {
@@ -1099,7 +1241,12 @@ tbody tr.selected {
   .metrics,
   .two-columns,
   .plan-grid,
-  .assignment-form {
+  .assignment-form,
+  .protocol-layout {
+    grid-template-columns: 1fr;
+  }
+  .protocol-pair,
+  .capability-grid {
     grid-template-columns: 1fr;
   }
   .execution-row {

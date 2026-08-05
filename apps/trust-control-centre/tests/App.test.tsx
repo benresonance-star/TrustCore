@@ -140,4 +140,29 @@ describe("Trust Core Control Centre", () => {
     );
     expect(await screen.findByText(/Import operation completed/)).toBeVisible();
   });
+
+  it("generates an app protocol method map and agent handoff", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "App protocol" }));
+    expect(
+      screen.getByRole("heading", { name: "Application contract" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate interface protocol" }),
+    );
+    expect(
+      screen.getByText("Append a schema-versioned revision"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("client.revisions.create(resourceId, command)"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Agent brief" }));
+    expect(
+      screen.getByText(/Implement Foundation against TCAP\/1.0/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Do not access Trust Core PostgreSQL/),
+    ).toBeVisible();
+  });
 });

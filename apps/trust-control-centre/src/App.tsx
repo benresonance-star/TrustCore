@@ -3,6 +3,7 @@ import {
   Archive,
   BadgeCheck,
   Box,
+  Braces,
   CircleCheckBig,
   Clock3,
   Database,
@@ -19,6 +20,7 @@ import {
   Network,
   NotebookPen,
   PackageOpen,
+  PlugZap,
   PanelsTopLeft,
   Search,
   ShieldCheck,
@@ -30,6 +32,12 @@ import {
   UserPlus,
   Waypoints,
 } from "lucide-react";
+import {
+  appCapabilities,
+  createAppProtocolBundle,
+  type AppCapability,
+  type AppProtocolBundle,
+} from "@trust-core/app-protocol";
 import {
   useCallback,
   useEffect,
@@ -62,6 +70,7 @@ const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
     { id: "health", label: "Health", Icon: Activity },
     { id: "history", label: "History", Icon: History },
     { id: "portability", label: "Portability", Icon: PackageOpen },
+    { id: "app-protocol", label: "App protocol", Icon: PlugZap },
     { id: "access", label: "Access", Icon: KeyRound },
   ];
 
@@ -289,6 +298,7 @@ export function App({
             <HistoryView gateway={gateway} workspaceId={gateway.workspaceId} />
           )}
           {section === "portability" && <PortabilityView gateway={gateway} />}
+          {section === "app-protocol" && <AppProtocolView />}
           {section === "access" && <AccessView gateway={gateway} />}
         </div>
       </main>
@@ -1537,6 +1547,235 @@ const fixtureAssignments: readonly Assignment[] = [
     scope: "Backups only",
   },
 ];
+
+function AppProtocolView() {
+  const [namespace, setNamespace] = useState("app/foundation");
+  const [name, setName] = useState("Foundation");
+  const [applicationVersion, setApplicationVersion] = useState("1.0.0");
+  const [schemaVersion, setSchemaVersion] = useState("1.0.0");
+  const [resourceTypes, setResourceTypes] = useState(
+    "Project, Document, Drawing, Note, Task, Decision",
+  );
+  const [relationTypes, setRelationTypes] = useState(
+    "contains, references, derived-from",
+  );
+  const [blobRoles, setBlobRoles] = useState(
+    "original, editable, preview, fallback",
+  );
+  const [capabilities, setCapabilities] = useState<readonly AppCapability[]>([
+    "dataset:read",
+    "resource:read",
+    "revision:create",
+    "object:ingest",
+    "relation:read",
+    "history:read",
+    "portability:read",
+  ]);
+  const [bundle, setBundle] = useState<AppProtocolBundle | null>(null);
+  const [error, setError] = useState("");
+  const [view, setView] = useState<"methods" | "manifest" | "agent">("methods");
+
+  function generate(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      setBundle(
+        createAppProtocolBundle({
+          namespace,
+          name,
+          applicationVersion,
+          schemaVersion,
+          resourceTypes: tokens(resourceTypes),
+          relationTypes: tokens(relationTypes),
+          blobRoles: tokens(blobRoles),
+          capabilities,
+          additionalFields: "preserve",
+        }),
+      );
+    } catch (nextError) {
+      setBundle(null);
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Protocol generation failed.",
+      );
+    }
+  }
+
+  function toggleCapability(capability: AppCapability) {
+    setCapabilities((current) =>
+      current.includes(capability)
+        ? current.filter((value) => value !== capability)
+        : [...current, capability],
+    );
+  }
+
+  const output = bundle
+    ? view === "manifest"
+      ? JSON.stringify(bundle.manifest, null, 2)
+      : bundle.agentBrief
+    : "Generate the protocol to create an agent-ready handoff.";
+
+  return (
+    <>
+      <PageHeading
+        title="App protocol"
+        subtitle="Define how an application interfaces with Trust Core, then generate its TCAP/1 manifest, method surface and implementation brief."
+        action={<span className="status-pill healthy">TCAP/1.0</span>}
+      />
+      <div className="protocol-layout">
+        <form className="card protocol-form" onSubmit={generate}>
+          <div className="card-heading">
+            <Braces size={18} />
+            <div>
+              <h2>Application contract</h2>
+              <p>This generates a candidate. Publishing remains governed.</p>
+            </div>
+          </div>
+          <div className="protocol-pair">
+            <label>
+              Namespace
+              <input
+                value={namespace}
+                onChange={(event) => setNamespace(event.target.value)}
+                placeholder="app/foundation"
+              />
+            </label>
+            <label>
+              Name
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="protocol-pair">
+            <label>
+              Application version
+              <input
+                value={applicationVersion}
+                onChange={(event) => setApplicationVersion(event.target.value)}
+              />
+            </label>
+            <label>
+              Schema version
+              <input
+                value={schemaVersion}
+                onChange={(event) => setSchemaVersion(event.target.value)}
+              />
+            </label>
+          </div>
+          <label>
+            Resource types
+            <textarea
+              value={resourceTypes}
+              onChange={(event) => setResourceTypes(event.target.value)}
+              rows={2}
+            />
+            <small>Comma separated, UpperCamelCase.</small>
+          </label>
+          <label>
+            Relation types
+            <input
+              value={relationTypes}
+              onChange={(event) => setRelationTypes(event.target.value)}
+            />
+          </label>
+          <label>
+            Blob roles
+            <input
+              value={blobRoles}
+              onChange={(event) => setBlobRoles(event.target.value)}
+            />
+          </label>
+          <fieldset className="capability-fieldset">
+            <legend>Requested capabilities</legend>
+            <div className="capability-grid">
+              {appCapabilities.map((capability) => (
+                <label key={capability} className="capability-option">
+                  <input
+                    type="checkbox"
+                    checked={capabilities.includes(capability)}
+                    onChange={() => toggleCapability(capability)}
+                  />
+                  <span>{capability}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {error && (
+            <div className="form-error" role="alert">
+              {error}
+            </div>
+          )}
+          <button className="button primary" type="submit">
+            Generate interface protocol
+          </button>
+        </form>
+
+        <section className="card protocol-output">
+          <div className="protocol-tabs" role="tablist">
+            {(["methods", "manifest", "agent"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={view === tab}
+                className={view === tab ? "active" : ""}
+                onClick={() => setView(tab)}
+              >
+                {tab === "agent" ? "Agent brief" : titleCase(tab)}
+              </button>
+            ))}
+          </div>
+          {view === "methods" ? (
+            <div className="method-list">
+              {bundle ? (
+                bundle.methods.map((method) => (
+                  <article key={method.sdk}>
+                    <div>
+                      <strong>{method.purpose}</strong>
+                      {method.required && <span>Required</span>}
+                    </div>
+                    <code>{method.sdk}</code>
+                    <small>{method.http}</small>
+                  </article>
+                ))
+              ) : (
+                <div className="protocol-empty">
+                  <PlugZap size={24} />
+                  <p>
+                    Interface methods will be derived from the requested
+                    capabilities.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <pre className="protocol-code">{output}</pre>
+          )}
+          {bundle && (
+            <div className="protocol-note">
+              Generated locally. An administrator must still review permissions
+              and publish the schema package.
+            </div>
+          )}
+        </section>
+      </div>
+    </>
+  );
+}
+
+function tokens(value: string): readonly string[] {
+  return value
+    .split(",")
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function titleCase(value: string) {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
 
 function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
   const fixture = gateway.mode === "fixture";

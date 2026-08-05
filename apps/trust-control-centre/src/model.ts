@@ -5,6 +5,7 @@ export type Section =
   | "health"
   | "history"
   | "portability"
+  | "app-protocol"
   | "access";
 
 export type {

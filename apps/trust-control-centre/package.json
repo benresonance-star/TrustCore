@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@trust-core/app-protocol": "workspace:*",
     "@trust-core/protocol": "workspace:*",
     "@trust-core/sdk": "workspace:*",
     "@vitejs/plugin-react": "^5.0.0",

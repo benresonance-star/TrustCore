@@ -783,6 +783,21 @@ Never expose provider credentials, bucket names, SQL errors or internal paths.
 
 # 22. SDK requirements
 
+## Trust Core Application Protocol
+
+Every integrating app implements `TCAP/1.0`. The normative prose contract is
+`contracts/application-protocol.md`; its machine manifest schema is
+`contracts/application-manifest.schema.json`; and
+`@trust-core/app-protocol` supplies validation, method derivation and an
+agent-ready implementation brief. The Control Centre exposes the same generator
+as a local candidate-design tool. Generated output does not publish a schema or
+grant capabilities.
+
+TCAP requires public SDK/API access, separate application identity and policy,
+versioned immutable schemas, idempotent writes, optimistic concurrency,
+hash-verified blob ingest, typed relations, append-only history, logical-first
+deletion, unknown-field compatibility and archive round-trip conformance.
+
 ## TypeScript SDK
 
 - authenticated configuration;
