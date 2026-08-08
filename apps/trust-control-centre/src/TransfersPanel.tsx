@@ -1,4 +1,4 @@
-import type { DownloadGrant } from "@trust-core/protocol";
+import type { DownloadGrant, UploadScanStatus } from "@trust-core/protocol";
 import { useEffect, useState, type FormEvent } from "react";
 import { CopyIdChip } from "./CopyIdChip";
 import type { ControlCentreGateway, QuarantineScanSummary } from "./model";
@@ -21,6 +21,10 @@ export function TransfersPanel({
   const [remediation, setRemediation] = useState("");
   const [grant, setGrant] = useState<DownloadGrant | null>(null);
   const [scan, setScan] = useState<QuarantineScanSummary | null>(null);
+  const [uploadId, setUploadId] = useState("fixture-upload-pending-scan");
+  const [uploadScan, setUploadScan] = useState<UploadScanStatus | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanError, setScanError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +61,25 @@ export function TransfersPanel({
       setGrant(null);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onLookupScan(event: FormEvent) {
+    event.preventDefault();
+    setScanBusy(true);
+    setScanError("");
+    try {
+      const status = await gateway.getUploadScanStatus(
+        gateway.workspaceId,
+        uploadId.trim(),
+      );
+      setUploadScan(status);
+    } catch (cause) {
+      const formatted = formatGatewayError(cause);
+      setScanError(formatted.message);
+      setUploadScan(null);
+    } finally {
+      setScanBusy(false);
     }
   }
 
@@ -135,10 +158,50 @@ export function TransfersPanel({
       <div className="panel-heading" style={{ marginTop: 16 }}>
         <div>
           <h2>Quarantine / scan</h2>
-          <small>Read-only status when a scan summary API is available.</small>
+          <small>
+            Look up read-only scan status for a known upload id. No promotion or
+            override controls.
+          </small>
         </div>
         <WiringBadge entryId="control.health.quarantine" mode={gateway.mode} />
       </div>
+
+      <form
+        className="assignment-form"
+        onSubmit={(event) => void onLookupScan(event)}
+      >
+        <label>
+          Upload id
+          <input
+            value={uploadId}
+            onChange={(event) => setUploadId(event.target.value)}
+            required
+          />
+        </label>
+        <button className="button" type="submit" disabled={scanBusy}>
+          {scanBusy ? "Looking up…" : "Get scan status"}
+        </button>
+      </form>
+      {scanError && (
+        <div className="status-notice error" role="alert">
+          <strong>{scanError}</strong>
+        </div>
+      )}
+      {uploadScan && (
+        <div className="status-notice" role="status">
+          <strong>
+            {uploadScan.state}
+            {uploadScan.outcome ? ` · ${uploadScan.outcome}` : ""}
+          </strong>
+          <small>
+            Updated {new Date(uploadScan.updatedAt).toLocaleString()}
+          </small>
+          <div className="heading-action-cluster" style={{ marginTop: 8 }}>
+            <CopyIdChip id={uploadScan.uploadId} label="Upload" />
+          </div>
+        </div>
+      )}
+
       {scan ? (
         scan.available ? (
           <ul className="assignment-list">
@@ -157,13 +220,13 @@ export function TransfersPanel({
           </ul>
         ) : (
           <div className="empty-state">
-            <strong>Scan status unavailable</strong>
+            <strong>Workspace queue unavailable</strong>
             <small>{scan.summary}</small>
           </div>
         )
       ) : (
         <div className="empty-state">
-          <strong>Loading scan status…</strong>
+          <strong>Loading scan summary…</strong>
         </div>
       )}
     </article>

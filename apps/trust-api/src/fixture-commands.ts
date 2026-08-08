@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { FakeTransferSigner, TransferGrantService } from "@trust-core/operations";
+import {
+  FakeTransferSigner,
+  InMemoryQuarantineScanStore,
+  TransferGrantService,
+  toUploadScanStatus,
+  type QuarantineScanRecord,
+  type QuarantineScanStore,
+} from "@trust-core/operations";
 import type {
   ApplicationRegistration,
   AuthenticatedActor,
@@ -30,7 +37,11 @@ const retentionKnownFields = new Set([
 
 export function createFixtureCommands(
   clock: () => Date = () => new Date(),
-): CommandProvider {
+  options: { scanStore?: QuarantineScanStore } = {},
+): CommandProvider & {
+  seedUploadScan(record: QuarantineScanRecord): Promise<void>;
+} {
+  const scanStore = options.scanStore ?? new InMemoryQuarantineScanStore();
   const workspace = {
     id: "workspace-demo",
     name: "Trust Core demo",
@@ -494,6 +505,18 @@ export function createFixtureCommands(
         ? session
         : undefined;
     },
+    async getUploadScanStatus(workspaceId, uploadId, actor) {
+      const session = uploads.get(uploadId);
+      if (
+        !(
+          session?.workspaceId === workspaceId &&
+          actorMayAccessUpload(actor, uploadOwners.get(uploadId))
+        )
+      )
+        return undefined;
+      const record = await scanStore.getByUploadId(workspaceId, uploadId);
+      return record ? toUploadScanStatus(record) : undefined;
+    },
     async completeUpload(uploadId, actor, command) {
       const session = uploads.get(uploadId);
       if (
@@ -572,6 +595,9 @@ export function createFixtureCommands(
           headers: grant.transfer.headers,
         },
       };
+    },
+    async seedUploadScan(record: QuarantineScanRecord): Promise<void> {
+      await scanStore.save(record);
     },
   };
 }

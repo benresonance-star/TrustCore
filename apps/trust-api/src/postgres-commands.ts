@@ -3,6 +3,7 @@ import {
   ResourceHistoryService,
   TransferGrantService,
   GrantDeniedError,
+  toUploadScanStatus,
   type ObjectIngestResult,
   type ObjectIngestService,
   type TransferSigner,
@@ -12,6 +13,7 @@ import {
   PostgresBlobCatalog,
   PostgresContractRepository,
   PostgresHistoryRepository,
+  PostgresQuarantineScanStore,
   PostgresRetentionPolicyRepository,
   PostgresVerificationCatalog,
   deterministicUuid,
@@ -41,6 +43,7 @@ import type {
   ServiceHealth,
   TrustEventSummary,
   UpdateRetentionPolicyCommand,
+  UploadScanStatus,
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type {
@@ -57,6 +60,7 @@ export class PostgresCommandProvider implements CommandProvider {
   private readonly reports: PostgresVerificationCatalog;
   private readonly retention: PostgresRetentionPolicyRepository;
   private readonly blobs: PostgresBlobCatalog;
+  private readonly scans: PostgresQuarantineScanStore;
   private readonly grantService?: TransferGrantService;
   constructor(
     private readonly pool: DatabasePool,
@@ -78,6 +82,7 @@ export class PostgresCommandProvider implements CommandProvider {
     this.reports = new PostgresVerificationCatalog(pool);
     this.retention = new PostgresRetentionPolicyRepository(pool);
     this.blobs = new PostgresBlobCatalog(pool);
+    this.scans = new PostgresQuarantineScanStore(pool);
     this.grantService = grantOptions
       ? new TransferGrantService(
           { maxTtlSeconds: grantOptions.maxTtlSeconds },
@@ -431,6 +436,20 @@ export class PostgresCommandProvider implements CommandProvider {
   }
   getUpload(workspaceId: string, uploadId: string, actor: AuthenticatedActor) {
     return this.contracts.getUploadSession(workspaceId, uploadId, actor);
+  }
+  async getUploadScanStatus(
+    workspaceId: string,
+    uploadId: string,
+    actor: AuthenticatedActor,
+  ): Promise<UploadScanStatus | undefined> {
+    const session = await this.contracts.getUploadSession(
+      workspaceId,
+      uploadId,
+      actor,
+    );
+    if (!session) return undefined;
+    const record = await this.scans.getByUploadId(workspaceId, uploadId);
+    return record ? toUploadScanStatus(record) : undefined;
   }
   async completeUpload(
     uploadId: string,

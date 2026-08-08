@@ -282,6 +282,38 @@ export interface UploadSession {
   completedAt: string | null;
   blobId: string | null;
 }
+
+export const uploadScanStates = [
+  "pending_upload",
+  "uploaded",
+  "scan_queued",
+  "scanning",
+  "accepted",
+  "rejected",
+  "manual_review",
+  "promotion_pending",
+  "promoted",
+  "failed",
+] as const;
+export type UploadScanState = (typeof uploadScanStates)[number];
+
+export const uploadScanOutcomes = [
+  "clean",
+  "malicious",
+  "suspicious",
+  "unsupported",
+  "error",
+  "timeout",
+] as const;
+export type UploadScanOutcome = (typeof uploadScanOutcomes)[number];
+
+export interface UploadScanStatus {
+  uploadId: string;
+  workspaceId: string;
+  state: UploadScanState;
+  outcome?: UploadScanOutcome;
+  updatedAt: string;
+}
 export interface OperationSummary {
   id: string;
   workspaceId: string;

@@ -29,6 +29,12 @@ describe("TCAP/1 application protocol", () => {
     expect(first.methods.map((method) => method.sdk)).toContain(
       "client.revisions.create(resourceId, command)",
     );
+    expect(first.methods.map((method) => method.sdk)).toContain(
+      "client.uploads.getScanStatus(uploadId)",
+    );
+    expect(first.methods.map((method) => method.http)).toContain(
+      "GET /v1/uploads/{uploadId}/scan-status",
+    );
     expect(first.agentBrief).toContain("Do not access Trust Core PostgreSQL");
   });
 

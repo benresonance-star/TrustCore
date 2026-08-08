@@ -17,6 +17,7 @@ export { PostgresReconciliationCatalog } from "./reconciliation-catalog.js";
 export { PostgresIngestOperationStore } from "./operation-store.js";
 export { PostgresContractRepository } from "./contract-repository.js";
 export type { RelationQuery } from "./contract-repository.js";
+export { PostgresQuarantineScanStore } from "./quarantine-scan-store.js";
 export { PostgresRetentionPolicyRepository } from "./retention-policy-repository.js";
 export type { RetentionPolicyWrite } from "./retention-policy-repository.js";
 export {

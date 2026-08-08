@@ -849,6 +849,290 @@ describe("Release 0.1 API routing", () => {
     ).toBe(200);
   });
 
+  it("authorizes upload scan-status without leaking existence", async () => {
+    const commands = createFixtureCommands(() => now);
+    const permittedActor = {
+      id: "application.permitted",
+      displayName: "Permitted",
+      roles: [],
+      workspaceIds: [],
+      principalType: "application" as const,
+    };
+    const otherActor = {
+      id: "application.other",
+      displayName: "Other",
+      roles: [],
+      workspaceIds: [],
+      principalType: "application" as const,
+    };
+    const registrations = [
+      {
+        id: "registration-permitted",
+        workspaceId: "workspace-demo",
+        namespace: permittedActor.id,
+        name: "Permitted",
+        applicationVersion: "1.0.0",
+        schemaPackageIds: [] as string[],
+        capabilities: ["object:ingest"],
+        status: "active" as const,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        id: "registration-other",
+        workspaceId: "workspace-demo",
+        namespace: otherActor.id,
+        name: "Other",
+        applicationVersion: "1.0.0",
+        schemaPackageIds: [] as string[],
+        capabilities: ["object:ingest"],
+        status: "active" as const,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        id: "registration-unassigned",
+        workspaceId: "workspace-demo",
+        namespace: "application.unassigned",
+        name: "Unassigned",
+        applicationVersion: "1.0.0",
+        schemaPackageIds: [] as string[],
+        capabilities: ["object:ingest"],
+        status: "active" as const,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        id: "registration-nocap",
+        workspaceId: "workspace-demo",
+        namespace: "application.nocap",
+        name: "NoCap",
+        applicationVersion: "1.0.0",
+        schemaPackageIds: [] as string[],
+        capabilities: ["dataset:read"],
+        status: "active" as const,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        id: "registration-suspended",
+        workspaceId: "workspace-demo",
+        namespace: "application.suspended",
+        name: "Suspended",
+        applicationVersion: "1.0.0",
+        schemaPackageIds: [] as string[],
+        capabilities: ["object:ingest"],
+        status: "suspended" as const,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        id: "registration-revoked-assignment",
+        workspaceId: "workspace-demo",
+        namespace: "application.revoked-assignment",
+        name: "RevokedAssignment",
+        applicationVersion: "1.0.0",
+        schemaPackageIds: [] as string[],
+        capabilities: ["object:ingest"],
+        status: "active" as const,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+    ];
+    const assignments = [
+      {
+        id: "assignment-permitted",
+        workspaceId: "workspace-demo",
+        principalType: "application" as const,
+        principalId: permittedActor.id,
+        role: "admin",
+        scopeKind: "application" as const,
+        scopeId: "registration-permitted",
+        createdBy: "admin",
+        createdAt: now.toISOString(),
+      },
+      {
+        id: "assignment-other",
+        workspaceId: "workspace-demo",
+        principalType: "application" as const,
+        principalId: otherActor.id,
+        role: "admin",
+        scopeKind: "application" as const,
+        scopeId: "registration-other",
+        createdBy: "admin",
+        createdAt: now.toISOString(),
+      },
+      {
+        id: "assignment-nocap",
+        workspaceId: "workspace-demo",
+        principalType: "application" as const,
+        principalId: "application.nocap",
+        role: "admin",
+        scopeKind: "application" as const,
+        scopeId: "registration-nocap",
+        createdBy: "admin",
+        createdAt: now.toISOString(),
+      },
+      {
+        id: "assignment-revoked-only",
+        workspaceId: "workspace-demo",
+        principalType: "application" as const,
+        principalId: "application.revoked-assignment",
+        role: "admin",
+        scopeKind: "application" as const,
+        scopeId: "registration-permitted",
+        createdBy: "admin",
+        createdAt: now.toISOString(),
+        revokedAt: now.toISOString(),
+      },
+    ];
+    const policiesFor = (actorId: string) => ({
+      async listApplications() {
+        return registrations;
+      },
+      async listPolicyAssignments() {
+        return assignments.filter(
+          (assignment) => assignment.principalId === actorId,
+        );
+      },
+      async listActiveBreakGlassGrants() {
+        return [];
+      },
+    });
+    const routeFor = (actor: AuthenticatedActor) =>
+      createApi(
+        { getSnapshot: async () => snapshot },
+        schemas,
+        () => now,
+        "fixture",
+        commands,
+        new StaticTokenAccessGateway(
+          "valid",
+          actor,
+          policiesFor(actor.id),
+          () => now,
+        ),
+      );
+    const permitted = routeFor(permittedActor);
+    const other = routeFor(otherActor);
+    const created = await permitted("POST", "/v1/uploads", {
+      headers,
+      body: {
+        workspaceId: "workspace-demo",
+        idempotencyKey: "scan-status-upload",
+        mediaType: "text/plain",
+        expectedByteLength: 1,
+        expectedSha256: "b".repeat(64),
+      },
+    });
+    expect(created.status).toBe(200);
+    const uploadId = (created.body as { id: string }).id;
+    await commands.seedUploadScan({
+      scanJobId: "scan-fixture-1",
+      workspaceId: "workspace-demo",
+      uploadId,
+      storageKey: "workspaces/workspace-demo/temporary/secret-key",
+      state: "scanning",
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    const allowed = await permitted(
+      "GET",
+      `/v1/uploads/${uploadId}/scan-status`,
+      { headers },
+    );
+    expect(allowed.status).toBe(200);
+    expect(allowed.body).toEqual({
+      uploadId,
+      workspaceId: "workspace-demo",
+      state: "scanning",
+      updatedAt: now.toISOString(),
+    });
+    expect(allowed.body).not.toHaveProperty("scanJobId");
+    expect(allowed.body).not.toHaveProperty("storageKey");
+    expect(JSON.stringify(allowed.body)).not.toContain("secret-key");
+
+    const unassigned = routeFor({
+      id: "application.unassigned",
+      displayName: "Unassigned",
+      roles: [],
+      workspaceIds: [],
+      principalType: "application",
+    });
+    expect(
+      (
+        await unassigned("GET", `/v1/uploads/${uploadId}/scan-status`, {
+          headers,
+        })
+      ).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+
+    const noCapability = routeFor({
+      id: "application.nocap",
+      displayName: "NoCap",
+      roles: [],
+      workspaceIds: [],
+      principalType: "application",
+    });
+    expect(
+      (
+        await noCapability("GET", `/v1/uploads/${uploadId}/scan-status`, {
+          headers,
+        })
+      ).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+
+    const suspended = routeFor({
+      id: "application.suspended",
+      displayName: "Suspended",
+      roles: [],
+      workspaceIds: [],
+      principalType: "application",
+    });
+    expect(
+      (
+        await suspended("GET", `/v1/uploads/${uploadId}/scan-status`, {
+          headers,
+        })
+      ).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+
+    const revokedAssignment = routeFor({
+      id: "application.revoked-assignment",
+      displayName: "RevokedAssignment",
+      roles: [],
+      workspaceIds: [],
+      principalType: "application",
+    });
+    expect(
+      (
+        await revokedAssignment(
+          "GET",
+          `/v1/uploads/${uploadId}/scan-status`,
+          { headers },
+        )
+      ).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+
+    for (const result of [
+      await other("GET", `/v1/uploads/${uploadId}/scan-status`, { headers }),
+      await permitted("GET", "/v1/uploads/missing-upload/scan-status", {
+        headers,
+      }),
+    ]) {
+      expect(result.status).toBe(404);
+      expect(result.body).toMatchObject({ code: "OPERATION_NOT_FOUND" });
+    }
+
+    expect(
+      (
+        await permitted("GET", `/v1/uploads/${uploadId}/scan-status`, {
+          headers: { ...headers, "x-trust-workspace-id": "workspace-other" },
+        })
+      ).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
   it("supports direct immutable ingest and protected sessions", async () => {
     const base = createFixtureCommands(() => now);
     const commands = {
@@ -1371,6 +1655,7 @@ function bodyFor(
     case "deletedResources.list":
     case "relations.list":
     case "uploads.get":
+    case "uploads.scanStatus":
     case "history.list":
     case "audit.list":
     case "verification.list":

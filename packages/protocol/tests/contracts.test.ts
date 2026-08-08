@@ -5,6 +5,9 @@ import {
   operationStates,
   publicErrorCodes,
   release01Routes,
+  release01Schemas,
+  uploadScanOutcomes,
+  uploadScanStates,
   verificationLevels,
 } from "../src/index.js";
 
@@ -38,6 +41,39 @@ describe("Release 0.1 public contracts", () => {
     expect(
       new Set(release01Routes.map(({ operationId }) => operationId)).size,
     ).toBe(release01Routes.length);
+  });
+
+  it("publishes upload scan-status route and provider-neutral schema", () => {
+    expect(release01Routes).toContainEqual({
+      method: "GET",
+      path: "/v1/uploads/{uploadId}/scan-status",
+      operationId: "uploads.scanStatus",
+    });
+    const schema = release01Schemas.UploadScanStatus as {
+      required: readonly string[];
+      properties: Readonly<Record<string, { enum?: readonly string[] }>>;
+    };
+    expect(schema.required).toEqual([
+      "uploadId",
+      "workspaceId",
+      "state",
+      "updatedAt",
+    ]);
+    expect(schema.properties.state.enum).toEqual([...uploadScanStates]);
+    expect(schema.properties.outcome.enum).toEqual([...uploadScanOutcomes]);
+    expect(Object.keys(schema.properties).sort()).toEqual(
+      ["outcome", "state", "updatedAt", "uploadId", "workspaceId"].sort(),
+    );
+    for (const forbidden of [
+      "scanJobId",
+      "storageKey",
+      "bucket",
+      "provider",
+      "engine",
+      "url",
+      "callback",
+    ])
+      expect(schema.properties).not.toHaveProperty(forbidden);
   });
 
   it("decodes the shared TypeScript and Swift dataset fixture", async () => {

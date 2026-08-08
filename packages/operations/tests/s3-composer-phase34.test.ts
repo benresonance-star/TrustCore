@@ -6,6 +6,7 @@ import {
   FakeMalwareScanner,
   FakeTransferSigner,
   GrantDeniedError,
+  InMemoryQuarantineScanStore,
   QuarantineScanOrchestrator,
   TransferGrantService,
   promoteQuarantineObject,
@@ -160,23 +161,65 @@ describe("QuarantineScanOrchestrator", () => {
     expect(queued.state).toBe("scanning");
     const clean = await orchestrator.handleCallback({
       scanJobId: "scan_1",
+      workspaceId: "workspace_a",
       outcome: "clean",
       authentic: true,
     });
     expect(clean.state).toBe("accepted");
     const duplicate = await orchestrator.handleCallback({
       scanJobId: "scan_1",
+      workspaceId: "workspace_a",
       outcome: "clean",
       authentic: true,
     });
     expect(duplicate.state).toBe("accepted");
+    expect(duplicate.updatedAt).toBe(clean.updatedAt);
     await expect(
       orchestrator.handleCallback({
         scanJobId: "scan_1",
+        workspaceId: "workspace_a",
         outcome: "malicious",
         authentic: false,
       }),
     ).rejects.toThrow(/authenticity/);
+  });
+
+  it("writes transitions through the provider-neutral store", async () => {
+    let now = Date.parse("2026-08-08T10:00:00.000Z");
+    const store = new InMemoryQuarantineScanStore();
+    const orchestrator = new QuarantineScanOrchestrator(
+      new FakeMalwareScanner(),
+      store,
+      () => new Date(now),
+    );
+    await orchestrator.queueUploaded({
+      scanJobId: "scan_store",
+      workspaceId: "workspace_a",
+      uploadId: "upload_store",
+      storageKey: temporaryObjectKey("workspace_a", "upload_store"),
+    });
+    const scanning = await store.getByUploadId("workspace_a", "upload_store");
+    expect(scanning?.state).toBe("scanning");
+    const scanningUpdatedAt = scanning!.updatedAt;
+    now += 60_000;
+    const accepted = await orchestrator.handleCallback({
+      scanJobId: "scan_store",
+      workspaceId: "workspace_a",
+      outcome: "clean",
+      authentic: true,
+    });
+    expect(accepted.updatedAt).not.toBe(scanningUpdatedAt);
+    now += 60_000;
+    const duplicate = await orchestrator.handleCallback({
+      scanJobId: "scan_store",
+      workspaceId: "workspace_a",
+      outcome: "clean",
+      authentic: true,
+    });
+    expect(duplicate.updatedAt).toBe(accepted.updatedAt);
+    expect(
+      await store.getByUploadId("workspace_b", "upload_store"),
+    ).toBeUndefined();
   });
 
   it("rejects illegal transitions", () => {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ObjectStorage } from "@trust-core/storage";
+import { QuarantineScanConflictError } from "@trust-core/operations";
 import {
   PostgresArchiveImportOperationStore,
   PostgresArchiveImportTarget,
@@ -14,6 +15,7 @@ import {
   PostgresOutboxStore,
   PostgresPortabilityExportReader,
   PostgresPortabilityStore,
+  PostgresQuarantineScanStore,
   PostgresRetentionPolicyRepository,
   PostgresTrustRepository,
   PostgresVerificationCatalog,
@@ -23,6 +25,7 @@ import {
   type QueryResult,
   type TransactionClient,
 } from "../src/index.js";
+import { assertQuarantineScanStoreIdentity } from "../../operations/tests/quarantine-scan-store.contract.js";
 
 const enabled = process.env.POSTGRES_INTEGRATION === "1";
 const bootstrapUrl =
@@ -86,6 +89,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "0011_portability_persistence.sql",
       "0012_portability_correctness.sql",
       "0013_retention_and_blob_encryption.sql",
+      "0014_quarantine_scan_jobs.sql",
     ]);
     await expect(runMigrations(pool, migrationsDirectory)).resolves.toEqual([]);
     const protectedTables = await owner.query<{
@@ -101,12 +105,13 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
           "portability_exports",
           "portability_import_operations",
           "portability_plans",
+          "quarantine_scan_jobs",
           "retention_policies",
           "retention_policy_requests",
         ],
       ],
     );
-    expect(protectedTables.rows).toHaveLength(7);
+    expect(protectedTables.rows).toHaveLength(8);
     expect(
       protectedTables.rows.every(
         ({ relrowsecurity, relforcerowsecurity }) =>
@@ -167,6 +172,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       ).resolves.toEqual([
         "0012_portability_correctness.sql",
         "0013_retention_and_blob_encryption.sql",
+        "0014_quarantine_scan_jobs.sql",
       ]);
       const primaryKey = await upgradeOwner.query<{ columns: string[] }>(
         "SELECT array_agg(a.attname ORDER BY key.ordinality)::text[] AS columns FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=key.attnum WHERE c.conrelid='portability_archives'::regclass AND c.contype='p' GROUP BY c.oid",
@@ -1321,6 +1327,232 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
           [otherCreated.operationId],
         ),
       ).rejects.toThrow("upload operation ownership is immutable");
+    } finally {
+      await app.end();
+    }
+  });
+
+  it("persists quarantine scan state with workspace-scoped lookup", async () => {
+    const fixture = await createFixture();
+    const contracts = new PostgresContractRepository(pool);
+    const scans = new PostgresQuarantineScanStore(pool);
+    const upload = await contracts.createUploadSession({
+      workspaceId: fixture.workspaceA,
+      actorId: "application.scan",
+      principalType: "application",
+      idempotencyKey: `scan-upload-${randomUUID()}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "a".repeat(64),
+      expiresInSeconds: 3600,
+      expiresAt: "2026-08-08T01:00:00.000Z",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    const createdAt = "2026-08-08T00:00:00.000Z";
+    const scanningAt = "2026-08-08T00:01:00.000Z";
+    await scans.save({
+      scanJobId: `scan-job-${randomUUID()}`,
+      workspaceId: fixture.workspaceA,
+      uploadId: upload.id,
+      storageKey: `workspaces/${fixture.workspaceA}/temporary/scan`,
+      state: "scanning",
+      createdAt,
+      updatedAt: scanningAt,
+    });
+    const loaded = await scans.getByUploadId(fixture.workspaceA, upload.id);
+    expect(loaded).toMatchObject({
+      uploadId: upload.id,
+      workspaceId: fixture.workspaceA,
+      state: "scanning",
+      updatedAt: scanningAt,
+    });
+    expect(loaded).not.toHaveProperty("engine");
+    expect(
+      await scans.getByUploadId(fixture.workspaceB, upload.id),
+    ).toBeUndefined();
+    const acceptedAt = "2026-08-08T00:02:00.000Z";
+    await scans.save({
+      ...loaded!,
+      state: "accepted",
+      outcome: "clean",
+      updatedAt: acceptedAt,
+    });
+    const accepted = await scans.getByUploadId(fixture.workspaceA, upload.id);
+    expect(accepted).toMatchObject({
+      state: "accepted",
+      outcome: "clean",
+      updatedAt: acceptedAt,
+      createdAt,
+    });
+  });
+
+  it("rejects quarantine scan rows that pair an upload with a different workspace", async () => {
+    const fixture = await createFixture();
+    const contracts = new PostgresContractRepository(pool);
+    const upload = await contracts.createUploadSession({
+      workspaceId: fixture.workspaceA,
+      actorId: "application.scan-fk",
+      principalType: "application",
+      idempotencyKey: `scan-fk-${randomUUID()}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "b".repeat(64),
+      expiresInSeconds: 3600,
+      expiresAt: "2026-08-08T01:00:00.000Z",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    const scanJobId = `scan-fk-${randomUUID()}`;
+    await expect(
+      owner.query(
+        `INSERT INTO quarantine_scan_jobs (
+          id,workspace_id,upload_id,storage_key,state,created_at,updated_at
+        ) VALUES ($1,$2,$3,$4,'scanning',$5,$5)`,
+        [
+          scanJobId,
+          fixture.workspaceB,
+          upload.id,
+          `workspaces/${fixture.workspaceB}/temporary/fk-mismatch`,
+          "2026-08-08T00:00:00.000Z",
+        ],
+      ),
+    ).rejects.toMatchObject({ code: "23503" });
+    expect(
+      (
+        await owner.query(
+          "SELECT id FROM quarantine_scan_jobs WHERE id=$1 OR upload_id=$2",
+          [scanJobId, upload.id],
+        )
+      ).rowCount,
+    ).toBe(0);
+    await expect(
+      new PostgresQuarantineScanStore(pool).save({
+        scanJobId: `scan-fk-store-${randomUUID()}`,
+        workspaceId: fixture.workspaceB,
+        uploadId: upload.id,
+        storageKey: `workspaces/${fixture.workspaceB}/temporary/fk-store`,
+        state: "scanning",
+        createdAt: "2026-08-08T00:00:00.000Z",
+        updatedAt: "2026-08-08T00:00:00.000Z",
+      }),
+    ).rejects.toBeInstanceOf(QuarantineScanConflictError);
+  });
+
+  it("enforces the shared quarantine scan identity contract on PostgreSQL", async () => {
+    const fixture = await createFixture();
+    const contracts = new PostgresContractRepository(pool);
+    const uploadA = await contracts.createUploadSession({
+      workspaceId: fixture.workspaceA,
+      actorId: "application.scan-identity-a",
+      principalType: "application",
+      idempotencyKey: `scan-identity-a-${randomUUID()}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "c".repeat(64),
+      expiresInSeconds: 3600,
+      expiresAt: "2026-08-08T01:00:00.000Z",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    const uploadB = await contracts.createUploadSession({
+      workspaceId: fixture.workspaceB,
+      actorId: "application.scan-identity-b",
+      principalType: "application",
+      idempotencyKey: `scan-identity-b-${randomUUID()}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "d".repeat(64),
+      expiresInSeconds: 3600,
+      expiresAt: "2026-08-08T01:00:00.000Z",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    await assertQuarantineScanStoreIdentity({
+      store: new PostgresQuarantineScanStore(pool),
+      workspaceA: fixture.workspaceA,
+      workspaceB: fixture.workspaceB,
+      uploadA: uploadA.id,
+      uploadB: uploadB.id,
+    });
+  });
+
+  it("enforces quarantine_scan_jobs RLS enablement and workspace isolation", async () => {
+    const fixture = await createFixture();
+    const contracts = new PostgresContractRepository(pool);
+    const scans = new PostgresQuarantineScanStore(pool);
+    const upload = await contracts.createUploadSession({
+      workspaceId: fixture.workspaceA,
+      actorId: "application.scan-rls",
+      principalType: "application",
+      idempotencyKey: `scan-rls-${randomUUID()}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "e".repeat(64),
+      expiresInSeconds: 3600,
+      expiresAt: "2026-08-08T01:00:00.000Z",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    const scanJobId = `scan-rls-${randomUUID()}`;
+    await scans.save({
+      scanJobId,
+      workspaceId: fixture.workspaceA,
+      uploadId: upload.id,
+      storageKey: `workspaces/${fixture.workspaceA}/temporary/rls`,
+      state: "scanning",
+      createdAt: "2026-08-08T00:00:00.000Z",
+      updatedAt: "2026-08-08T00:01:00.000Z",
+    });
+
+    const flags = await owner.query<{
+      relrowsecurity: boolean;
+      relforcerowsecurity: boolean;
+    }>(
+      "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname='quarantine_scan_jobs'",
+    );
+    expect(flags.rows[0]).toEqual({
+      relrowsecurity: true,
+      relforcerowsecurity: true,
+    });
+
+    const app = new Pool({ connectionString: appUrl, max: 1 });
+    try {
+      await expect(
+        app.query("SELECT id FROM quarantine_scan_jobs"),
+      ).resolves.toMatchObject({ rowCount: 0 });
+      await expect(
+        app.query(
+          `INSERT INTO quarantine_scan_jobs (
+            id,workspace_id,upload_id,storage_key,state,created_at,updated_at
+          ) VALUES ($1,$2,$3,$4,'scanning',$5,$5)`,
+          [
+            `scan-rls-unscoped-${randomUUID()}`,
+            fixture.workspaceA,
+            upload.id,
+            `workspaces/${fixture.workspaceA}/temporary/rls-unscoped`,
+            "2026-08-08T00:00:00.000Z",
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "42501" });
+
+      await app.query("SELECT set_config('trust.workspace_id',$1,false)", [
+        fixture.workspaceB,
+      ]);
+      expect(
+        (await app.query("SELECT id FROM quarantine_scan_jobs WHERE id=$1", [
+          scanJobId,
+        ])).rowCount,
+      ).toBe(0);
+      await expect(
+        app.query(
+          `INSERT INTO quarantine_scan_jobs (
+            id,workspace_id,upload_id,storage_key,state,created_at,updated_at
+          ) VALUES ($1,$2,$3,$4,'scanning',$5,$5)`,
+          [
+            `scan-rls-cross-${randomUUID()}`,
+            fixture.workspaceA,
+            upload.id,
+            `workspaces/${fixture.workspaceA}/temporary/rls-cross`,
+            "2026-08-08T00:00:00.000Z",
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "42501" });
     } finally {
       await app.end();
     }

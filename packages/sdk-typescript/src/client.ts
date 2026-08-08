@@ -34,6 +34,7 @@ import type {
   SchemaPackage,
   ServiceHealth,
   UploadSession,
+  UploadScanStatus,
   UpdateRetentionPolicyCommand,
   VerificationRunResult,
   WorkspaceSummary,
@@ -156,6 +157,7 @@ export interface TrustClient {
   uploads: {
     create(input: UploadInput): Promise<UploadSession>;
     get(uploadId: string): Promise<UploadSession>;
+    getScanStatus(uploadId: string): Promise<UploadScanStatus>;
   };
   blobs: {
     createDownloadGrant(input: {
@@ -427,6 +429,10 @@ function createClient(
         upload(transport, contextHeaders(), await workspace(), input),
       get: (id) =>
         transport.request(`/v1/uploads/${encodeURIComponent(id)}`, {
+          headers: contextHeaders(),
+        }),
+      getScanStatus: (id) =>
+        transport.request(`/v1/uploads/${encodeURIComponent(id)}/scan-status`, {
           headers: contextHeaders(),
         }),
     },

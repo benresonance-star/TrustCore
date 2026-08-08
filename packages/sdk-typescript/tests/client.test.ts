@@ -208,6 +208,36 @@ describe("Trust Core TypeScript SDK", () => {
     ).rejects.toBeInstanceOf(RangeError);
   });
 
+  it("reads upload scan status through the public uploads facade", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      json({
+        uploadId: "upload-1",
+        workspaceId: "workspace",
+        state: "scanning",
+        updatedAt: "2026-08-08T00:00:00.000Z",
+      }),
+    );
+    const client = createTrustClient({
+      baseUrl: "https://trust.example",
+      workspaceId: "workspace",
+      fetch,
+    });
+    await expect(client.uploads.getScanStatus("upload-1")).resolves.toEqual({
+      uploadId: "upload-1",
+      workspaceId: "workspace",
+      state: "scanning",
+      updatedAt: "2026-08-08T00:00:00.000Z",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://trust.example/v1/uploads/upload-1/scan-status",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-trust-workspace-id": "workspace",
+        }),
+      }),
+    );
+  });
+
   it("supports CSRF sessions and idempotency helpers", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()

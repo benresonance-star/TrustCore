@@ -112,11 +112,13 @@ export const httpGateway: ControlCentreGateway = {
         : { requestedTtlSeconds: input.requestedTtlSeconds }),
       ...(input.fileName === undefined ? {} : { fileName: input.fileName }),
     }),
+  getUploadScanStatus: (workspaceId, uploadId) =>
+    client.datasetsContext({ workspaceId }).uploads.getScanStatus(uploadId),
   async getQuarantineScanSummary() {
     return {
       available: false,
       summary:
-        "Quarantine scan status is not exposed on a public Control Centre API yet. Scan orchestration runs in Trust API/worker services only.",
+        "Workspace-wide quarantine queue is not exposed. Look up a specific upload id for scan status.",
       items: [],
     };
   },

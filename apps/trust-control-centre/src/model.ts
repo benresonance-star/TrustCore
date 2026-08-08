@@ -34,6 +34,7 @@ import type {
   RegisterApplicationCommand,
   RevisionCommandResult,
   ServiceHealth,
+  UploadScanStatus,
   VerificationRunResult,
 } from "@trust-core/protocol";
 
@@ -132,5 +133,9 @@ export interface ControlCentreGateway {
       fileName?: string;
     },
   ): Promise<DownloadGrant>;
+  getUploadScanStatus(
+    workspaceId: string,
+    uploadId: string,
+  ): Promise<UploadScanStatus>;
   getQuarantineScanSummary(workspaceId: string): Promise<QuarantineScanSummary>;
 }
