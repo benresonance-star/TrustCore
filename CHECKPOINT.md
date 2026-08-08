@@ -128,8 +128,8 @@ SDK, policy, verification, WeSketch, live UI, CI and documentation work:
 - `pnpm check:openapi`: PASS; regeneration produced no OpenAPI drift;
 - `pnpm typecheck`: PASS across workspace projects with strict TypeScript
   checks;
-- `pnpm test`: PASS; Docker-dependent suites were intentionally skipped by the
-  source-only invocation and then exercised by the Docker gate;
+- `pnpm test`: PASS; Docker-dependent suites were not run by the source-only
+  invocation and were exercised separately by the Docker gate;
 - `pnpm --filter @trust-core/control-centre build`: PASS, with 1,584 modules
   transformed into the production SPA bundle;
 - `pnpm trust:test`: `TRUST TEST CANDIDATE: PASS (service adapters; Docker gate

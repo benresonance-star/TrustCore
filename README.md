@@ -33,9 +33,12 @@ generated artifact drifts. The SDK and WeSketch commands above run their
 focused contract/fixture suites; applications must use `@trust-core/sdk` or
 the public HTTP API rather than importing server packages.
 
-The source-only checkpoint deliberately prints `TRUST TEST CANDIDATE: PASS
-(service adapters; Docker gate pending)`. Only `pnpm trust:test:docker` can
-print `TRUST TEST: PASS`.
+`pnpm test` and `pnpm trust:test` are source-only: Docker-backed suites are
+not run unless `TRUST_DOCKER_TESTS=1` (or an equivalent gate script) is set.
+A suite that was not run is not a pass. The source Trust Test deliberately
+prints `TRUST TEST CANDIDATE: PASS (service adapters; Docker gate pending)`.
+Only `pnpm trust:test:docker` can print `TRUST TEST: PASS`; report that gate
+as pass, fail, or not run.
 
 Explore the UI:
 

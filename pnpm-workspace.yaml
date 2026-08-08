@@ -3,5 +3,5 @@ packages:
   - "packages/*"
 onlyBuiltDependencies:
   - esbuild
-allowBuilds:
-  esbuild: set this to true or false
+overrides:
+  nanoid: ">=3.3.17"
