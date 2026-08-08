@@ -1,7 +1,4 @@
-import type {
-  ControlCentreSnapshot,
-  OperationalSnapshot,
-} from "./model";
+import type { ControlCentreSnapshot, OperationalSnapshot } from "./model";
 import type { GatewayMode } from "./wiring-status";
 import type { FlowSignalKey } from "./flow-model";
 
@@ -43,14 +40,12 @@ export function deriveFlowSignals(input: {
   const storageStatus = input.operational?.storage.status ?? null;
   const latestVerification = input.operational?.latestVerification;
 
-  const datasetsValue =
-    datasetCount === null ? "—" : String(datasetCount);
-  const applicationsValue =
-    input.applicationsError
+  const datasetsValue = datasetCount === null ? "—" : String(datasetCount);
+  const applicationsValue = input.applicationsError
+    ? "—"
+    : input.applicationCount === null
       ? "—"
-      : input.applicationCount === null
-        ? "—"
-        : String(input.applicationCount);
+      : String(input.applicationCount);
   const verificationValue =
     integrityPercent === undefined
       ? "—"
@@ -83,10 +78,10 @@ export function deriveFlowSignals(input: {
             kind: "note",
             text: "Application count not loaded yet.",
           }
-      : {
-          kind: "measured",
-          text: `${input.applicationCount} registered application${input.applicationCount === 1 ? "" : "s"}. App/tenant storage bindings are Partial — see Apps & Tenants.`,
-        },
+        : {
+            kind: "measured",
+            text: `${input.applicationCount} registered application${input.applicationCount === 1 ? "" : "s"}. App/tenant storage bindings are Partial — see Apps & Tenants.`,
+          },
     gateway: {
       kind: "measured",
       text: `Gateway mode: ${input.mode}${storageStatus ? ` · storage ${storageStatus}` : ""}.`,

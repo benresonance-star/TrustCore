@@ -19,7 +19,9 @@ describe("AppsTenantsView", () => {
         onOpenPortability={vi.fn()}
       />,
     );
-    expect(screen.getByRole("heading", { name: "Apps & Tenants" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Apps & Tenants" }),
+    ).toBeVisible();
     expect(screen.getByText("Foundation")).toBeVisible();
     expect(screen.getByText("Tenant 1")).toBeVisible();
     expect(screen.getByText("Tenant 2")).toBeVisible();

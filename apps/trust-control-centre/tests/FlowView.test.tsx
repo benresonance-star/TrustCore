@@ -31,7 +31,9 @@ describe("FlowView", () => {
     expect(
       screen.getByRole("heading", { name: "Process inspector" }),
     ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "What this does" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "What this does" }),
+    ).toBeVisible();
     expect(screen.getByRole("heading", { name: "Features" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Signal" })).toBeVisible();
     expect(

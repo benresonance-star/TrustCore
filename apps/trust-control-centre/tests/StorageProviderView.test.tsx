@@ -100,11 +100,7 @@ describe("StorageProviderView", () => {
   it("shows connected status, managed-on-server copy, and probes", () => {
     const onProbe = vi.fn();
     render(
-      <StorageProviderView
-        health={healthy}
-        mode="fixture"
-        onProbe={onProbe}
-      />,
+      <StorageProviderView health={healthy} mode="fixture" onProbe={onProbe} />,
     );
     expect(screen.getByRole("heading", { name: "Storage" })).toBeVisible();
     expect(screen.getByText("Connected")).toBeVisible();

@@ -66,10 +66,7 @@ import { FlowView } from "./FlowView";
 import { foundationStorageRollup } from "./foundation-storage-fixture";
 import { PlatformStatusView } from "./PlatformStatusView";
 import { remediationFor } from "./remediation";
-import {
-  StorageProviderView,
-  describeProbeError,
-} from "./StorageProviderView";
+import { StorageProviderView, describeProbeError } from "./StorageProviderView";
 import { TransfersPanel } from "./TransfersPanel";
 import { WiringBadge } from "./WiringBadge";
 import {
@@ -109,9 +106,7 @@ export function App({
     useState<OperationalSnapshot | null>(null);
   const [operationalError, setOperationalError] = useState("");
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
-  const [applicationCount, setApplicationCount] = useState<number | null>(
-    null,
-  );
+  const [applicationCount, setApplicationCount] = useState<number | null>(null);
   const [applicationsList, setApplicationsList] = useState<
     readonly ApplicationRegistration[]
   >([]);

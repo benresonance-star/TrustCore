@@ -73,7 +73,8 @@ export function AppsTenantsView({
 
   const rollup: StorageBindingRollup | null =
     mode === "fixture" ? foundationStorageRollup() : null;
-  const isFoundation = mode === "fixture" && selectedAppId === FOUNDATION_APP_ID;
+  const isFoundation =
+    mode === "fixture" && selectedAppId === FOUNDATION_APP_ID;
   const tenants: ApplicationTenant[] = isFoundation ? foundationTenants : [];
   const appEffective: EffectiveStorageSummary | null = isFoundation
     ? foundationEffectiveAppDefault()
@@ -158,7 +159,11 @@ export function AppsTenantsView({
         <div className="card panel">
           <div className="panel-heading">
             <h2>Applications</h2>
-            <button type="button" className="text-button" onClick={onOpenConnections}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={onOpenConnections}
+            >
               Open Connections
             </button>
           </div>
@@ -176,7 +181,7 @@ export function AppsTenantsView({
                       setSelectedAppId(app.id);
                       setSelectedTenantId(
                         app.id === FOUNDATION_APP_ID
-                          ? foundationTenants[0]?.id ?? null
+                          ? (foundationTenants[0]?.id ?? null)
                           : null,
                       );
                     }}
@@ -200,7 +205,9 @@ export function AppsTenantsView({
         <div className="card panel">
           <div className="panel-heading">
             <h2>App storage (global)</h2>
-            <span className={statusClass(appEffective?.status ?? "not_configured")}>
+            <span
+              className={statusClass(appEffective?.status ?? "not_configured")}
+            >
               {appEffective?.status ?? "not_configured"}
             </span>
           </div>
@@ -212,7 +219,11 @@ export function AppsTenantsView({
           ) : (
             <p className="muted">
               No app-default binding. Tenants inherit platform storage.{" "}
-              <button type="button" className="text-button" onClick={onOpenStorage}>
+              <button
+                type="button"
+                className="text-button"
+                onClick={onOpenStorage}
+              >
                 Open platform Storage
               </button>
             </p>
@@ -239,7 +250,9 @@ export function AppsTenantsView({
           <h2>Tenants</h2>
         </div>
         {tenants.length === 0 ? (
-          <p className="muted">No application tenants registered for this app.</p>
+          <p className="muted">
+            No application tenants registered for this app.
+          </p>
         ) : (
           <table className="data-table">
             <thead>
@@ -260,7 +273,9 @@ export function AppsTenantsView({
                   <tr
                     key={tenant.id}
                     className={
-                      selectedTenantId === tenant.id ? "selected-row" : undefined
+                      selectedTenantId === tenant.id
+                        ? "selected-row"
+                        : undefined
                     }
                   >
                     <td>
@@ -283,7 +298,9 @@ export function AppsTenantsView({
                           : "Platform"}
                     </td>
                     <td>
-                      <span className={statusClass(eff.status)}>{eff.status}</span>
+                      <span className={statusClass(eff.status)}>
+                        {eff.status}
+                      </span>
                     </td>
                     <td>{eff.planSyncState}</td>
                   </tr>
@@ -311,9 +328,9 @@ export function AppsTenantsView({
           {tenantEffective.planSyncState === "upgrade_recognised" ? (
             <p className="readiness-remediation">
               Recognised capacity change: declared{" "}
-              {formatBytes(tenantEffective.declaredCapacityBytes)} → observed quota{" "}
-              {formatBytes(tenantEffective.observedQuotaBytes)}. Accept the new
-              declared plan after confirming with the customer.
+              {formatBytes(tenantEffective.declaredCapacityBytes)} → observed
+              quota {formatBytes(tenantEffective.observedQuotaBytes)}. Accept
+              the new declared plan after confirming with the customer.
             </p>
           ) : null}
           {tenantEffective.status === "needs_attention" ? (
@@ -334,7 +351,12 @@ export function AppsTenantsView({
             >
               Snapshot tenant
             </button>
-            <button type="button" className="button" disabled title="Phase 6 live migrate">
+            <button
+              type="button"
+              className="button"
+              disabled
+              title="Phase 6 live migrate"
+            >
               Change plan / migrate
             </button>
           </div>

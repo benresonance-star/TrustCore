@@ -106,26 +106,18 @@ export interface TrustClient {
       applicationTenantId?: string,
     ): Promise<EffectiveStorageSummary>;
     rollup(): Promise<StorageBindingRollup>;
-    upsert(
-      command: WorkspaceCommand<UpsertStorageBindingCommand>,
-    ): Promise<{
+    upsert(command: WorkspaceCommand<UpsertStorageBindingCommand>): Promise<{
       binding: StorageBindingSummary;
       externalId?: string;
       onboardingTemplate: string;
     }>;
     probe(
       bindingId: string,
-      command?: Omit<
-        WorkspaceCommand<ProbeStorageBindingCommand>,
-        "bindingId"
-      >,
+      command?: Omit<WorkspaceCommand<ProbeStorageBindingCommand>, "bindingId">,
     ): Promise<StorageBindingSummary>;
     refreshPlan(
       bindingId: string,
-      command?: Omit<
-        WorkspaceCommand<RefreshStoragePlanCommand>,
-        "bindingId"
-      >,
+      command?: Omit<WorkspaceCommand<RefreshStoragePlanCommand>, "bindingId">,
     ): Promise<StorageBindingSummary>;
     acceptPlan(
       bindingId: string,

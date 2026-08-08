@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  flowBadgeCounts,
-  flowNodeLevel,
-  flowNodes,
-} from "../src/flow-model";
+import { flowBadgeCounts, flowNodeLevel, flowNodes } from "../src/flow-model";
 import { getWiringEntry } from "../src/wiring-status";
 
 describe("flow-model", () => {
@@ -15,9 +11,9 @@ describe("flow-model", () => {
 
   it("uses the Live / Partial / Dummy badge matrix 4 / 5 / 1 from wiring catalog", () => {
     expect(flowBadgeCounts()).toEqual({ live: 4, partial: 5, dummy: 1 });
-    expect(flowNodeLevel(flowNodes.find((node) => node.id === "semantic")!)).toBe(
-      "dummy",
-    );
+    expect(
+      flowNodeLevel(flowNodes.find((node) => node.id === "semantic")!),
+    ).toBe("dummy");
   });
 
   it("keeps node chrome level in sync with wiring-status entries", () => {

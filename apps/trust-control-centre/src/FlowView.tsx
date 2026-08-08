@@ -1,9 +1,5 @@
 import { useId, useMemo, useState } from "react";
-import {
-  flowNodeLevel,
-  flowNodes,
-  type FlowNodeId,
-} from "./flow-model";
+import { flowNodeLevel, flowNodes, type FlowNodeId } from "./flow-model";
 import { deriveFlowSignals } from "./flow-signals";
 import type {
   ControlCentreSnapshot,
@@ -195,10 +191,7 @@ export function FlowView({
         </div>
       </section>
 
-      <section
-        className="flow-signals"
-        aria-labelledby="flow-signals-heading"
-      >
+      <section className="flow-signals" aria-labelledby="flow-signals-heading">
         <div className="flow-signals-heading-row">
           <h2 id="flow-signals-heading">Workspace signals</h2>
           {signals.workspace.fixtureCaption ? (

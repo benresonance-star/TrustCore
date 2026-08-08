@@ -8,10 +8,7 @@ import type {
 import type { RemediationKey } from "./remediation";
 
 export type StorageOperatorStatus =
-  | "Connected"
-  | "Configured"
-  | "Not set up"
-  | "Needs attention";
+  "Connected" | "Configured" | "Not set up" | "Needs attention";
 
 export type ScanLifecycleLabel =
   | "Uploaded"
@@ -24,7 +21,11 @@ export type ScanLifecycleLabel =
 export function parseStorageHealthDetails(
   health: ServiceHealth | null | undefined,
 ): StorageHealthDetails | null {
-  if (!health || typeof health.details !== "object" || health.details === null) {
+  if (
+    !health ||
+    typeof health.details !== "object" ||
+    health.details === null
+  ) {
     return null;
   }
   const details = health.details as Partial<StorageHealthDetails>;

@@ -194,7 +194,8 @@ export function TransfersPanel({
       {uploadScan && (
         <div className="status-notice" role="status">
           <strong>
-            {mapScanStateToLifecycleLabel(uploadScan.state)} · {uploadScan.state}
+            {mapScanStateToLifecycleLabel(uploadScan.state)} ·{" "}
+            {uploadScan.state}
             {uploadScan.outcome ? ` · ${uploadScan.outcome}` : ""}
           </strong>
           <small>
