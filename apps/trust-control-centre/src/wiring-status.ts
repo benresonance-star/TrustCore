@@ -127,7 +127,7 @@ const entries = {
     label: "Apps & Tenants",
     level: "partial",
     detail:
-      "Application tenants and storage bindings (ADR-016). Live gateway loads tenants, effective storage, and binding rollup. Managed binding HeadBucket probe can grant Connected. TRUST_STORAGE_BINDING_ROUTING (default off) routes application-principal ingest/download via primary binding + sticky blob_objects; BYOB STS AssumeRole and Source connectors (ADR-015) remain outstanding.",
+      "Manage app default and per-customer storage (Trust-managed or customer-provided). Sample data supports add customer, set up storage, test connection, accept capacity, and pause. Live mode loads tenants and effective storage; saving to the API from this screen remains outstanding. Customer cross-account access hardening remains outstanding.",
   },
   "section.history": {
     id: "section.history",
@@ -329,6 +329,10 @@ export const platformStatus = {
     {
       id: "binding-routing-managed",
       text: "TRUST_STORAGE_BINDING_ROUTING (default off): managed/platform_iam ingest+sticky download + HeadBucket binding probe",
+    },
+    {
+      id: "cc-apps-management-ui",
+      text: "Apps & Tenants management UI (sample data): add customer, set up storage, test connection, accept capacity, pause",
     },
   ],
   outstanding: [
