@@ -5,6 +5,13 @@ import type {
   ServiceHealth,
 } from "@trust-core/protocol";
 import type { ControlCentreGateway, ControlCentreSnapshot } from "./model";
+import {
+  FOUNDATION_APP_ID,
+  foundationEffectiveAppDefault,
+  foundationEffectiveForTenant,
+  foundationStorageRollup,
+  foundationTenants,
+} from "./foundation-storage-fixture";
 
 function fixtureHealthyStorage(): ServiceHealth {
   return {
@@ -234,6 +241,41 @@ export const fixtureGateway: ControlCentreGateway = {
     return structuredClone(
       fixtureApplications.filter((app) => app.workspaceId === workspaceId),
     );
+  },
+  async listApplicationTenants(workspaceId, applicationId) {
+    if (applicationId !== FOUNDATION_APP_ID) return [];
+    return structuredClone(
+      foundationTenants.filter((tenant) => tenant.workspaceId === workspaceId),
+    );
+  },
+  async getEffectiveStorage(_workspaceId, applicationId, applicationTenantId) {
+    if (applicationId !== FOUNDATION_APP_ID) {
+      return {
+        scope: "platform",
+        status: "not_configured",
+        inheritedFrom: "platform",
+        binding: null,
+        provider: null,
+        tier: null,
+        region: null,
+        bucket: null,
+        prefix: null,
+        credentialMode: null,
+        usage: { cataloguedObjects: 0, failedVerificationObjects: 0 },
+        costPosture: "unknown",
+        planSyncState: "unknown",
+        declaredCapacityBytes: null,
+        observedUsageBytes: null,
+        observedQuotaBytes: null,
+      };
+    }
+    if (applicationTenantId) {
+      return foundationEffectiveForTenant(applicationTenantId);
+    }
+    return foundationEffectiveAppDefault();
+  },
+  async getStorageBindingRollup() {
+    return foundationStorageRollup();
   },
   async registerApplication(workspaceId, input) {
     const existing = fixtureApplications.find(

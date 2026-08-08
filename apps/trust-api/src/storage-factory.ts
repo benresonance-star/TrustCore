@@ -5,7 +5,7 @@ import {
 } from "@aws-sdk/client-s3";
 import type { ObjectStorage } from "@trust-core/storage";
 import { MinioObjectStorage } from "@trust-core/storage-minio";
-import { S3ObjectStorage } from "@trust-core/storage-s3";
+import { S3ObjectStorage, S3TransferSigner } from "@trust-core/storage-s3";
 import type { StorageProviderName as ProtocolProviderName } from "@trust-core/protocol";
 import {
   projectSafeStorageConfig,
@@ -25,7 +25,17 @@ export interface StorageRuntime {
  * Composition-root storage selection.
  * Default is MinIO for local/CI. S3 is explicit opt-in via TRUST_STORAGE_PROVIDER=s3.
  * Rollback: omit or set provider to minio.
+ *
+ * App/tenant binding-aware ingest routing is gated by TRUST_STORAGE_BINDING_ROUTING.
+ * Default off preserves platform ObjectStorage-only behaviour.
  */
+export function isStorageBindingRoutingEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const value = env.TRUST_STORAGE_BINDING_ROUTING?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "on";
+}
+
 export function createObjectStorageFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): ObjectStorage | undefined {
@@ -225,4 +235,138 @@ export function resolveProvider(
   throw new Error(
     `Unknown TRUST_STORAGE_PROVIDER "${value}". Expected minio or s3.`,
   );
+}
+
+export type BindingStorageProfile = {
+  provider: StorageProviderName;
+  region: string;
+  bucket: string;
+  credentialMode: string;
+  endpointHost?: string | null;
+  expectedBucketOwner?: string | null;
+  roleArn?: string | null;
+};
+
+/**
+ * Build ObjectStorage for a managed / platform_iam binding using host credentials.
+ * Cross-account role (BYOB STS) is not supported here — returns undefined.
+ */
+export function createObjectStorageFromProfile(
+  profile: BindingStorageProfile,
+  env: NodeJS.ProcessEnv = process.env,
+): ObjectStorage | undefined {
+  if (profile.credentialMode === "cross_account_role") return undefined;
+  if (profile.credentialMode === "missing") return undefined;
+  const accessKeyId = env.TRUST_STORAGE_ACCESS_KEY;
+  const secretAccessKey = env.TRUST_STORAGE_SECRET_KEY;
+  const sessionToken = env.TRUST_STORAGE_SESSION_TOKEN;
+  const endpoint =
+    profile.endpointHost?.trim() ||
+    env.TRUST_STORAGE_ENDPOINT ||
+    undefined;
+  if (profile.provider === "minio") {
+    if (!endpoint || !accessKeyId || !secretAccessKey) return undefined;
+    return new MinioObjectStorage({
+      endpoint,
+      bucket: profile.bucket,
+      accessKeyId,
+      secretAccessKey,
+      region: profile.region,
+      forcePathStyle: env.TRUST_STORAGE_FORCE_PATH_STYLE !== "false",
+    });
+  }
+  if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
+    return undefined;
+  }
+  return new S3ObjectStorage({
+    region: profile.region,
+    bucket: profile.bucket,
+    forcePathStyle: env.TRUST_STORAGE_FORCE_PATH_STYLE === "true",
+    ...(endpoint ? { endpoint } : {}),
+    ...(accessKeyId && secretAccessKey
+      ? {
+          accessKeyId,
+          secretAccessKey,
+          ...(sessionToken ? { sessionToken } : {}),
+        }
+      : {}),
+  });
+}
+
+export function createTransferSignerFromProfile(
+  profile: BindingStorageProfile,
+  env: NodeJS.ProcessEnv = process.env,
+): S3TransferSigner | undefined {
+  if (profile.credentialMode === "cross_account_role") return undefined;
+  if (profile.credentialMode === "missing") return undefined;
+  const accessKeyId = env.TRUST_STORAGE_ACCESS_KEY;
+  const secretAccessKey = env.TRUST_STORAGE_SECRET_KEY;
+  const sessionToken = env.TRUST_STORAGE_SESSION_TOKEN;
+  const endpoint =
+    profile.endpointHost?.trim() ||
+    env.TRUST_STORAGE_ENDPOINT ||
+    undefined;
+  if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
+    return undefined;
+  }
+  if (profile.provider === "minio" && (!endpoint || !accessKeyId || !secretAccessKey)) {
+    return undefined;
+  }
+  return new S3TransferSigner({
+    region: profile.region,
+    bucket: profile.bucket,
+    forcePathStyle:
+      profile.provider === "minio"
+        ? env.TRUST_STORAGE_FORCE_PATH_STYLE !== "false"
+        : env.TRUST_STORAGE_FORCE_PATH_STYLE === "true",
+    ...(endpoint ? { endpoint } : {}),
+    ...(accessKeyId && secretAccessKey
+      ? {
+          accessKeyId,
+          secretAccessKey,
+          ...(sessionToken ? { sessionToken } : {}),
+        }
+      : {}),
+  });
+}
+
+/** HeadBucket prober for managed binding connectivity (Tier-A). */
+export function createBindingBucketProber(
+  profile: BindingStorageProfile,
+  env: NodeJS.ProcessEnv = process.env,
+): StorageBucketProber | undefined {
+  if (profile.credentialMode === "cross_account_role") return undefined;
+  if (profile.credentialMode === "missing") return undefined;
+  const accessKeyId = env.TRUST_STORAGE_ACCESS_KEY;
+  const secretAccessKey = env.TRUST_STORAGE_SECRET_KEY;
+  const sessionToken = env.TRUST_STORAGE_SESSION_TOKEN;
+  const endpoint =
+    profile.endpointHost?.trim() ||
+    env.TRUST_STORAGE_ENDPOINT ||
+    undefined;
+  if (profile.provider === "minio" && (!endpoint || !accessKeyId || !secretAccessKey)) {
+    return undefined;
+  }
+  if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
+    return undefined;
+  }
+  return createS3CompatibleProber({
+    region: profile.region,
+    bucket: profile.bucket,
+    forcePathStyle:
+      profile.provider === "minio"
+        ? env.TRUST_STORAGE_FORCE_PATH_STYLE !== "false"
+        : env.TRUST_STORAGE_FORCE_PATH_STYLE === "true",
+    ...(endpoint ? { endpoint } : {}),
+    ...(accessKeyId && secretAccessKey
+      ? {
+          accessKeyId,
+          secretAccessKey,
+          ...(sessionToken ? { sessionToken } : {}),
+        }
+      : {}),
+    ...(profile.expectedBucketOwner
+      ? { expectedBucketOwner: profile.expectedBucketOwner }
+      : {}),
+  });
 }

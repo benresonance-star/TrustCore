@@ -12,6 +12,7 @@ import type {
   CreateImportPlanCommand,
   CreateRetentionPolicyCommand,
   CreateApplicationTenantCommand,
+  CloseApplicationTenantCommand,
   CutoverStorageMigrateCommand,
   DatasetRecord,
   DeleteResourceCommand,
@@ -41,8 +42,10 @@ import type {
   ServiceHealth,
   StorageBindingRollup,
   StorageBindingSummary,
+  SuspendApplicationTenantCommand,
   UploadSession,
   UploadScanStatus,
+  UpdateApplicationTenantCommand,
   UpdateRetentionPolicyCommand,
   UpsertStorageBindingCommand,
   RefreshStoragePlanCommand,
@@ -92,10 +95,35 @@ export interface TrustClient {
   };
   applicationTenants: {
     list(applicationId: string): Promise<ListResponse<ApplicationTenant>>;
+    get(applicationId: string, tenantId: string): Promise<ApplicationTenant>;
     create(
       applicationId: string,
       command: Omit<
         CreateApplicationTenantCommand,
+        "workspaceId" | "applicationId"
+      >,
+    ): Promise<ApplicationTenant>;
+    update(
+      applicationId: string,
+      tenantId: string,
+      command: Omit<
+        UpdateApplicationTenantCommand,
+        "workspaceId" | "applicationId"
+      >,
+    ): Promise<ApplicationTenant>;
+    suspend(
+      applicationId: string,
+      tenantId: string,
+      command: Omit<
+        SuspendApplicationTenantCommand,
+        "workspaceId" | "applicationId"
+      >,
+    ): Promise<ApplicationTenant>;
+    close(
+      applicationId: string,
+      tenantId: string,
+      command: Omit<
+        CloseApplicationTenantCommand,
         "workspaceId" | "applicationId"
       >,
     ): Promise<ApplicationTenant>;
@@ -106,11 +134,17 @@ export interface TrustClient {
       applicationTenantId?: string,
     ): Promise<EffectiveStorageSummary>;
     rollup(): Promise<StorageBindingRollup>;
+    list(query?: {
+      applicationId?: string;
+      applicationTenantId?: string | null;
+    }): Promise<ListResponse<StorageBindingSummary>>;
+    get(bindingId: string): Promise<StorageBindingSummary>;
     upsert(command: WorkspaceCommand<UpsertStorageBindingCommand>): Promise<{
       binding: StorageBindingSummary;
       externalId?: string;
       onboardingTemplate: string;
     }>;
+    delete(bindingId: string): Promise<StorageBindingSummary>;
     probe(
       bindingId: string,
       command?: Omit<WorkspaceCommand<ProbeStorageBindingCommand>, "bindingId">,
@@ -340,9 +374,41 @@ function createClient(
           `/v1/applications/${encodeURIComponent(applicationId)}/tenants`,
           { headers: contextHeaders() },
         ),
+      get: (applicationId, tenantId) =>
+        transport.request(
+          `/v1/applications/${encodeURIComponent(applicationId)}/tenants/${encodeURIComponent(tenantId)}`,
+          { headers: contextHeaders() },
+        ),
       create: async (applicationId, value) =>
         transport.request(
           `/v1/applications/${encodeURIComponent(applicationId)}/tenants`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+      update: async (applicationId, tenantId, value) =>
+        transport.request(
+          `/v1/applications/${encodeURIComponent(applicationId)}/tenants/${encodeURIComponent(tenantId)}`,
+          {
+            method: "PUT",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+      suspend: async (applicationId, tenantId, value) =>
+        transport.request(
+          `/v1/applications/${encodeURIComponent(applicationId)}/tenants/${encodeURIComponent(tenantId)}/suspend`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+      close: async (applicationId, tenantId, value) =>
+        transport.request(
+          `/v1/applications/${encodeURIComponent(applicationId)}/tenants/${encodeURIComponent(tenantId)}/close`,
           {
             method: "POST",
             headers: contextHeaders(),
@@ -362,12 +428,38 @@ function createClient(
         transport.request("/v1/storage/bindings/rollup", {
           headers: contextHeaders(),
         }),
+      list: (query = {}) => {
+        const params = new URLSearchParams();
+        if (query.applicationId)
+          params.set("applicationId", query.applicationId);
+        if (query.applicationTenantId === null)
+          params.set("applicationTenantId", "null");
+        else if (query.applicationTenantId)
+          params.set("applicationTenantId", query.applicationTenantId);
+        const suffix = params.size > 0 ? `?${params.toString()}` : "";
+        return transport.request(`/v1/storage/bindings${suffix}`, {
+          headers: contextHeaders(),
+        });
+      },
+      get: (bindingId) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}`,
+          { headers: contextHeaders() },
+        ),
       upsert: async (value) =>
         transport.request("/v1/storage/bindings", {
           method: "POST",
           headers: contextHeaders(),
           body: await command(value),
         }),
+      delete: async (bindingId) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}`,
+          {
+            method: "DELETE",
+            headers: contextHeaders(),
+          },
+        ),
       probe: async (bindingId, value = {}) =>
         transport.request(
           `/v1/storage/bindings/${encodeURIComponent(bindingId)}/probe`,

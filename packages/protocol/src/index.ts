@@ -273,6 +273,46 @@ export interface CreateApplicationTenantCommand {
   idempotencyKey: string;
 }
 
+export interface UpdateApplicationTenantCommand {
+  workspaceId: string;
+  applicationId: string;
+  displayName: string;
+  expectedUpdatedAt: string;
+  idempotencyKey: string;
+}
+
+export interface SuspendApplicationTenantCommand {
+  workspaceId: string;
+  applicationId: string;
+  expectedUpdatedAt: string;
+  idempotencyKey: string;
+}
+
+/** Soft-delete: status → closed. externalTenantKey remains immutable. */
+export interface CloseApplicationTenantCommand {
+  workspaceId: string;
+  applicationId: string;
+  expectedUpdatedAt: string;
+  idempotencyKey: string;
+}
+
+export interface ListStorageBindingsQuery {
+  workspaceId: string;
+  applicationId?: string;
+  /** Omit = all scopes for the workspace filter; null = app-default only. */
+  applicationTenantId?: string | null;
+}
+
+export interface StorageBindingList {
+  items: readonly StorageBindingSummary[];
+}
+
+export interface UpsertStorageBindingResult {
+  binding: StorageBindingSummary;
+  externalId?: string;
+  onboardingTemplate: string;
+}
+
 export interface UpsertStorageBindingCommand {
   workspaceId: string;
   applicationId: string;
@@ -288,6 +328,8 @@ export interface UpsertStorageBindingCommand {
   roleArn?: string | null;
   declaredPlanCode?: string | null;
   declaredCapacityBytes?: number | null;
+  /** Optimistic concurrency; omit to skip generation check. */
+  expectedGeneration?: number;
   idempotencyKey: string;
 }
 

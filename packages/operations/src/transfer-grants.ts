@@ -71,6 +71,8 @@ export interface IssueTransferGrantInput {
   requestId: string;
   correlationId: string;
   fileName?: string;
+  /** Optional binding-scoped signer; defaults to constructor platform signer. */
+  signer?: TransferSigner;
   policyInput: Omit<PolicyEvaluationInput, "action" | "scope"> & {
     scope: PolicyEvaluationInput["scope"];
   };
@@ -170,10 +172,11 @@ export class TransferGrantService {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     const grantId = randomUUID();
 
+    const signer = input.signer ?? this.signer;
     let transfer: ClientTransferGrant["transfer"];
     try {
       if (input.operation === "upload") {
-        const signed = await this.signer.signUpload({
+        const signed = await signer.signUpload({
           storageKey: input.target.storageKey,
           expiresAt,
           ...(input.target.mediaType
@@ -185,7 +188,7 @@ export class TransferGrantService {
         });
         transfer = { method: "PUT", url: signed.url, headers: signed.headers };
       } else {
-        const signed = await this.signer.signDownload({
+        const signed = await signer.signDownload({
           storageKey: input.target.storageKey,
           expiresAt,
           ...(input.fileName

@@ -48,6 +48,21 @@ export const httpGateway: ControlCentreGateway = {
     return (await client.datasetsContext({ workspaceId }).applications.list())
       .items;
   },
+  async listApplicationTenants(workspaceId, applicationId) {
+    return (
+      await client
+        .datasetsContext({ workspaceId })
+        .applicationTenants.list(applicationId)
+    ).items;
+  },
+  getEffectiveStorage(workspaceId, applicationId, applicationTenantId) {
+    return client
+      .datasetsContext({ workspaceId })
+      .storageBindings.effective(applicationId, applicationTenantId);
+  },
+  getStorageBindingRollup(workspaceId) {
+    return client.datasetsContext({ workspaceId }).storageBindings.rollup();
+  },
   registerApplication: (workspaceId, input) =>
     client.datasetsContext({ workspaceId }).applications.register({
       ...input,

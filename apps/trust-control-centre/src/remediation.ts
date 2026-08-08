@@ -7,6 +7,8 @@ export type RemediationKey =
   | "storage_permission"
   | "storage_not_found"
   | "storage_wrong_region"
+  | "storage_binding_wrong_region"
+  | "storage_binding_attention"
   | "storage_network"
   | "storage_outage"
   | "storage_internal"
@@ -35,6 +37,10 @@ const copy: Readonly<Record<RemediationKey, string>> = {
     "Bucket or region looks wrong. Confirm TRUST_STORAGE_BUCKET and TRUST_STORAGE_REGION on the API host, then reopen the provider console.",
   storage_wrong_region:
     "The provider reports a different region than TRUST_STORAGE_REGION. Update the API host region to match the bucket (use HeadBucket / console region), then Test connection again.",
+  storage_binding_wrong_region:
+    "This app/tenant binding’s configured region does not match the bucket. Open Apps & Tenants, correct the binding region (or customer bucket region), then probe the binding again — do not change the platform host TRUST_STORAGE_REGION unless inheritance is Platform.",
+  storage_binding_attention:
+    "An app/tenant storage binding needs attention. Open Apps & Tenants for the binding probe summary and remediation — platform Storage only diagnoses the host default store.",
   storage_network:
     "Cannot reach the provider. Check internet, VPN, VPC endpoints, and firewall rules from the API host.",
   storage_outage:

@@ -105,16 +105,57 @@ export interface AppStorageRegistry {
     actorId?: string,
     withVersion?: boolean,
   ): Promise<void>;
-  persistTenant?(tenant: ApplicationTenant): Promise<void>;
+  persistTenant?(
+    tenant: ApplicationTenant,
+    options?: { expectedUpdatedAt?: string },
+  ): Promise<void>;
   persistBindingState?(bindingId: string): Promise<void>;
   persistPlan?(bindingId: string): Promise<void>;
+  deletePersistedBinding?(
+    workspaceId: string,
+    bindingId: string,
+  ): Promise<void>;
+  countStickyBlobs?(
+    workspaceId: string,
+    bindingId: string,
+  ): Promise<number>;
+  persistStickyCutover?(input: {
+    workspaceId: string;
+    targetBindingId: string;
+    targetGeneration: number;
+    objectIds: readonly string[];
+  }): Promise<void>;
   listTenants(workspaceId: string, applicationId: string): ApplicationTenant[];
+  getTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): ApplicationTenant | undefined;
   createTenant(input: {
     workspaceId: string;
     applicationId: string;
     externalTenantKey: string;
     displayName: string;
   }): ApplicationTenant;
+  updateTenant(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    displayName: string;
+    expectedUpdatedAt: string;
+  }): ApplicationTenant;
+  setTenantStatus(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    status: ApplicationTenant["status"];
+    expectedUpdatedAt: string;
+  }): ApplicationTenant;
+  listBindings(input: {
+    workspaceId: string;
+    applicationId?: string;
+    applicationTenantId?: string | null;
+  }): StorageBindingSummary[];
   upsertBinding(
     command: UpsertStorageBindingCommand,
     actorId: string,
@@ -124,6 +165,8 @@ export interface AppStorageRegistry {
     onboardingTemplate: string;
   };
   getBinding(bindingId: string): StoredStorageBinding | undefined;
+  deleteBinding(bindingId: string, options?: { force?: boolean }): StorageBindingSummary;
+  markProbeDeferred(bindingId: string, summary: string): StorageBindingSummary;
   runHandshakeHardening(bindingId: string): { ok: boolean; message?: string };
   recordProbe(
     bindingId: string,
@@ -287,6 +330,22 @@ export class InMemoryAppStorageRegistry implements AppStorageRegistry {
     );
   }
 
+  getTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): ApplicationTenant | undefined {
+    const tenant = this.tenants.get(tenantId);
+    if (
+      !tenant ||
+      tenant.workspaceId !== workspaceId ||
+      tenant.applicationId !== applicationId
+    ) {
+      return undefined;
+    }
+    return tenant;
+  }
+
   createTenant(input: {
     workspaceId: string;
     applicationId: string;
@@ -311,6 +370,64 @@ export class InMemoryAppStorageRegistry implements AppStorageRegistry {
     };
     this.tenants.set(tenant.id, tenant);
     return tenant;
+  }
+
+  updateTenant(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    displayName: string;
+    expectedUpdatedAt: string;
+  }): ApplicationTenant {
+    const tenant = this.requireTenant(
+      input.workspaceId,
+      input.applicationId,
+      input.tenantId,
+    );
+    this.assertTenantExpectedUpdatedAt(tenant, input.expectedUpdatedAt);
+    tenant.displayName = input.displayName;
+    tenant.updatedAt = this.now();
+    return tenant;
+  }
+
+  setTenantStatus(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    status: ApplicationTenant["status"];
+    expectedUpdatedAt: string;
+  }): ApplicationTenant {
+    const tenant = this.requireTenant(
+      input.workspaceId,
+      input.applicationId,
+      input.tenantId,
+    );
+    this.assertTenantExpectedUpdatedAt(tenant, input.expectedUpdatedAt);
+    tenant.status = input.status;
+    tenant.updatedAt = this.now();
+    return tenant;
+  }
+
+  listBindings(input: {
+    workspaceId: string;
+    applicationId?: string;
+    applicationTenantId?: string | null;
+  }): StorageBindingSummary[] {
+    return [...this.bindings.values()]
+      .filter((b) => {
+        if (b.workspaceId !== input.workspaceId) return false;
+        if (
+          input.applicationId != null &&
+          b.applicationId !== input.applicationId
+        ) {
+          return false;
+        }
+        if (input.applicationTenantId !== undefined) {
+          return b.applicationTenantId === input.applicationTenantId;
+        }
+        return true;
+      })
+      .map((b) => this.toSummary(b));
   }
 
   mapExternalTenantKey(input: {
@@ -343,6 +460,15 @@ export class InMemoryAppStorageRegistry implements AppStorageRegistry {
     let externalId: string | undefined;
     let profile: StoredStorageProfile;
     if (existing) {
+      if (
+        command.expectedGeneration != null &&
+        command.expectedGeneration !== existing.generation
+      ) {
+        throw Object.assign(
+          new Error("Storage binding generation conflict."),
+          { code: "CONFLICT" },
+        );
+      }
       profile = this.profiles.get(existing.profileId)!;
       profile.provider = command.provider;
       profile.region = command.region;
@@ -576,9 +702,70 @@ export class InMemoryAppStorageRegistry implements AppStorageRegistry {
     if (!binding) throw new Error("Binding not found");
     binding.disabled = true;
     binding.status = "disabled";
+    binding.generation += 1;
     binding.updatedAt = this.now();
     // S15: invalidate any cached assume sessions keyed by this binding.
     this.assumeWithoutExternalId.delete(bindingId);
+    return this.toSummary(binding);
+  }
+
+  deleteBinding(
+    bindingId: string,
+    options?: { force?: boolean },
+  ): StorageBindingSummary {
+    const binding = this.bindings.get(bindingId);
+    if (!binding) throw new Error("Binding not found");
+    if (
+      !options?.force &&
+      (binding.status === "connected" || binding.status === "migrating")
+    ) {
+      throw Object.assign(
+        new Error(
+          "Connected or migrating bindings cannot be deleted without force.",
+        ),
+        { code: "COMMAND_REJECTED" },
+      );
+    }
+    const sticky = [...this.blobs.values()].some(
+      (blob) => blob.storageBindingId === bindingId,
+    );
+    if (sticky && !options?.force) {
+      throw Object.assign(
+        new Error(
+          "Binding still referenced by sticky blob routes; disable or force-delete.",
+        ),
+        { code: "COMMAND_REJECTED" },
+      );
+    }
+    const summary = this.toSummary(binding);
+    this.bindings.delete(bindingId);
+    this.assumeWithoutExternalId.delete(bindingId);
+    const profileStillUsed = [...this.bindings.values()].some(
+      (b) => b.profileId === binding.profileId,
+    );
+    if (!profileStillUsed) this.profiles.delete(binding.profileId);
+    return summary;
+  }
+
+  /** Record that a live probe was requested but not executed (honesty). */
+  markProbeDeferred(
+    bindingId: string,
+    summary: string,
+  ): StorageBindingSummary {
+    const binding = this.bindings.get(bindingId);
+    if (!binding) throw new Error("Binding not found");
+    if (binding.status === "connected") binding.status = "configured";
+    else if (
+      binding.status === "draft" ||
+      binding.status === "awaiting_customer_role"
+    ) {
+      binding.status = "configured";
+    }
+    binding.lastProbeOk = null;
+    binding.lastProbeAt = this.now();
+    binding.lastProbeSummary = summary;
+    binding.lastIssueClass = null;
+    binding.updatedAt = binding.lastProbeAt;
     return this.toSummary(binding);
   }
 
@@ -587,6 +774,31 @@ export class InMemoryAppStorageRegistry implements AppStorageRegistry {
     if (!binding?.applicationTenantId)
       throw new Error("Not a tenant override binding");
     this.bindings.delete(bindingId);
+  }
+
+  private requireTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): ApplicationTenant {
+    const tenant = this.getTenant(workspaceId, applicationId, tenantId);
+    if (!tenant) {
+      throw Object.assign(new Error("Application tenant was not found."), {
+        code: "RESOURCE_NOT_FOUND",
+      });
+    }
+    return tenant;
+  }
+
+  private assertTenantExpectedUpdatedAt(
+    tenant: ApplicationTenant,
+    expectedUpdatedAt: string,
+  ): void {
+    if (tenant.updatedAt !== expectedUpdatedAt) {
+      throw Object.assign(new Error("Application tenant update conflict."), {
+        code: "CONFLICT",
+      });
+    }
   }
 
   listBindingHistory(bindingId: string, limit = 3): BindingVersion[] {
@@ -761,6 +973,28 @@ export class InMemoryAppStorageRegistry implements AppStorageRegistry {
     }
 
     if (applicationTenantId && context.applicationId) {
+      const tenant = this.tenants.get(applicationTenantId);
+      if (
+        tenant &&
+        tenant.workspaceId === context.workspaceId &&
+        tenant.applicationId === context.applicationId &&
+        tenant.status !== "active" &&
+        (context.purpose === "ingest" || context.purpose === "probe")
+      ) {
+        return {
+          bindingId: null,
+          generation: null,
+          inheritedFrom: "none",
+          scope: "tenant",
+          status: "not_configured",
+          allowWrite: false,
+          reason:
+            tenant.status === "suspended"
+              ? "tenant_suspended"
+              : "tenant_closed",
+          profile: null,
+        };
+      }
       const tenantBinding = [...this.bindings.values()].find(
         (b) =>
           b.workspaceId === context.workspaceId &&

@@ -25,6 +25,7 @@ export const publicErrorCodes = [
   "IMPORT_PLAN_NOT_FOUND",
   "REVISION_CONFLICT",
   "IDEMPOTENCY_CONFLICT",
+  "CONFLICT",
   "COMMAND_REJECTED",
   "COMMAND_BOUNDARY_UNAVAILABLE",
   "OIDC_UNAVAILABLE",
@@ -198,6 +199,26 @@ export const release01Routes = [
   },
   {
     method: "GET",
+    path: "/v1/applications/{applicationId}/tenants/{tenantId}",
+    operationId: "applicationTenants.get",
+  },
+  {
+    method: "PUT",
+    path: "/v1/applications/{applicationId}/tenants/{tenantId}",
+    operationId: "applicationTenants.update",
+  },
+  {
+    method: "POST",
+    path: "/v1/applications/{applicationId}/tenants/{tenantId}/suspend",
+    operationId: "applicationTenants.suspend",
+  },
+  {
+    method: "POST",
+    path: "/v1/applications/{applicationId}/tenants/{tenantId}/close",
+    operationId: "applicationTenants.close",
+  },
+  {
+    method: "GET",
     path: "/v1/applications/{applicationId}/storage",
     operationId: "applicationStorage.effective",
   },
@@ -212,9 +233,24 @@ export const release01Routes = [
     operationId: "storageBindings.rollup",
   },
   {
+    method: "GET",
+    path: "/v1/storage/bindings",
+    operationId: "storageBindings.list",
+  },
+  {
     method: "POST",
     path: "/v1/storage/bindings",
     operationId: "storageBindings.upsert",
+  },
+  {
+    method: "GET",
+    path: "/v1/storage/bindings/{bindingId}",
+    operationId: "storageBindings.get",
+  },
+  {
+    method: "DELETE",
+    path: "/v1/storage/bindings/{bindingId}",
+    operationId: "storageBindings.delete",
   },
   {
     method: "POST",

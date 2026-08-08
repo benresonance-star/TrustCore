@@ -575,3 +575,258 @@ describe("dummy performance smoke", () => {
     expect(Date.now() - started).toBeLessThan(500);
   });
 });
+
+describe("application tenant CRUD and write gates", () => {
+  it("updates, suspends, and closes tenants with optimistic concurrency", () => {
+    const registry = new InMemoryAppStorageRegistry();
+    let tick = 0;
+    registry.now = () =>
+      new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)).toISOString();
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    const tenant = registry.createTenant({
+      workspaceId,
+      applicationId,
+      externalTenantKey: "9",
+      displayName: "Nine",
+    });
+    const createdAt = tenant.updatedAt;
+    const updated = registry.updateTenant({
+      workspaceId,
+      applicationId,
+      tenantId: tenant.id,
+      displayName: "Nine Renamed",
+      expectedUpdatedAt: createdAt,
+    });
+    expect(updated.displayName).toBe("Nine Renamed");
+    expect(updated.updatedAt).not.toBe(createdAt);
+    expect(() =>
+      registry.updateTenant({
+        workspaceId,
+        applicationId,
+        tenantId: tenant.id,
+        displayName: "stale",
+        expectedUpdatedAt: createdAt,
+      }),
+    ).toThrow(/conflict/i);
+
+    const suspended = registry.setTenantStatus({
+      workspaceId,
+      applicationId,
+      tenantId: tenant.id,
+      status: "suspended",
+      expectedUpdatedAt: updated.updatedAt,
+    });
+    expect(suspended.status).toBe("suspended");
+
+    const closed = registry.setTenantStatus({
+      workspaceId,
+      applicationId,
+      tenantId: tenant.id,
+      status: "closed",
+      expectedUpdatedAt: suspended.updatedAt,
+    });
+    expect(closed.status).toBe("closed");
+  });
+
+  it("fail-closes ingest for suspended tenants", () => {
+    const registry = new InMemoryAppStorageRegistry();
+    seedFoundation(registry);
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    const tenants = registry.listTenants(workspaceId, applicationId);
+    const t1 = tenants.find((t) => t.externalTenantKey === "1")!;
+    registry.setTenantStatus({
+      workspaceId,
+      applicationId,
+      tenantId: t1.id,
+      status: "suspended",
+      expectedUpdatedAt: t1.updatedAt,
+    });
+    const resolved = registry.resolve({
+      workspaceId,
+      applicationId,
+      applicationTenantId: t1.id,
+      purpose: "ingest",
+    });
+    expect(resolved.allowWrite).toBe(false);
+    expect(resolved.reason).toBe("tenant_suspended");
+  });
+
+  it("lists bindings and deletes draft bindings", () => {
+    const registry = new InMemoryAppStorageRegistry();
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    const created = registry.upsertBinding(
+      {
+        workspaceId,
+        applicationId,
+        provider: "minio",
+        region: "us-east-1",
+        bucket: "draft-bucket",
+        tier: "managed",
+        credentialMode: "missing",
+        idempotencyKey: "draft",
+      },
+      "admin",
+    );
+    expect(
+      registry.listBindings({ workspaceId, applicationId }).map((b) => b.id),
+    ).toContain(created.binding.id);
+    expect(() =>
+      registry.upsertBinding(
+        {
+          workspaceId,
+          applicationId,
+          provider: "minio",
+          region: "us-east-1",
+          bucket: "draft-bucket-2",
+          tier: "managed",
+          credentialMode: "missing",
+          expectedGeneration: 99,
+          idempotencyKey: "draft-2",
+        },
+        "admin",
+      ),
+    ).toThrow(/generation conflict/i);
+    const deleted = registry.deleteBinding(created.binding.id);
+    expect(deleted.id).toBe(created.binding.id);
+    expect(registry.getBinding(created.binding.id)).toBeUndefined();
+  });
+
+  it("refuses delete of connected bindings without force", () => {
+    const registry = new InMemoryAppStorageRegistry();
+    seedFoundation(registry);
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    const appBinding = registry
+      .listBindings({ workspaceId, applicationId, applicationTenantId: null })
+      .find((b) => b.applicationTenantId == null)!;
+    expect(() => registry.deleteBinding(appBinding.id)).toThrow(/force/i);
+  });
+});
+
+describe("probe honesty and sticky delete guards", () => {
+  it("markProbeDeferred demotes Connected to Configured without claiming success", () => {
+    const registry = new InMemoryAppStorageRegistry();
+    seedFoundation(registry);
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    const appBinding = registry
+      .listBindings({ workspaceId, applicationId, applicationTenantId: null })
+      .find((b) => b.applicationTenantId == null)!;
+    expect(appBinding.status).toBe("connected");
+    const deferred = registry.markProbeDeferred(
+      appBinding.id,
+      "Live Tier-A connectivity probe is not yet implemented",
+    );
+    expect(deferred.status).toBe("configured");
+    expect(deferred.lastProbeOk).toBeNull();
+    expect(deferred.lastProbeSummary).toMatch(/not yet implemented/i);
+  });
+
+  it("Postgres-path probe (default) keeps configured; fixture opt-in allows Connected", async () => {
+    const { createAppStorageCommandMethods } = await import(
+      "../src/app-storage-commands.js"
+    );
+    const durable = new InMemoryAppStorageRegistry();
+    const fixture = new InMemoryAppStorageRegistry();
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    for (const registry of [durable, fixture]) {
+      const created = registry.upsertBinding(
+        {
+          workspaceId,
+          applicationId,
+          provider: "s3",
+          region: "ap-southeast-2",
+          bucket: "probe-bucket",
+          tier: "managed",
+          credentialMode: "platform_iam",
+          idempotencyKey: "probe",
+        },
+        "admin",
+      );
+      // Advance past draft/hardening so probe path can run.
+      registry.recordProbe(created.binding.id, {
+        ok: false,
+        summary: "pre",
+      });
+      const binding = registry.getBinding(created.binding.id)!;
+      binding.status = "configured";
+      binding.disabled = false;
+    }
+
+    const durableCmds = createAppStorageCommandMethods(durable);
+    const fixtureCmds = createAppStorageCommandMethods(fixture, {
+      allowSyntheticConnectedProbe: true,
+    });
+    const actor = {
+      id: "admin",
+      displayName: "Admin",
+      roles: ["admin"] as const,
+      workspaceIds: [workspaceId],
+    };
+    const durableBindingId = durable.listBindings({ workspaceId, applicationId })[0]!
+      .id;
+    const fixtureBindingId = fixture.listBindings({ workspaceId, applicationId })[0]!
+      .id;
+
+    const deferred = await durableCmds.probeStorageBinding(actor, {
+      workspaceId,
+      bindingId: durableBindingId,
+      tier: "connectivity",
+    });
+    expect(deferred.status).toBe("configured");
+    expect(deferred.lastProbeOk).toBeNull();
+
+    const connected = await fixtureCmds.probeStorageBinding(actor, {
+      workspaceId,
+      bindingId: fixtureBindingId,
+      tier: "connectivity",
+    });
+    expect(connected.status).toBe("connected");
+    expect(connected.lastProbeOk).toBe(true);
+  });
+
+  it("deleteStorageBinding refuses when countStickyBlobs reports references", async () => {
+    const { createAppStorageCommandMethods } = await import(
+      "../src/app-storage-commands.js"
+    );
+    const registry = new InMemoryAppStorageRegistry();
+    const workspaceId = "11111111-1111-1111-1111-111111111111";
+    const applicationId = "22222222-2222-2222-2222-222222222222";
+    const created = registry.upsertBinding(
+      {
+        workspaceId,
+        applicationId,
+        provider: "s3",
+        region: "ap-southeast-2",
+        bucket: "sticky-bucket",
+        tier: "managed",
+        credentialMode: "platform_iam",
+        idempotencyKey: "sticky",
+      },
+      "admin",
+    );
+    const binding = registry.getBinding(created.binding.id)!;
+    binding.status = "configured";
+    const cmds = createAppStorageCommandMethods(
+      Object.assign(registry, {
+        countStickyBlobs: async () => 3,
+      }),
+    );
+    await expect(
+      cmds.deleteStorageBinding(
+        {
+          id: "admin",
+          displayName: "Admin",
+          roles: ["admin"],
+          workspaceIds: [workspaceId],
+        },
+        created.binding.id,
+        workspaceId,
+      ),
+    ).rejects.toThrow(/sticky/i);
+  });
+});

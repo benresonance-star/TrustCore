@@ -7,6 +7,7 @@ import {
 import type {
   ApplicationRegistration,
   PolicyAssignment,
+  StorageBindingRollup,
 } from "@trust-core/protocol";
 import { CircleCheckBig, Link2, ShieldAlert } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -39,11 +40,13 @@ export function ConnectionsView({
   snapshot,
   operational,
   navigateHistory,
+  storageBindingRollup,
 }: {
   gateway: ControlCentreGateway;
   snapshot: ControlCentreSnapshot;
   operational: OperationalSnapshot | null;
   navigateHistory: () => void;
+  storageBindingRollup?: StorageBindingRollup | null;
 }) {
   const [applications, setApplications] = useState<
     readonly ApplicationRegistration[]
@@ -71,8 +74,6 @@ export function ConnectionsView({
       return true;
     }
   });
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
   const selectedApp =
     applications.find((app) => app.id === selectedAppId) ??
     applications[0] ??
@@ -96,6 +97,7 @@ export function ConnectionsView({
     applicationCount: applications.length,
     applicationGrantCount: appGrants.length,
     probeOk: probe ? probe.ok : null,
+    bindingAttentionTotal: storageBindingRollup?.attentionTotal ?? null,
   });
 
   const canGrant = !wizardMode || applications.length > 0 || !!selectedApp;
@@ -365,46 +367,28 @@ export function ConnectionsView({
               required
             />
           </label>
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => setShowAdvanced((value) => !value)}
-          >
-            {showAdvanced ? "Hide contract details" : "Customize contract"}
-          </button>
-          {showAdvanced && (
-            <fieldset className="capability-fieldset">
-              <legend>Capabilities</legend>
-              {appCapabilities.map((capability) => (
-                <label key={capability} className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={capabilities.includes(capability)}
-                    onChange={(event) => {
-                      setCapabilities((current) =>
-                        event.target.checked
-                          ? [...current, capability]
-                          : current.filter((item) => item !== capability),
-                      );
-                    }}
-                  />
-                  <span title={capability}>
-                    {labelForCapability(capability)}
-                    <small> ({capability})</small>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-          )}
-          {!showAdvanced && (
-            <small>
-              Default capabilities:{" "}
-              {capabilities
-                .map((capability) => labelForCapability(capability))
-                .join("; ")}
-              .
-            </small>
-          )}
+          <fieldset className="capability-fieldset">
+            <legend>Capabilities</legend>
+            {appCapabilities.map((capability) => (
+              <label key={capability} className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={capabilities.includes(capability)}
+                  onChange={(event) => {
+                    setCapabilities((current) =>
+                      event.target.checked
+                        ? [...current, capability]
+                        : current.filter((item) => item !== capability),
+                    );
+                  }}
+                />
+                <span title={capability}>
+                  {labelForCapability(capability)}
+                  <small> ({capability})</small>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <button className="button primary" type="submit" disabled={!!busy}>
             {busy === "register" ? "Registering…" : "Register application"}
           </button>

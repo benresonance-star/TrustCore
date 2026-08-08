@@ -1731,6 +1731,20 @@ function bodyFor(
         displayName: "Contract Tenant",
         idempotencyKey: "contract-tenant",
       };
+    case "applicationTenants.update":
+      return {
+        workspaceId: "workspace-demo",
+        displayName: "Contract Tenant renamed",
+        expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        idempotencyKey: "contract-tenant-update",
+      };
+    case "applicationTenants.suspend":
+    case "applicationTenants.close":
+      return {
+        workspaceId: "workspace-demo",
+        expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        idempotencyKey: "contract-tenant-status",
+      };
     case "storageBindings.upsert":
       return {
         workspaceId: "workspace-demo",
@@ -1762,9 +1776,13 @@ function bodyFor(
     case "storageBindings.rollback":
       return { workspaceId: "workspace-demo" };
     case "applicationTenants.list":
+    case "applicationTenants.get":
     case "applicationStorage.effective":
     case "applicationTenantStorage.effective":
     case "storageBindings.rollup":
+    case "storageBindings.list":
+    case "storageBindings.get":
+    case "storageBindings.delete":
       return undefined;
     default:
       return assertNever(operationId);

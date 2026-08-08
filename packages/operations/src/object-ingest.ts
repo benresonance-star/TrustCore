@@ -94,7 +94,12 @@ export class ObjectIngestService {
     idempotencyKey: string;
     bytes: Uint8Array;
     mediaType: string;
+    /** Optional binding-scoped storage; defaults to constructor platform storage. */
+    storage?: ObjectStorage;
+    storageBindingId?: string | null;
+    storageBindingGeneration?: number | null;
   }): Promise<ObjectIngestResult> {
+    const storage = input.storage ?? this.storage;
     const sha256 = createHash("sha256").update(input.bytes).digest("hex");
     const requestHash = createHash("sha256")
       .update(
@@ -169,7 +174,7 @@ export class ObjectIngestService {
         await checkpoint("audit_committed", async () => undefined);
       } else {
         await checkpoint("temporary_upload_created", async () => {
-          const temporary = await this.storage.createTemporaryUpload({
+          const temporary = await storage.createTemporaryUpload({
             workspaceId: input.workspaceId,
             operationId: operation.id,
           });
@@ -183,7 +188,7 @@ export class ObjectIngestService {
         });
         await checkpoint("bytes_received", async () => {
           const temporaryKey = requiredContextString(context, "temporaryKey");
-          const received = await this.storage.writeTemporary({
+          const received = await storage.writeTemporary({
             locator: { key: temporaryKey },
             body: Readable.from(input.bytes),
             mediaType: input.mediaType,
@@ -204,7 +209,7 @@ export class ObjectIngestService {
           );
         });
         await checkpoint("immutable_object_committed", async () => {
-          const stored = await this.storage.commitImmutable({
+          const stored = await storage.commitImmutable({
             temporary: { key: requiredContextString(context, "temporaryKey") },
             workspaceId: input.workspaceId,
             sha256,
@@ -237,6 +242,12 @@ export class ObjectIngestService {
             encryptionKeyRef: null,
             verificationState: "verified",
             createdAt: this.now(),
+            ...(input.storageBindingId
+              ? { storageBindingId: input.storageBindingId }
+              : {}),
+            ...(input.storageBindingGeneration != null
+              ? { storageBindingGeneration: input.storageBindingGeneration }
+              : {}),
           };
           blob = this.catalog.commitVerifiedIngest
             ? await this.catalog.commitVerifiedIngest({

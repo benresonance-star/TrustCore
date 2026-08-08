@@ -50,6 +50,7 @@ import type {
   ImportOperationSummary,
   ImportPlanSummary,
   PolicyAssignment,
+  StorageBindingRollup,
 } from "@trust-core/protocol";
 import { fixtureGateway } from "./fixture-gateway";
 import { GatewayError, httpGateway } from "./http-gateway";
@@ -113,6 +114,8 @@ export function App({
   const [applicationsError, setApplicationsError] = useState<string | null>(
     null,
   );
+  const [storageBindingRollup, setStorageBindingRollup] =
+    useState<StorageBindingRollup | null>(null);
   const [appAuthRequired, setAppAuthRequired] = useState(false);
   const [appToken, setAppToken] = useState("");
   const [appError, setAppError] = useState("");
@@ -146,6 +149,10 @@ export function App({
       setOperationalSnapshot(operations.value);
       setOperationalError(operations.error);
       setAppAuthRequired(false);
+      void gateway
+        .getStorageBindingRollup(gateway.workspaceId)
+        .then((rollup) => setStorageBindingRollup(rollup))
+        .catch(() => setStorageBindingRollup(null));
     } catch (error) {
       if (error instanceof GatewayError && error.status === 401)
         setAppAuthRequired(true);
@@ -372,6 +379,7 @@ export function App({
               openDataset={openDataset}
               navigate={setSection}
               mode={gateway.mode}
+              storageBindingRollup={storageBindingRollup}
             />
           )}
           {section === "connections" && (
@@ -380,12 +388,19 @@ export function App({
               snapshot={snapshot}
               operational={operationalSnapshot}
               navigateHistory={() => setSection("history")}
+              storageBindingRollup={storageBindingRollup}
             />
           )}
           {section === "apps" && (
             <AppsTenantsView
               applications={applicationsList}
               mode={gateway.mode}
+              gateway={gateway}
+              rollup={
+                gateway.mode === "fixture"
+                  ? foundationStorageRollup()
+                  : storageBindingRollup
+              }
               onOpenConnections={() => setSection("connections")}
               onOpenStorage={() => setSection("storage")}
               onOpenPortability={() => setSection("portability")}
@@ -518,11 +533,13 @@ function HomeView({
   openDataset,
   navigate,
   mode,
+  storageBindingRollup,
 }: {
   snapshot: ControlCentreSnapshot;
   openDataset: (id: string) => void;
   navigate: (section: Section) => void;
   mode: GatewayMode;
+  storageBindingRollup: StorageBindingRollup | null;
 }) {
   const recent = recentDatasets(snapshot.datasets);
   const components = [
@@ -557,20 +574,24 @@ function HomeView({
         }
       />
       <StorageAttentionStrip
-        rollup={mode === "fixture" ? foundationStorageRollup() : null}
+        rollup={
+          mode === "fixture"
+            ? foundationStorageRollup()
+            : storageBindingRollup
+        }
         onOpenApps={() => navigate("apps")}
         onOpenStorage={() => navigate("storage")}
       />
-      {mode === "live" ? (
+      {mode === "live" && !storageBindingRollup ? (
         <div className="status-notice" role="status">
           <HardDrive size={18} aria-hidden />
           <div>
             <strong>App binding rollup unavailable.</strong>
             <small>
               {" "}
-              Home attention strip for app/tenant bindings is not wired to the
-              Control Centre gateway yet. Open Apps &amp; Tenants or platform
-              Storage for diagnostics.
+              Could not load /v1/storage/bindings/rollup. Open Apps &amp; Tenants
+              or platform Storage for diagnostics. Platform-healthy does not
+              mean every tenant binding is Connected.
             </small>
             <div className="button-row" style={{ marginTop: 8 }}>
               <button
@@ -579,13 +600,6 @@ function HomeView({
                 onClick={() => navigate("apps")}
               >
                 Open Apps &amp; Tenants
-              </button>
-              <button
-                type="button"
-                className="button"
-                onClick={() => navigate("storage")}
-              >
-                Open platform Storage
               </button>
             </div>
           </div>

@@ -33,6 +33,7 @@ import type {
   CreateRetentionPolicyCommand,
   CreateUploadCommand,
   CreateApplicationTenantCommand,
+  CloseApplicationTenantCommand,
   CutoverStorageMigrateCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
@@ -52,6 +53,8 @@ import type {
   StorageHealthDetails,
   StorageProbeTier,
   TrustEventSummary,
+  SuspendApplicationTenantCommand,
+  UpdateApplicationTenantCommand,
   UpdateRetentionPolicyCommand,
   UploadScanStatus,
   UpsertStorageBindingCommand,
@@ -66,6 +69,16 @@ import type {
 import type { CommandProvider, ObjectIngestCommand } from "./app.js";
 import { createAppStorageCommandMethods } from "./app-storage-commands.js";
 import { PostgresAppStorageRegistry } from "./postgres-app-storage-registry.js";
+import {
+  BindingStorageRouter,
+  type BindingStorageRouterOptions,
+} from "./storage-router.js";
+import {
+  createBindingBucketProber,
+  createObjectStorageFromProfile,
+  createTransferSignerFromProfile,
+  isStorageBindingRoutingEnabled,
+} from "./storage-factory.js";
 import {
   ProbeRateLimiter,
   StorageHealthCache,
@@ -85,6 +98,13 @@ export type StorageDiagnosticsOptions = {
   prober?: StorageBucketProber;
 };
 
+export type BindingRoutingOptions = {
+  enabled?: boolean;
+  platformStorage: ObjectStorage;
+  platformSigner?: TransferSigner;
+  env?: NodeJS.ProcessEnv;
+};
+
 export class PostgresCommandProvider implements CommandProvider {
   private readonly history: ResourceHistoryService;
   private readonly contracts: PostgresContractRepository;
@@ -97,6 +117,8 @@ export class PostgresCommandProvider implements CommandProvider {
   private readonly probeLimiter = new ProbeRateLimiter();
   private readonly scanOrchestrator: QuarantineScanOrchestrator;
   private readonly appStorage: ReturnType<typeof createAppStorageCommandMethods>;
+  private readonly appStorageRegistry: PostgresAppStorageRegistry;
+  private readonly bindingRouter?: BindingStorageRouter;
   constructor(
     private readonly pool: DatabasePool,
     private readonly verification?: {
@@ -110,10 +132,69 @@ export class PostgresCommandProvider implements CommandProvider {
     },
     private readonly clock: () => Date = () => new Date(),
     private readonly storageDiagnostics?: StorageDiagnosticsOptions,
+    bindingRouting?: BindingRoutingOptions,
   ) {
-    this.appStorage = createAppStorageCommandMethods(
-      new PostgresAppStorageRegistry(pool),
-    );
+    this.appStorageRegistry = new PostgresAppStorageRegistry(pool);
+    const env = bindingRouting?.env ?? process.env;
+    this.appStorage = createAppStorageCommandMethods(this.appStorageRegistry, {
+      probeBindingLive: async ({ profile }) => {
+        const prober = createBindingBucketProber(profile, env);
+        if (!prober) {
+          return {
+            ok: false,
+            summary:
+              "Binding probe unavailable: credential mode unsupported or host credentials missing.",
+            issueClass: "not_configured",
+          };
+        }
+        try {
+          const result = await prober.probeConnectivity();
+          const regionMismatch =
+            result.bucketRegion &&
+            profile.region &&
+            result.bucketRegion !== profile.region;
+          if (regionMismatch) {
+            return {
+              ok: false,
+              summary: `Bucket region ${result.bucketRegion} does not match binding region ${profile.region}.`,
+              issueClass: "wrong_region",
+            };
+          }
+          return {
+            ok: true,
+            summary: "Binding connectivity probe succeeded (HeadBucket).",
+            expectedOwnerMatch: true,
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            summary:
+              error instanceof Error
+                ? error.message
+                : "Binding connectivity probe failed.",
+            issueClass: "network",
+          };
+        }
+      },
+    });
+    if (
+      bindingRouting &&
+      (bindingRouting.enabled ?? isStorageBindingRoutingEnabled(env))
+    ) {
+      const routerOptions: BindingStorageRouterOptions = {
+        enabled: true,
+        platformStorage: bindingRouting.platformStorage,
+        ...(bindingRouting.platformSigner
+          ? { platformSigner: bindingRouting.platformSigner }
+          : {}),
+        resolveRoute: (context) => this.appStorage.resolveStorageRoute(context),
+        createStorage: (profile) =>
+          createObjectStorageFromProfile(profile, env),
+        createSigner: (profile) =>
+          createTransferSignerFromProfile(profile, env),
+      };
+      this.bindingRouter = new BindingStorageRouter(routerOptions);
+    }
     this.history = new ResourceHistoryService(
       new PostgresHistoryRepository(pool),
     );
@@ -138,6 +219,19 @@ export class PostgresCommandProvider implements CommandProvider {
           },
         )
       : undefined;
+  }
+
+  private async resolveApplicationId(
+    actor: AuthenticatedActor,
+    workspaceId: string,
+  ): Promise<string | undefined> {
+    if (actor.principalType !== "application") return undefined;
+    const apps = await this.contracts.listApplications(workspaceId);
+    const match = apps.find(
+      (candidate) =>
+        candidate.id === actor.id || candidate.namespace === actor.id,
+    );
+    return match?.id;
   }
 
   async listWorkspaces(workspaceId: string) {
@@ -722,6 +816,7 @@ export class PostgresCommandProvider implements CommandProvider {
       idempotencyKey: `upload:${uploadId}`,
       mediaType: session.mediaType,
       bytes,
+      ...(await this.ingestRoutingFields(actor, command.workspaceId)),
     });
     await this.queueScanAfterIngest({
       workspaceId: command.workspaceId,
@@ -736,6 +831,44 @@ export class PostgresCommandProvider implements CommandProvider {
       ingestOperationId: result.operationId,
       completedAt: this.clock().toISOString(),
     });
+  }
+
+  private async ingestRoutingFields(
+    actor: AuthenticatedActor,
+    workspaceId: string,
+    applicationTenantId?: string,
+  ): Promise<{
+    storage?: ObjectStorage;
+    storageBindingId?: string | null;
+    storageBindingGeneration?: number | null;
+  }> {
+    if (!this.bindingRouter) return {};
+    const applicationId = await this.resolveApplicationId(actor, workspaceId);
+    try {
+      const route = await this.bindingRouter.forIngest({
+        workspaceId,
+        purpose: "ingest",
+        ...(applicationId ? { applicationId } : {}),
+        ...(applicationTenantId ? { applicationTenantId } : {}),
+      });
+      return {
+        storage: route.storage,
+        storageBindingId: route.bindingId,
+        storageBindingGeneration: route.generation,
+      };
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        typeof (error as { code?: unknown }).code === "string"
+      ) {
+        throw codedError(
+          (error as { code: string }).code,
+          error.message,
+        );
+      }
+      throw error;
+    }
   }
 
   private async queueScanAfterIngest(input: {
@@ -797,6 +930,28 @@ export class PostgresCommandProvider implements CommandProvider {
     }
     const downloadable = blob.verificationState === "verified";
     try {
+      let signerOverride: TransferSigner | undefined;
+      if (this.bindingRouter) {
+        try {
+          const route = await this.bindingRouter.forDownload({
+            workspaceId: command.workspaceId,
+            blob,
+          });
+          signerOverride = route.signer;
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            "code" in error &&
+            typeof (error as { code?: unknown }).code === "string"
+          ) {
+            throw codedError(
+              (error as { code: string }).code,
+              error.message,
+            );
+          }
+          throw error;
+        }
+      }
       const grant = await this.grantService.issue({
         actor,
         workspaceId: command.workspaceId,
@@ -815,6 +970,7 @@ export class PostgresCommandProvider implements CommandProvider {
         requestId: command.idempotencyKey,
         correlationId: command.idempotencyKey,
         ...(command.fileName ? { fileName: command.fileName } : {}),
+        ...(signerOverride ? { signer: signerOverride } : {}),
         policyInput: {
           principal: {
             id: actor.id,
@@ -863,17 +1019,54 @@ export class PostgresCommandProvider implements CommandProvider {
       idempotencyKey: command.idempotencyKey,
       mediaType: command.mediaType,
       bytes,
+      ...(await this.ingestRoutingFields(
+        actor,
+        command.workspaceId,
+        command.applicationTenantId,
+      )),
     });
   }
 
   listApplicationTenants(workspaceId: string, applicationId: string) {
     return this.appStorage.listApplicationTenants(workspaceId, applicationId);
   }
+  getApplicationTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ) {
+    return this.appStorage.getApplicationTenant(
+      workspaceId,
+      applicationId,
+      tenantId,
+    );
+  }
   createApplicationTenant(
     actor: AuthenticatedActor,
     command: CreateApplicationTenantCommand,
   ) {
     return this.appStorage.createApplicationTenant(actor, command);
+  }
+  updateApplicationTenant(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: UpdateApplicationTenantCommand,
+  ) {
+    return this.appStorage.updateApplicationTenant(actor, tenantId, command);
+  }
+  suspendApplicationTenant(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: SuspendApplicationTenantCommand,
+  ) {
+    return this.appStorage.suspendApplicationTenant(actor, tenantId, command);
+  }
+  closeApplicationTenant(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: CloseApplicationTenantCommand,
+  ) {
+    return this.appStorage.closeApplicationTenant(actor, tenantId, command);
   }
   getEffectiveStorage(
     workspaceId: string,
@@ -893,11 +1086,27 @@ export class PostgresCommandProvider implements CommandProvider {
       apps.map((item) => ({ id: item.id, name: item.name })),
     );
   }
+  listStorageBindings(
+    workspaceId: string,
+    query?: { applicationId?: string; applicationTenantId?: string | null },
+  ) {
+    return this.appStorage.listStorageBindings(workspaceId, query);
+  }
+  getStorageBinding(workspaceId: string, bindingId: string) {
+    return this.appStorage.getStorageBinding(workspaceId, bindingId);
+  }
   upsertStorageBinding(
     actor: AuthenticatedActor,
     command: UpsertStorageBindingCommand,
   ) {
     return this.appStorage.upsertStorageBinding(actor, command);
+  }
+  deleteStorageBinding(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+  ) {
+    return this.appStorage.deleteStorageBinding(actor, bindingId, workspaceId);
   }
   probeStorageBinding(
     actor: AuthenticatedActor,

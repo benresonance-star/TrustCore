@@ -65,6 +65,21 @@ export class PostgresAppStorageRegistry implements AppStorageRegistry {
     }
     for (const binding of bindings) {
       this.memory.bindings.set(binding.id, { ...binding });
+      const versions = await this.repo.listBindingVersions(
+        workspaceId,
+        binding.id,
+      );
+      for (const version of versions) {
+        this.memory.versions.push({
+          id: version.id,
+          workspaceId,
+          bindingId: binding.id,
+          generation: version.generation,
+          snapshot: version.snapshot,
+          createdBy: version.createdBy,
+          createdAt: version.createdAt,
+        });
+      }
     }
     this.hydratedWorkspaces.add(workspaceId);
   }
@@ -112,15 +127,67 @@ export class PostgresAppStorageRegistry implements AppStorageRegistry {
           }
         : {}),
     });
+    this.hydratedWorkspaces.delete(binding.workspaceId);
   }
 
-  async persistTenant(tenant: ApplicationTenant): Promise<void> {
-    await this.repo.createTenant(tenant);
+  async persistTenant(
+    tenant: ApplicationTenant,
+    options?: { expectedUpdatedAt?: string },
+  ): Promise<void> {
+    const existing = await this.repo.getTenant(
+      tenant.workspaceId,
+      tenant.applicationId,
+      tenant.id,
+    );
+    if (!existing) {
+      await this.repo.createTenant(tenant);
+      this.hydratedWorkspaces.delete(tenant.workspaceId);
+      return;
+    }
+    const expectedUpdatedAt = options?.expectedUpdatedAt ?? existing.updatedAt;
+    await this.repo.updateTenant({
+      workspaceId: tenant.workspaceId,
+      applicationId: tenant.applicationId,
+      tenantId: tenant.id,
+      displayName: tenant.displayName,
+      status: tenant.status,
+      expectedUpdatedAt,
+      updatedAt: tenant.updatedAt,
+    });
+    this.hydratedWorkspaces.delete(tenant.workspaceId);
+  }
+
+  async deletePersistedBinding(
+    workspaceId: string,
+    bindingId: string,
+  ): Promise<void> {
+    await this.repo.deleteBinding(workspaceId, bindingId);
+    this.hydratedWorkspaces.delete(workspaceId);
+  }
+
+  async countStickyBlobs(
+    workspaceId: string,
+    bindingId: string,
+  ): Promise<number> {
+    return this.repo.countStickyBlobs(workspaceId, bindingId);
+  }
+
+  async persistStickyCutover(input: {
+    workspaceId: string;
+    targetBindingId: string;
+    targetGeneration: number;
+    objectIds: readonly string[];
+  }): Promise<void> {
+    await this.repo.updateStickyBindings(input);
+    this.hydratedWorkspaces.delete(input.workspaceId);
   }
 
   async persistBindingState(bindingId: string): Promise<void> {
     const binding = this.memory.bindings.get(bindingId);
-    if (binding) await this.repo.updateBindingState({ ...binding });
+    if (binding) {
+      await this.repo.updateBindingState({ ...binding });
+      this.hydratedWorkspaces.delete(binding.workspaceId);
+    }
   }
 
   async persistPlan(bindingId: string): Promise<void> {
@@ -137,10 +204,19 @@ export class PostgresAppStorageRegistry implements AppStorageRegistry {
       updatedAt: profile.updatedAt,
     });
     await this.repo.updateBindingState({ ...binding });
+    this.hydratedWorkspaces.delete(binding.workspaceId);
   }
 
   listTenants(workspaceId: string, applicationId: string): ApplicationTenant[] {
     return this.memory.listTenants(workspaceId, applicationId);
+  }
+
+  getTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): ApplicationTenant | undefined {
+    return this.memory.getTenant(workspaceId, applicationId, tenantId);
   }
 
   createTenant(input: {
@@ -150,6 +226,34 @@ export class PostgresAppStorageRegistry implements AppStorageRegistry {
     displayName: string;
   }): ApplicationTenant {
     return this.memory.createTenant(input);
+  }
+
+  updateTenant(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    displayName: string;
+    expectedUpdatedAt: string;
+  }): ApplicationTenant {
+    return this.memory.updateTenant(input);
+  }
+
+  setTenantStatus(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    status: ApplicationTenant["status"];
+    expectedUpdatedAt: string;
+  }): ApplicationTenant {
+    return this.memory.setTenantStatus(input);
+  }
+
+  listBindings(input: {
+    workspaceId: string;
+    applicationId?: string;
+    applicationTenantId?: string | null;
+  }): StorageBindingSummary[] {
+    return this.memory.listBindings(input);
   }
 
   upsertBinding(command: UpsertStorageBindingCommand, actorId: string) {
@@ -167,6 +271,17 @@ export class PostgresAppStorageRegistry implements AppStorageRegistry {
 
   getBinding(bindingId: string): StoredStorageBinding | undefined {
     return this.memory.getBinding(bindingId);
+  }
+
+  deleteBinding(
+    bindingId: string,
+    options?: { force?: boolean },
+  ): StorageBindingSummary {
+    return this.memory.deleteBinding(bindingId, options);
+  }
+
+  markProbeDeferred(bindingId: string, summary: string): StorageBindingSummary {
+    return this.memory.markProbeDeferred(bindingId, summary);
   }
 
   runHandshakeHardening(bindingId: string) {

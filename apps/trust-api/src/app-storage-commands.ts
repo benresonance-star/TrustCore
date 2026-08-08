@@ -2,6 +2,7 @@ import type {
   AcceptStoragePlanCommand,
   ApplicationTenant,
   AuthenticatedActor,
+  CloseApplicationTenantCommand,
   CreateApplicationTenantCommand,
   CutoverStorageMigrateCommand,
   EffectiveStorageSummary,
@@ -9,6 +10,8 @@ import type {
   RefreshStoragePlanCommand,
   StorageBindingRollup,
   StorageBindingSummary,
+  SuspendApplicationTenantCommand,
+  UpdateApplicationTenantCommand,
   UpsertStorageBindingCommand,
 } from "@trust-core/protocol";
 import {
@@ -23,9 +26,29 @@ export interface AppStorageCommandMethods {
     workspaceId: string,
     applicationId: string,
   ): Promise<{ items: ApplicationTenant[] }>;
+  getApplicationTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): Promise<ApplicationTenant>;
   createApplicationTenant(
     actor: AuthenticatedActor,
     command: CreateApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  updateApplicationTenant(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: UpdateApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  suspendApplicationTenant(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: SuspendApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  closeApplicationTenant(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: CloseApplicationTenantCommand,
   ): Promise<ApplicationTenant>;
   getEffectiveStorage(
     workspaceId: string,
@@ -37,6 +60,14 @@ export interface AppStorageCommandMethods {
     applications: readonly { id: string; name: string }[],
     platform?: { status: StorageBindingRollup["platformStatus"]; summary: string },
   ): Promise<StorageBindingRollup>;
+  listStorageBindings(
+    workspaceId: string,
+    query?: { applicationId?: string; applicationTenantId?: string | null },
+  ): Promise<{ items: StorageBindingSummary[] }>;
+  getStorageBinding(
+    workspaceId: string,
+    bindingId: string,
+  ): Promise<StorageBindingSummary>;
   upsertStorageBinding(
     actor: AuthenticatedActor,
     command: UpsertStorageBindingCommand,
@@ -45,6 +76,12 @@ export interface AppStorageCommandMethods {
     externalId?: string;
     onboardingTemplate: string;
   }>;
+  deleteStorageBinding(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+    options?: { force?: boolean },
+  ): Promise<StorageBindingSummary>;
   probeStorageBinding(
     actor: AuthenticatedActor,
     command: ProbeStorageBindingCommand,
@@ -76,7 +113,22 @@ export interface AppStorageCommandMethods {
 
 export function createAppStorageCommandMethods(
   registry: AppStorageRegistry,
+  options: {
+    allowSyntheticConnectedProbe?: boolean;
+    /** Live Tier-A probe for managed / platform_iam bindings. */
+    probeBindingLive?: (input: {
+      bindingId: string;
+      profile: StorageBindingSummary["profile"];
+    }) => Promise<{
+      ok: boolean;
+      summary: string;
+      issueClass?: string | null;
+      expectedOwnerMatch?: boolean;
+    }>;
+  } = {},
 ): AppStorageCommandMethods {
+  const allowSyntheticConnectedProbe =
+    options.allowSyntheticConnectedProbe === true;
   const hydrate = async (workspaceId: string) => {
     await registry.ensureHydrated?.(workspaceId);
   };
@@ -99,6 +151,16 @@ export function createAppStorageCommandMethods(
       await hydrate(workspaceId);
       return { items: registry.listTenants(workspaceId, applicationId) };
     },
+    async getApplicationTenant(workspaceId, applicationId, tenantId) {
+      await hydrate(workspaceId);
+      const tenant = registry.getTenant(workspaceId, applicationId, tenantId);
+      if (!tenant) {
+        throw Object.assign(new Error("Application tenant was not found."), {
+          code: "RESOURCE_NOT_FOUND",
+        });
+      }
+      return tenant;
+    },
     async createApplicationTenant(_actor, command) {
       await hydrate(command.workspaceId);
       const tenant = registry.createTenant({
@@ -108,6 +170,48 @@ export function createAppStorageCommandMethods(
         displayName: command.displayName,
       });
       await registry.persistTenant?.(tenant);
+      return tenant;
+    },
+    async updateApplicationTenant(_actor, tenantId, command) {
+      await hydrate(command.workspaceId);
+      const tenant = registry.updateTenant({
+        workspaceId: command.workspaceId,
+        applicationId: command.applicationId,
+        tenantId,
+        displayName: command.displayName,
+        expectedUpdatedAt: command.expectedUpdatedAt,
+      });
+      await registry.persistTenant?.(tenant, {
+        expectedUpdatedAt: command.expectedUpdatedAt,
+      });
+      return tenant;
+    },
+    async suspendApplicationTenant(_actor, tenantId, command) {
+      await hydrate(command.workspaceId);
+      const tenant = registry.setTenantStatus({
+        workspaceId: command.workspaceId,
+        applicationId: command.applicationId,
+        tenantId,
+        status: "suspended",
+        expectedUpdatedAt: command.expectedUpdatedAt,
+      });
+      await registry.persistTenant?.(tenant, {
+        expectedUpdatedAt: command.expectedUpdatedAt,
+      });
+      return tenant;
+    },
+    async closeApplicationTenant(_actor, tenantId, command) {
+      await hydrate(command.workspaceId);
+      const tenant = registry.setTenantStatus({
+        workspaceId: command.workspaceId,
+        applicationId: command.applicationId,
+        tenantId,
+        status: "closed",
+        expectedUpdatedAt: command.expectedUpdatedAt,
+      });
+      await registry.persistTenant?.(tenant, {
+        expectedUpdatedAt: command.expectedUpdatedAt,
+      });
       return tenant;
     },
     async getEffectiveStorage(workspaceId, applicationId, applicationTenantId) {
@@ -131,6 +235,22 @@ export function createAppStorageCommandMethods(
       registry.assertNoSecrets(rollup);
       return rollup;
     },
+    async listStorageBindings(workspaceId, query) {
+      await hydrate(workspaceId);
+      const items = registry.listBindings({
+        workspaceId,
+        applicationId: query?.applicationId,
+        applicationTenantId: query?.applicationTenantId,
+      });
+      registry.assertNoSecrets(items);
+      return { items };
+    },
+    async getStorageBinding(workspaceId, bindingId) {
+      const binding = await requireWorkspaceBinding(bindingId, workspaceId);
+      const summary = registry.toSummary(binding);
+      registry.assertNoSecrets(summary);
+      return summary;
+    },
     async upsertStorageBinding(actor, command) {
       await hydrate(command.workspaceId);
       const hardeningOk =
@@ -150,12 +270,81 @@ export function createAppStorageCommandMethods(
       registry.assertNoSecrets(created.binding);
       return created;
     },
+    async deleteStorageBinding(_actor, bindingId, workspaceId, options) {
+      await requireWorkspaceBinding(bindingId, workspaceId);
+      if (!options?.force && registry.countStickyBlobs) {
+        const sticky = await registry.countStickyBlobs(workspaceId, bindingId);
+        if (sticky > 0) {
+          throw Object.assign(
+            new Error(
+              "Binding still referenced by sticky blob routes; disable or force-delete.",
+            ),
+            { code: "COMMAND_REJECTED" },
+          );
+        }
+      }
+      const summary = registry.deleteBinding(bindingId, options);
+      await registry.deletePersistedBinding?.(workspaceId, bindingId);
+      registry.assertNoSecrets(summary);
+      return summary;
+    },
     async probeStorageBinding(_actor, command) {
       await requireWorkspaceBinding(command.bindingId, command.workspaceId);
       const hardening = registry.runHandshakeHardening(command.bindingId);
       if (!hardening.ok) {
         await registry.persistBindingState?.(command.bindingId);
         return registry.toSummary(registry.getBinding(command.bindingId)!);
+      }
+      const binding = registry.getBinding(command.bindingId)!;
+      const profile = registry.toSummary(binding).profile;
+      if (options.probeBindingLive) {
+        if (profile.credentialMode === "cross_account_role") {
+          const summary = registry.markProbeDeferred(
+            command.bindingId,
+            "Live BYOB probe requires STS AssumeRole (not yet enabled); status remains configured (not Connected).",
+          );
+          await registry.persistBindingState?.(command.bindingId);
+          registry.assertNoSecrets(summary);
+          return summary;
+        }
+        try {
+          const live = await options.probeBindingLive({
+            bindingId: command.bindingId,
+            profile,
+          });
+          const summary = registry.recordProbe(command.bindingId, {
+            ok: live.ok,
+            summary: live.summary,
+            ...(live.issueClass != null ? { issueClass: live.issueClass } : {}),
+            ...(live.expectedOwnerMatch !== undefined
+              ? { expectedOwnerMatch: live.expectedOwnerMatch }
+              : {}),
+          });
+          await registry.persistBindingState?.(command.bindingId);
+          registry.assertNoSecrets(summary);
+          return summary;
+        } catch (error) {
+          const summary = registry.recordProbe(command.bindingId, {
+            ok: false,
+            summary:
+              error instanceof Error
+                ? error.message
+                : "Binding connectivity probe failed.",
+            issueClass: "network",
+          });
+          await registry.persistBindingState?.(command.bindingId);
+          registry.assertNoSecrets(summary);
+          return summary;
+        }
+      }
+      if (!allowSyntheticConnectedProbe) {
+        const summary = registry.markProbeDeferred(
+          command.bindingId,
+          "Live Tier-A connectivity probe is not configured for durable bindings; status remains configured (not Connected).",
+        );
+        await registry.persistBindingState?.(command.bindingId);
+        registry.assertNoSecrets(summary);
+        return summary;
       }
       const summary = registry.recordProbe(command.bindingId, {
         ok: true,
@@ -211,6 +400,12 @@ export function createAppStorageCommandMethods(
           objectDigests: command.objectDigests,
           actorId: actor.id,
         });
+        await registry.persistStickyCutover?.({
+          workspaceId: command.workspaceId,
+          targetBindingId: command.targetBindingId,
+          targetGeneration: summary.generation,
+          objectIds: command.objectDigests.map((item) => item.objectId),
+        });
         await registry.persistBindingState?.(command.sourceBindingId);
         await registry.persistBinding?.(
           command.targetBindingId,
@@ -220,13 +415,17 @@ export function createAppStorageCommandMethods(
         registry.assertNoSecrets(summary);
         return summary;
       } catch (error) {
-        if (
-          error instanceof Error &&
-          (error as { code?: string }).code === "MIGRATE_DIGEST_MISMATCH"
-        ) {
-          throw Object.assign(error, { code: "COMMAND_REJECTED" });
-        }
-        throw error;
+        throw Object.assign(
+          error instanceof Error ? error : new Error(String(error)),
+          {
+            code:
+              error instanceof Error &&
+              "code" in error &&
+              typeof (error as { code?: unknown }).code === "string"
+                ? (error as { code: string }).code
+                : "COMMAND_REJECTED",
+          },
+        );
       }
     },
     async resolveStorageRoute(context) {
@@ -237,9 +436,7 @@ export function createAppStorageCommandMethods(
 }
 
 function assertSafeRolePlaceholder(roleArn: string): boolean {
-  // Real STS assume-without-ExternalId check is Partial until dual-account staging.
-  // Reject obviously malformed ARNs; handshake hardening still runs on probe.
-  return roleArn.startsWith("arn:aws:iam::") && roleArn.includes(":role/");
+  return !roleArn.includes("*") && roleArn.includes(":role/");
 }
 
 export function seedFoundationAppStorage(
@@ -256,16 +453,17 @@ export function seedFoundationAppStorage(
       applicationId,
       provider: "s3",
       region: "ap-southeast-2",
-      bucket: "foundation-managed",
+      bucket: "trust-foundation-default",
       tier: "managed",
       credentialMode: "platform_iam",
-      idempotencyKey: "app-default",
+      idempotencyKey: "seed-app-default",
     },
-    "fixture-seed",
+    "system",
   );
   registry.recordProbe(appDefault.binding.id, {
     ok: true,
-    summary: "App default connected",
+    summary: "App-default connected",
+    expectedOwnerMatch: true,
   });
 
   const t1 = registry.createTenant({
@@ -281,15 +479,14 @@ export function seedFoundationAppStorage(
       applicationTenantId: t1.id,
       provider: "s3",
       region: "ap-southeast-2",
-      bucket: "tenant-1-byob",
+      bucket: "byob-tenant-1",
       tier: "byob",
       credentialMode: "cross_account_role",
-      roleArn: "arn:aws:iam::111111111111:role/TrustCore",
+      roleArn: "arn:aws:iam::111111111111:role/TrustCoreTenant1",
       expectedBucketOwner: "111111111111",
-      declaredCapacityBytes: 5 * 1024 ** 4,
-      idempotencyKey: "t1",
+      idempotencyKey: "seed-t1",
     },
-    "fixture-seed",
+    "system",
   );
   registry.recordProbe(t1Bind.binding.id, {
     ok: true,
@@ -310,18 +507,18 @@ export function seedFoundationAppStorage(
       applicationTenantId: t2.id,
       provider: "s3",
       region: "us-east-1",
-      bucket: "tenant-2-byob",
+      bucket: "byob-tenant-2",
       tier: "byob",
       credentialMode: "cross_account_role",
-      roleArn: "arn:aws:iam::222222222222:role/TrustCore",
+      roleArn: "arn:aws:iam::222222222222:role/TrustCoreTenant2",
       expectedBucketOwner: "222222222222",
-      idempotencyKey: "t2",
+      idempotencyKey: "seed-t2",
     },
-    "fixture-seed",
+    "system",
   );
   registry.recordProbe(t2Bind.binding.id, {
     ok: false,
-    summary: "wrong region",
+    summary: "Bucket region does not match configured region.",
     issueClass: "wrong_region",
   });
 
@@ -338,22 +535,24 @@ export function seedFoundationAppStorage(
       applicationTenantId: t3.id,
       provider: "s3",
       region: "ap-southeast-2",
-      bucket: "tenant-003-byob",
-      tier: "byob",
+      bucket: "byob-tenant-003",
+      tier: "premium",
       credentialMode: "cross_account_role",
-      roleArn: "arn:aws:iam::333333333333:role/TrustCore",
+      roleArn: "arn:aws:iam::333333333333:role/TrustCoreTenant003",
       expectedBucketOwner: "333333333333",
-      declaredCapacityBytes: 5 * 1024 ** 4,
-      idempotencyKey: "t3",
+      declaredPlanCode: "premium-1tb",
+      declaredCapacityBytes: 1_000_000_000_000,
+      idempotencyKey: "seed-t3",
     },
-    "fixture-seed",
+    "system",
   );
   registry.recordProbe(t3Bind.binding.id, {
     ok: true,
     summary: "Tenant 003 connected",
+    expectedOwnerMatch: true,
   });
   registry.refreshPlan(t3Bind.binding.id, {
-    observedUsageBytes: 4 * 1024 ** 4,
-    observedQuotaBytes: 10 * 1024 ** 4,
+    observedQuotaBytes: 2_000_000_000_000,
+    observedUsageBytes: 100_000_000,
   });
 }
