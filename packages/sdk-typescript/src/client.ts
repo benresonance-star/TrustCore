@@ -6,7 +6,9 @@ import type {
   ArchiveExportSummary,
   AuditEventRecord,
   ControlCentreSnapshot,
+  CreatePolicyAssignmentCommand,
   CreateImportPlanCommand,
+  CreateRetentionPolicyCommand,
   DatasetRecord,
   DeleteResourceCommand,
   DeleteResourceResult,
@@ -18,10 +20,13 @@ import type {
   ObjectIngestCommand,
   ObjectIngestResult,
   OperationSummary,
+  PolicyAssignment,
   RegisterApplicationCommand,
   RelationRecord,
+  RetentionPolicyRecord,
   ResourceRecord,
   RestoreResourceCommand,
+  RevokePolicyAssignmentCommand,
   RevisionCommand,
   RevisionCommandResult,
   RevisionGraph,
@@ -29,6 +34,7 @@ import type {
   SchemaPackage,
   ServiceHealth,
   UploadSession,
+  UpdateRetentionPolicyCommand,
   VerificationRunResult,
   WorkspaceSummary,
 } from "./generated/types.js";
@@ -48,6 +54,13 @@ export interface UploadInput {
   idempotencyKey?: string;
   expiresInSeconds?: number;
 }
+export interface ArchiveBinaryDownload {
+  id: string;
+  mediaType: "application/vnd.trust-core.archive+zip";
+  filename: string;
+  bytes: Uint8Array;
+  sha256?: string;
+}
 export interface RequestContext {
   workspaceId?: string;
   datasetId?: string;
@@ -66,6 +79,21 @@ export interface TrustClient {
       command: WorkspaceCommand<RegisterApplicationCommand>,
     ): Promise<ApplicationRegistration>;
   };
+  policyAssignments: {
+    list(): Promise<ListResponse<PolicyAssignment>>;
+    create(
+      command: WorkspaceCommand<CreatePolicyAssignmentCommand>,
+    ): Promise<PolicyAssignment>;
+    revoke(
+      assignmentId: string,
+      command?: Omit<
+        WorkspaceCommand<RevokePolicyAssignmentCommand>,
+        "idempotencyKey"
+      > & {
+        idempotencyKey?: string;
+      },
+    ): Promise<PolicyAssignment>;
+  };
   schemas: {
     list(): Promise<ListResponse<SchemaPackage>>;
     get(schemaKey: string): Promise<SchemaPackage>;
@@ -73,6 +101,17 @@ export interface TrustClient {
   datasets: {
     list(context?: RequestContext): Promise<ListResponse<DatasetRecord>>;
     get(datasetId: string): Promise<DatasetRecord>;
+  };
+  retentionPolicies: {
+    list(): Promise<ListResponse<RetentionPolicyRecord>>;
+    get(policyId: string): Promise<RetentionPolicyRecord>;
+    create(
+      command: WorkspaceCommand<CreateRetentionPolicyCommand>,
+    ): Promise<RetentionPolicyRecord>;
+    update(
+      policyId: string,
+      command: WorkspaceCommand<UpdateRetentionPolicyCommand>,
+    ): Promise<RetentionPolicyRecord>;
   };
   resources: {
     list(context?: RequestContext): Promise<ListResponse<ResourceRecord>>;
@@ -118,6 +157,24 @@ export interface TrustClient {
     create(input: UploadInput): Promise<UploadSession>;
     get(uploadId: string): Promise<UploadSession>;
   };
+  blobs: {
+    createDownloadGrant(input: {
+      objectId: string;
+      requestedTtlSeconds?: number;
+      fileName?: string;
+      idempotencyKey?: string;
+    }): Promise<{
+      grantId: string;
+      objectId: string;
+      workspaceId: string;
+      expiresAt: string;
+      transfer: {
+        method: "GET";
+        url: string;
+        headers: Readonly<Record<string, string>>;
+      };
+    }>;
+  };
   objects: {
     ingest(
       command: WorkspaceCommand<ObjectIngestCommand>,
@@ -134,6 +191,10 @@ export interface TrustClient {
         exportId: string,
         reauthenticationProof: string,
       ): Promise<ArchiveDownload>;
+      downloadBytes(
+        exportId: string,
+        reauthenticationProof: string,
+      ): Promise<ArchiveBinaryDownload>;
     };
     archives: {
       upload(input: {
@@ -219,6 +280,27 @@ function createClient(
           body: await command(value),
         }),
     },
+    policyAssignments: {
+      list: () =>
+        transport.request("/v1/policy-assignments", {
+          headers: contextHeaders(),
+        }),
+      create: async (value) =>
+        transport.request("/v1/policy-assignments", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: await command(value),
+        }),
+      revoke: async (id, value = {}) =>
+        transport.request(`/v1/policy-assignments/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          headers: contextHeaders(),
+          body: await command({
+            idempotencyKey:
+              value.idempotencyKey ?? createIdempotencyKey("revoke-policy"),
+          }),
+        }),
+    },
     schemas: {
       list: () =>
         transport.request("/v1/schemas", { headers: contextHeaders() }),
@@ -233,6 +315,28 @@ function createClient(
       get: (id) =>
         transport.request(`/v1/datasets/${encodeURIComponent(id)}`, {
           headers: contextHeaders(),
+        }),
+    },
+    retentionPolicies: {
+      list: () =>
+        transport.request("/v1/retention-policies", {
+          headers: contextHeaders(),
+        }),
+      get: (id) =>
+        transport.request(`/v1/retention-policies/${encodeURIComponent(id)}`, {
+          headers: contextHeaders(),
+        }),
+      create: async (value) =>
+        transport.request("/v1/retention-policies", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: await command(value),
+        }),
+      update: async (id, value) =>
+        transport.request(`/v1/retention-policies/${encodeURIComponent(id)}`, {
+          method: "PUT",
+          headers: contextHeaders(),
+          body: await command(value),
         }),
     },
     resources: {
@@ -326,6 +430,21 @@ function createClient(
           headers: contextHeaders(),
         }),
     },
+    blobs: {
+      createDownloadGrant: async (input) =>
+        transport.request("/v1/blobs/download-grants", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: {
+            workspaceId: await workspace(),
+            objectId: input.objectId,
+            requestedTtlSeconds: input.requestedTtlSeconds ?? 60,
+            ...(input.fileName ? { fileName: input.fileName } : {}),
+            idempotencyKey:
+              input.idempotencyKey ?? createIdempotencyKey("download-grant"),
+          },
+        }),
+    },
     objects: {
       ingest: async (value) =>
         transport.request("/v1/objects/ingest", {
@@ -360,6 +479,31 @@ function createClient(
               },
             },
           ),
+        downloadBytes: async (id, reauthenticationProof) => {
+          const response = await transport.requestBinary(
+            `/v1/portability/exports/${encodeURIComponent(id)}/download`,
+            {
+              headers: {
+                ...contextHeaders(),
+                "x-trust-reauth": reauthenticationProof,
+              },
+            },
+          );
+          return {
+            id,
+            mediaType: "application/vnd.trust-core.archive+zip",
+            filename:
+              dispositionFilename(
+                response.headers.get("content-disposition"),
+              ) ?? `${id}.trustarchive`,
+            bytes: response.bytes,
+            ...(response.headers.get("x-trust-archive-sha256")
+              ? {
+                  sha256: response.headers.get("x-trust-archive-sha256")!,
+                }
+              : {}),
+          };
+        },
       },
       archives: {
         upload: async (input) => {
@@ -514,4 +658,8 @@ function base64(bytes: Uint8Array): string {
   for (let offset = 0; offset < bytes.length; offset += 0x8000)
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   return btoa(binary);
+}
+function dispositionFilename(value: string | null): string | undefined {
+  const match = value?.match(/filename="([^"]+)"/i);
+  return match?.[1];
 }

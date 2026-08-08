@@ -1,5 +1,6 @@
 import { canonicalJson, sha256 } from "./canonical.js";
 import { assertSafeArchivePath, blobArchivePath } from "./paths.js";
+import { manifestSignaturePath, verifyManifestSignature } from "./signature.js";
 import {
   archiveRecordKinds,
   type ArchiveEntrySet,
@@ -7,6 +8,7 @@ import {
   type ArchiveRecord,
   type ArchiveRecordKind,
   type ArchiveVerificationReport,
+  type ArchiveManifestVerifier,
   type TrustArchiveManifest,
 } from "./types.js";
 
@@ -27,6 +29,30 @@ const defaults: ArchiveVerificationLimits = {
 export function verifyArchiveEntries(
   archive: Pick<ArchiveEntrySet, "entries">,
   limits: Partial<ArchiveVerificationLimits> = {},
+): ArchiveVerificationReport {
+  return verifyArchiveEntriesBase(archive, limits, false);
+}
+
+export async function verifyArchiveEntriesWithSignatures(
+  archive: Pick<ArchiveEntrySet, "entries">,
+  verifier: ArchiveManifestVerifier,
+  limits: Partial<ArchiveVerificationLimits> = {},
+): Promise<ArchiveVerificationReport> {
+  const report = verifyArchiveEntriesBase(archive, limits, true);
+  if (report.manifest && report.manifest.signatureProfile !== "unsigned")
+    await verifyManifestSignature(
+      archive.entries,
+      report.manifest,
+      verifier,
+      report.issues as ArchiveIssue[],
+    );
+  return { ...report, valid: report.issues.length === 0 };
+}
+
+function verifyArchiveEntriesBase(
+  archive: Pick<ArchiveEntrySet, "entries">,
+  limits: Partial<ArchiveVerificationLimits>,
+  deferSignedVerification: boolean,
 ): ArchiveVerificationReport {
   const bounded = { ...defaults, ...limits };
   const issues: ArchiveIssue[] = [];
@@ -88,6 +114,27 @@ export function verifyArchiveEntries(
   }
 
   const manifest = readManifest(archive.entries, issues);
+  if (
+    manifest &&
+    manifest.signatureProfile !== "unsigned" &&
+    !deferSignedVerification
+  )
+    issue(
+      issues,
+      "ARCHIVE_SIGNATURE_VERIFIER_REQUIRED",
+      "Signed archive requires a manifest signature verifier.",
+      manifestSignaturePath,
+    );
+  if (
+    manifest?.signatureProfile === "unsigned" &&
+    archive.entries.has(manifestSignaturePath)
+  )
+    issue(
+      issues,
+      "ARCHIVE_SIGNATURE_UNEXPECTED",
+      "Unsigned archive contains a manifest signature artifact.",
+      manifestSignaturePath,
+    );
   for (const kind of archiveRecordKinds) {
     const path = `records/${kind}.jsonl`,
       bytes = archive.entries.get(path);
@@ -292,10 +339,31 @@ function readManifest(
     const value = JSON.parse(decoder.decode(bytes)) as TrustArchiveManifest;
     if (
       value.format !== "trustarchive" ||
-      value.formatVersion !== "0.2" ||
-      value.checksumAlgorithm !== "sha256"
+      (value.formatVersion !== "0.2" && value.formatVersion !== "0.3") ||
+      value.checksumAlgorithm !== "sha256" ||
+      value.canonicalJsonProfile !== "trust-core-canonical-json-v1"
     )
       throw new Error();
+    const profile = value.signatureProfile;
+    const validUnsigned =
+      value.formatVersion === "0.2" && profile === "unsigned";
+    const validSigned =
+      value.formatVersion === "0.3" &&
+      typeof profile === "object" &&
+      profile !== null &&
+      profile.name === "trust-core-manifest-signature-v1" &&
+      profile.algorithm === "Ed25519" &&
+      typeof profile.keyId === "string" &&
+      profile.keyId.length > 0;
+    if (!validUnsigned && !validSigned) {
+      issue(
+        issues,
+        "ARCHIVE_SIGNATURE_PROFILE_UNKNOWN",
+        "Archive signature profile or algorithm is not supported.",
+        "manifest.json",
+      );
+      return undefined;
+    }
     if (
       value.auditLineage?.mode !== "source_chain" ||
       value.auditLineage.sourceWorkspaceId !== value.workspaceId ||
@@ -303,6 +371,14 @@ function readManifest(
       value.auditLineage.eventCount < 0
     )
       throw new Error();
+    if (decoder.decode(bytes) !== `${canonicalJson(value)}\n`) {
+      issue(
+        issues,
+        "ARCHIVE_MANIFEST_NON_CANONICAL",
+        "Manifest does not use the declared canonical JSON encoding.",
+        "manifest.json",
+      );
+    }
     return value;
   } catch {
     issue(

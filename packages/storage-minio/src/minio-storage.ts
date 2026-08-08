@@ -10,15 +10,16 @@ import type { ObjectMetadata, ObjectStorage, StoredObject, TemporaryObject } fro
 import { canonicalObjectKey, temporaryObjectKey } from "@trust-core/storage";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
+import type { ByteRange } from "@trust-core/storage";
 
 const TEMPORARY_KEY_PATTERN = /^workspaces\/[A-Za-z0-9_-]+\/temporary\/[A-Za-z0-9_-]+$/;
 
 export interface MinioStorageConfig {
-  endpoint: string;
+  endpoint?: string;
   region: string;
   bucket: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
   forcePathStyle?: boolean;
 }
 
@@ -26,13 +27,23 @@ export class MinioObjectStorage implements ObjectStorage {
   private readonly client: S3Client;
 
   constructor(private readonly config: MinioStorageConfig) {
+    if ((config.accessKeyId === undefined) !== (config.secretAccessKey === undefined)) {
+      throw new Error("MinIO static credentials require both accessKeyId and secretAccessKey");
+    }
     this.client = new S3Client({
-      endpoint: config.endpoint,
       region: config.region,
       forcePathStyle: config.forcePathStyle ?? true,
-      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
+      ...(config.endpoint ? { endpoint: config.endpoint } : {}),
+      ...(config.accessKeyId && config.secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: config.accessKeyId,
+              secretAccessKey: config.secretAccessKey,
+            },
+          }
+        : {}),
     });
   }
 
@@ -119,8 +130,12 @@ export class MinioObjectStorage implements ObjectStorage {
     return { ...committed, sha256: input.sha256 };
   }
 
-  async openReadStream(input: { key: string }): Promise<Readable> {
-    const result = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: input.key }));
+  async openReadStream(input: { key: string; range?: ByteRange }): Promise<Readable> {
+    const result = await this.client.send(new GetObjectCommand({
+      Bucket: this.config.bucket,
+      Key: input.key,
+      ...(input.range ? { Range: `bytes=${input.range.start}-${input.range.end}` } : {}),
+    }));
     if (!(result.Body instanceof Readable)) throw new Error("Storage adapter received a non-Node stream");
     return result.Body;
   }

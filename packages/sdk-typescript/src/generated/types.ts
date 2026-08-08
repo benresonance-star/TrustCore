@@ -9,9 +9,11 @@ import type {
   AuditEventRecord,
   CompleteUploadCommand,
   ControlCentreSnapshot,
+  CreatePolicyAssignmentCommand,
   CreateUploadCommand,
   CreateArchiveExportCommand,
   CreateImportPlanCommand,
+  CreateRetentionPolicyCommand,
   DatasetRecord,
   DeleteResourceCommand,
   DeleteResourceResult,
@@ -22,11 +24,14 @@ import type {
   ListResponse,
   OperationSummary,
   PublicErrorCode,
+  PolicyAssignment,
   RecoverableItem,
   RegisterApplicationCommand,
   RelationRecord,
+  RetentionPolicyRecord,
   ResourceRecord,
   RestoreResourceCommand,
+  RevokePolicyAssignmentCommand,
   RevisionCommand,
   RevisionCommandResult,
   RevisionGraph,
@@ -35,6 +40,7 @@ import type {
   ServiceHealth,
   UploadSession,
   UploadArchiveCommand,
+  UpdateRetentionPolicyCommand,
   VerificationRunResult,
   WorkspaceSummary,
 } from "@trust-core/protocol";
@@ -49,9 +55,11 @@ export type {
   AuditEventRecord,
   CompleteUploadCommand,
   ControlCentreSnapshot,
+  CreatePolicyAssignmentCommand,
   CreateUploadCommand,
   CreateArchiveExportCommand,
   CreateImportPlanCommand,
+  CreateRetentionPolicyCommand,
   DatasetRecord,
   DeleteResourceCommand,
   DeleteResourceResult,
@@ -62,11 +70,14 @@ export type {
   ListResponse,
   OperationSummary,
   PublicErrorCode,
+  PolicyAssignment,
   RecoverableItem,
   RegisterApplicationCommand,
   RelationRecord,
+  RetentionPolicyRecord,
   ResourceRecord,
   RestoreResourceCommand,
+  RevokePolicyAssignmentCommand,
   RevisionCommand,
   RevisionCommandResult,
   RevisionGraph,
@@ -75,6 +86,7 @@ export type {
   ServiceHealth,
   UploadSession,
   UploadArchiveCommand,
+  UpdateRetentionPolicyCommand,
   VerificationRunResult,
   WorkspaceSummary,
 };
@@ -86,6 +98,19 @@ export interface SchemaPackage {
   status: string;
   publishedAt: string;
   manifest: Readonly<Record<string, unknown>>;
+  governance?: {
+    protocolVersion: string;
+    applicationNamespace: string;
+    applicationVersion: string;
+    approvedBy: string;
+    approvalId: string;
+    idempotencyKey: string;
+  };
+  compatibility?: {
+    classification: "initial" | "backward-compatible" | "breaking";
+    previousKey: string | null;
+    changes: readonly Readonly<Record<string, unknown>>[];
+  };
 }
 
 export interface ObjectIngestCommand {

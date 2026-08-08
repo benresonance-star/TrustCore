@@ -1,0 +1,16 @@
+FROM node:24-bookworm-slim
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/trust-worker ./apps/trust-worker
+COPY packages ./packages
+
+RUN corepack pnpm@10.15.0 install --frozen-lockfile
+
+USER node
+
+CMD ["corepack", "pnpm@10.15.0", "--filter", "@trust-core/worker", "start"]

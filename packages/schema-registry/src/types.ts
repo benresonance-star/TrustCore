@@ -40,6 +40,57 @@ export interface PublishedSchemaPackage {
   readonly status: "active" | "deprecated" | "revoked";
   readonly publishedAt: string;
   readonly manifest: SchemaPackageManifest;
+  readonly governance?: PublicationGovernance;
+  readonly compatibility?: CompatibilityReport;
+}
+
+export type CompatibilityClassification =
+  | "initial"
+  | "backward-compatible"
+  | "breaking";
+
+export interface CompatibilityChange {
+  readonly path: string;
+  readonly kind: "added" | "removed" | "changed";
+  readonly breaking: boolean;
+  readonly message: string;
+}
+
+export interface CompatibilityReport {
+  readonly classification: CompatibilityClassification;
+  readonly previousKey: string | null;
+  readonly changes: readonly CompatibilityChange[];
+}
+
+export interface PublicationGovernance {
+  readonly protocolVersion: "TCAP/1.0";
+  readonly applicationNamespace: string;
+  readonly applicationVersion: string;
+  readonly approvedBy: string;
+  readonly approvalId: string;
+  readonly idempotencyKey: string;
+}
+
+export interface GovernedPublicationRequest {
+  readonly manifest: SchemaPackageManifest;
+  readonly application: {
+    readonly protocolVersion: "TCAP/1.0";
+    readonly namespace: string;
+    readonly applicationVersion: string;
+    readonly schemaPackage: {
+      readonly key: string;
+      readonly version: string;
+      readonly resourceTypes: readonly string[];
+      readonly relationTypes: readonly string[];
+      readonly additionalFields: "preserve" | "reject";
+    };
+  };
+  readonly approval: {
+    readonly approvedBy: string;
+    readonly approvalId: string;
+  };
+  readonly idempotencyKey: string;
+  readonly expectedCompatibility: CompatibilityClassification;
 }
 
 export interface ValidationIssue {

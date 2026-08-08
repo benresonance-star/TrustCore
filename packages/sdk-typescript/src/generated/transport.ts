@@ -13,7 +13,7 @@ export interface TransportConfiguration {
   fetch?: typeof globalThis.fetch;
 }
 export interface RequestOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   headers?: Readonly<Record<string, string>>;
   public?: boolean;
@@ -36,7 +36,15 @@ export class TrustApiError extends Error {
 
 export interface TrustTransport {
   request<T>(path: string, options?: RequestOptions): Promise<T>;
+  requestBinary(
+    path: string,
+    options?: RequestOptions,
+  ): Promise<BinaryResponse>;
   url(path: string): string;
+}
+export interface BinaryResponse {
+  bytes: Uint8Array;
+  headers: Headers;
 }
 
 export function createTransport(
@@ -96,6 +104,49 @@ export function createTransport(
       }
       if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
+    },
+    async requestBinary(path: string, options: RequestOptions = {}) {
+      const method = options.method ?? "GET";
+      const [token, workspaceId, applicationId, csrfToken] = await Promise.all([
+        resolveValue(configuration.accessToken),
+        resolveValue(configuration.workspaceId),
+        resolveValue(configuration.applicationId),
+        resolveValue(configuration.csrfToken),
+      ]);
+      const response = await fetchImplementation(url(path), {
+        method,
+        credentials: configuration.credentials ?? "include",
+        headers: {
+          accept: "application/vnd.trust-core.archive+zip",
+          ...(!options.public && token
+            ? { authorization: `Bearer ${token}` }
+            : {}),
+          ...(!options.public && workspaceId
+            ? { "x-trust-workspace-id": workspaceId }
+            : {}),
+          ...(!options.public && applicationId
+            ? { "x-trust-application-id": applicationId }
+            : {}),
+          ...(method !== "GET" && csrfToken
+            ? { "x-trust-csrf": csrfToken }
+            : {}),
+          ...options.headers,
+        },
+      });
+      if (!response.ok) {
+        const fallback: ApiErrorResponse = {
+          code: "TRUST_STORE_UNAVAILABLE",
+          message: `Request failed (${response.status}).`,
+        };
+        const error = (await response
+          .json()
+          .catch(() => fallback)) as ApiErrorResponse;
+        throw new TrustApiError(response.status, error);
+      }
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        headers: response.headers,
+      };
     },
   };
 }

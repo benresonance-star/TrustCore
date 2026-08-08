@@ -19,6 +19,19 @@ export class PostgresBlobCatalog implements BlobCatalog {
       return result.rows[0] ? mapBlob(result.rows[0]) : undefined;
     });
   }
+  findById(
+    workspaceId: string,
+    blobId: string,
+  ): Promise<BlobObject | undefined> {
+    return inTransaction(this.pool, async (db) => {
+      await scope(db, workspaceId);
+      const result = await db.query<BlobRow>(
+        `${selectBlob} WHERE workspace_id=$1 AND id=$2`,
+        [workspaceId, blobId],
+      );
+      return result.rows[0] ? mapBlob(result.rows[0]) : undefined;
+    });
+  }
   recordVerified(blob: BlobObject): Promise<BlobObject> {
     return inTransaction(this.pool, async (db) => {
       await scope(db, blob.workspaceId);
@@ -106,10 +119,10 @@ export class PostgresBlobCatalog implements BlobCatalog {
   }
 }
 const selectBlob =
-  "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at FROM blob_objects";
+  "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at FROM blob_objects";
 function recordBlob(db: Queryable, blob: BlobObject) {
   return db.query<BlobRow>(
-    `INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'verified',$8) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified' RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at`,
+    `INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'verified',$10) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified' RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at`,
     [
       blob.id,
       blob.workspaceId,
@@ -118,6 +131,8 @@ function recordBlob(db: Queryable, blob: BlobObject) {
       blob.mediaType,
       blob.storageProvider,
       blob.storageKey,
+      blob.encryptionState,
+      blob.encryptionKeyRef,
       blob.createdAt,
     ],
   );
@@ -139,6 +154,8 @@ interface BlobRow {
   media_type: string;
   storage_provider: string;
   storage_key: string;
+  encryption_state: BlobObject["encryptionState"];
+  encryption_key_ref: string | null;
   verification_state: BlobObject["verificationState"];
   created_at: string | Date;
 }
@@ -151,6 +168,8 @@ function mapBlob(row: BlobRow): BlobObject {
     mediaType: row.media_type,
     storageProvider: row.storage_provider,
     storageKey: row.storage_key,
+    encryptionState: row.encryption_state,
+    encryptionKeyRef: row.encryption_key_ref,
     verificationState: row.verification_state,
     createdAt: new Date(row.created_at).toISOString(),
   };

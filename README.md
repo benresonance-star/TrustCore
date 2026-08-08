@@ -131,16 +131,18 @@ not be the ordinary production sign-in path.
 Production deployments must satisfy the ingress and operational controls in
 [`docs/production-deployment.md`](docs/production-deployment.md).
 
-Release 0.2 portability is in progress. `@trust-core/archive` now provides the
-0.2A deterministic logical archive/verifier, the 0.2B hardened ZIP64 container,
-and the 0.2C non-mutating import planner. These are source candidates; the
-PC/Docker reconstruction gates are recorded in the checkpoint documents and the
-governing specification.
+Release 0.2 portability is complete at checkpoint 0.2H. The clean-commit Docker
+gate exported Ivan's Diary and WeSketch through live PostgreSQL/MinIO adapters,
+destroyed the isolated source stores, reconstructed clean targets, resumed all
+eight import checkpoints and verified both archives with the independent
+offline viewer. See [`CHECKPOINT_0.2H.md`](CHECKPOINT_0.2H.md) and the sanitized
+reports under `reports/`.
 
-The 0.2D provider-neutral execution kernel is also present, including durable
-checkpoint ports, staged/verified blob flow, atomic metadata handoff and
-interruption/resumption tests. PostgreSQL/MinIO execution remains a deliberately
-unclaimed PC/Docker gate.
+`@trust-core/archive` provides the deterministic logical archive/verifier,
+hardened ZIP64 container, non-mutating import planner and provider-neutral
+execution kernel. Managed signatures, real organisation OIDC/MFA,
+production-scale streaming and primary-account-unavailable recovery remain
+Release 0.3 concerns.
 
 The Control Centre uses its typed fixture adapter unless
 `VITE_TRUST_API_BASE` is set. Its HTTP gateway uses the authenticated live

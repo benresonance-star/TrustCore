@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
+    "conformance:live": "tsx scripts/conformance-live.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -17,6 +18,8 @@
   "devDependencies": {
     "@trust-core/fixtures-ivans-diary": "workspace:*",
     "@trust-core/fixtures-wesketch": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }

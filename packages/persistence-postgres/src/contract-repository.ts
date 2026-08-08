@@ -110,7 +110,7 @@ export class PostgresContractRepository {
   listDatasets(workspaceId: string): Promise<readonly DatasetRecord[]> {
     return this.scoped(workspaceId, async (db) => {
       const result = await db.query<DatasetRow>(
-        "SELECT id,workspace_id,schema_package_id,dataset_type,name,status,created_at,updated_at FROM datasets WHERE workspace_id=$1 ORDER BY created_at,id",
+        "SELECT id,workspace_id,schema_package_id,dataset_type,name,status,retention_policy_id,created_at,updated_at FROM datasets WHERE workspace_id=$1 ORDER BY created_at,id",
         [workspaceId],
       );
       return result.rows.map(mapDataset);
@@ -123,7 +123,7 @@ export class PostgresContractRepository {
   ): Promise<DatasetRecord | undefined> {
     return this.scoped(workspaceId, async (db) => {
       const result = await db.query<DatasetRow>(
-        "SELECT id,workspace_id,schema_package_id,dataset_type,name,status,created_at,updated_at FROM datasets WHERE workspace_id=$1 AND id=$2",
+        "SELECT id,workspace_id,schema_package_id,dataset_type,name,status,retention_policy_id,created_at,updated_at FROM datasets WHERE workspace_id=$1 AND id=$2",
         [workspaceId, datasetId],
       );
       return result.rows[0] ? mapDataset(result.rows[0]) : undefined;
@@ -201,6 +201,20 @@ export class PostgresContractRepository {
         principalId ? [workspaceId, principalId] : [workspaceId],
       );
       return result.rows.map(mapPolicy);
+    });
+  }
+
+  getPolicyAssignment(
+    workspaceId: string,
+    assignmentId: string,
+  ): Promise<PolicyAssignment | undefined> {
+    return this.scoped(workspaceId, async (db) => {
+      const result = await db.query<PolicyRow>(
+        "SELECT * FROM policy_assignments WHERE workspace_id=$1 AND id=$2",
+        [workspaceId, assignmentId],
+      );
+      const row = result.rows[0];
+      return row ? mapPolicy(row) : undefined;
     });
   }
 
@@ -356,6 +370,60 @@ export class PostgresContractRepository {
     });
   }
 
+  recordPolicyAssignmentChange(input: {
+    workspaceId: string;
+    actor: AuthenticatedActor;
+    assignmentId: string;
+    action: "policy_assignment.created" | "policy_assignment.revoked";
+    requestId: string;
+    occurredAt: string;
+    metadata: Readonly<Record<string, unknown>>;
+  }): Promise<void> {
+    return this.scoped(input.workspaceId, async (db) => {
+      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        input.workspaceId,
+      ]);
+      const previous = await db.query<{ event_hash: string }>(
+        "SELECT event_hash FROM audit_events WHERE workspace_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",
+        [input.workspaceId],
+      );
+      const event = appendAuditEvent(
+        {
+          id: randomUUID(),
+          workspaceId: input.workspaceId,
+          actorType: input.actor.principalType ?? "user",
+          actorId: input.actor.id,
+          action: input.action,
+          subjectKind: "policy_assignment",
+          subjectId: input.assignmentId,
+          timestamp: input.occurredAt,
+          requestId: input.requestId,
+          correlationId: input.requestId,
+          metadata: input.metadata,
+        },
+        previous.rows[0]?.event_hash ?? "",
+      );
+      await db.query(
+        "INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_kind,subject_id,occurred_at,request_id,correlation_id,previous_event_hash,event_hash,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)",
+        [
+          event.id,
+          event.workspaceId,
+          event.actorType,
+          event.actorId,
+          event.action,
+          event.subjectKind,
+          event.subjectId,
+          event.timestamp,
+          event.requestId,
+          event.correlationId,
+          event.previousEventHash,
+          event.eventHash,
+          JSON.stringify(event.metadata),
+        ],
+      );
+    });
+  }
+
   listRelations(
     workspaceId: string,
     query: RelationQuery = {},
@@ -400,15 +468,19 @@ export class PostgresContractRepository {
     uploadId: string,
     actor: AuthenticatedActor,
   ): Promise<UploadSession | undefined> {
-    return this.scoped(workspaceId, async (db) => {
-      const result = await db.query<UploadRow>(
-        `${uploadSelect} WHERE u.workspace_id=$1 AND u.id=$2${applicationOwnerClause(actor, 3)}`,
-        actor.principalType === "application"
-          ? [workspaceId, uploadId, actor.id]
-          : [workspaceId, uploadId],
-      );
-      return result.rows[0] ? mapUpload(result.rows[0]) : undefined;
-    }, actor);
+    return this.scoped(
+      workspaceId,
+      async (db) => {
+        const result = await db.query<UploadRow>(
+          `${uploadSelect} WHERE u.workspace_id=$1 AND u.id=$2${applicationOwnerClause(actor, 3)}`,
+          actor.principalType === "application"
+            ? [workspaceId, uploadId, actor.id]
+            : [workspaceId, uploadId],
+        );
+        return result.rows[0] ? mapUpload(result.rows[0]) : undefined;
+      },
+      actor,
+    );
   }
 
   createUploadSession(input: {
@@ -430,58 +502,62 @@ export class PostgresContractRepository {
       workspaceIds: [input.workspaceId],
       principalType: input.principalType,
     };
-    return this.scoped(input.workspaceId, async (db) => {
-      const idempotencyScope = `${input.principalType}:${input.actorId}`;
-      const request = {
-        mediaType: input.mediaType,
-        expectedByteLength: input.expectedByteLength,
-        expectedSha256: input.expectedSha256,
-        expiresInSeconds: input.expiresInSeconds,
-      };
-      const operation = await db.query<{
-        id: string;
-        request_json: Record<string, unknown>;
-      }>(
-        "INSERT INTO operations (workspace_id,operation_type,idempotency_key,idempotency_scope,state,requested_by,requested_by_principal_type,request_json,created_at,updated_at) VALUES ($1,'upload.session',$2,$3,'requested',$4,$5,$6::jsonb,$7,$7) ON CONFLICT (operation_type,workspace_id,idempotency_key,idempotency_scope) DO UPDATE SET updated_at=operations.updated_at RETURNING id,request_json",
-        [
-          input.workspaceId,
-          input.idempotencyKey,
-          idempotencyScope,
-          input.actorId,
-          input.principalType,
-          JSON.stringify(request),
-          input.now,
-        ],
-      );
-      const row = required(
-        operation.rows[0],
-        "Upload operation was not persisted.",
-      );
-      if (stableJson(row.request_json) !== stableJson(request))
-        throw codedError(
-          "IDEMPOTENCY_CONFLICT",
-          "Idempotency key was already used for a different upload.",
+    return this.scoped(
+      input.workspaceId,
+      async (db) => {
+        const idempotencyScope = `${input.principalType}:${input.actorId}`;
+        const request = {
+          mediaType: input.mediaType,
+          expectedByteLength: input.expectedByteLength,
+          expectedSha256: input.expectedSha256,
+          expiresInSeconds: input.expiresInSeconds,
+        };
+        const operation = await db.query<{
+          id: string;
+          request_json: Record<string, unknown>;
+        }>(
+          "INSERT INTO operations (workspace_id,operation_type,idempotency_key,idempotency_scope,state,requested_by,requested_by_principal_type,request_json,created_at,updated_at) VALUES ($1,'upload.session',$2,$3,'requested',$4,$5,$6::jsonb,$7,$7) ON CONFLICT (operation_type,workspace_id,idempotency_key,idempotency_scope) DO UPDATE SET updated_at=operations.updated_at RETURNING id,request_json",
+          [
+            input.workspaceId,
+            input.idempotencyKey,
+            idempotencyScope,
+            input.actorId,
+            input.principalType,
+            JSON.stringify(request),
+            input.now,
+          ],
         );
-      await db.query(
-        "INSERT INTO upload_sessions (workspace_id,operation_id,state,media_type,expected_byte_length,expected_sha256,expires_at,created_at,updated_at) VALUES ($1,$2,'requested',$3,$4,$5,$6,$7,$7) ON CONFLICT (operation_id) DO NOTHING",
-        [
-          input.workspaceId,
-          row.id,
-          input.mediaType,
-          input.expectedByteLength,
-          input.expectedSha256,
-          input.expiresAt,
-          input.now,
-        ],
-      );
-      const result = await db.query<UploadRow>(
-        `${uploadSelect} WHERE u.workspace_id=$1 AND u.operation_id=$2`,
-        [input.workspaceId, row.id],
-      );
-      return mapUpload(
-        required(result.rows[0], "Upload session was not persisted."),
-      );
-    }, actor);
+        const row = required(
+          operation.rows[0],
+          "Upload operation was not persisted.",
+        );
+        if (stableJson(row.request_json) !== stableJson(request))
+          throw codedError(
+            "IDEMPOTENCY_CONFLICT",
+            "Idempotency key was already used for a different upload.",
+          );
+        await db.query(
+          "INSERT INTO upload_sessions (workspace_id,operation_id,state,media_type,expected_byte_length,expected_sha256,expires_at,created_at,updated_at) VALUES ($1,$2,'requested',$3,$4,$5,$6,$7,$7) ON CONFLICT (operation_id) DO NOTHING",
+          [
+            input.workspaceId,
+            row.id,
+            input.mediaType,
+            input.expectedByteLength,
+            input.expectedSha256,
+            input.expiresAt,
+            input.now,
+          ],
+        );
+        const result = await db.query<UploadRow>(
+          `${uploadSelect} WHERE u.workspace_id=$1 AND u.operation_id=$2`,
+          [input.workspaceId, row.id],
+        );
+        return mapUpload(
+          required(result.rows[0], "Upload session was not persisted."),
+        );
+      },
+      actor,
+    );
   }
 
   completeUploadSession(input: {
@@ -492,38 +568,50 @@ export class PostgresContractRepository {
     ingestOperationId: string;
     completedAt: string;
   }): Promise<UploadSession> {
-    return this.scoped(input.workspaceId, async (db) => {
-      const ownerClause = applicationOwnerClause(input.actor, 4);
-      const ownerValues =
-        input.actor.principalType === "application" ? [input.actor.id] : [];
-      const updated = await db.query(
-        `UPDATE upload_sessions u SET state='completed',updated_at=$3 FROM operations o WHERE u.workspace_id=$1 AND u.id=$2 AND u.state<>'completed' AND o.id=u.operation_id AND o.workspace_id=u.workspace_id${ownerClause}`,
-        [input.workspaceId, input.uploadId, input.completedAt, ...ownerValues],
-      );
-      if (updated.rowCount === 1) {
-        await db.query(
-          "UPDATE operations SET state='completed',result_json=$3::jsonb,updated_at=$4,completed_at=$4 WHERE workspace_id=$1 AND id=(SELECT operation_id FROM upload_sessions WHERE id=$2)",
+    return this.scoped(
+      input.workspaceId,
+      async (db) => {
+        const ownerClause = applicationOwnerClause(input.actor, 4);
+        const ownerValues =
+          input.actor.principalType === "application" ? [input.actor.id] : [];
+        const updated = await db.query(
+          `UPDATE upload_sessions u SET state='completed',updated_at=$3 FROM operations o WHERE u.workspace_id=$1 AND u.id=$2 AND u.state<>'completed' AND o.id=u.operation_id AND o.workspace_id=u.workspace_id${ownerClause}`,
           [
             input.workspaceId,
             input.uploadId,
-            JSON.stringify({
-              blobId: input.blobId,
-              ingestOperationId: input.ingestOperationId,
-            }),
             input.completedAt,
+            ...ownerValues,
           ],
         );
-      }
-      const result = await db.query<UploadRow>(
-        `${uploadSelect} WHERE u.workspace_id=$1 AND u.id=$2${applicationOwnerClause(input.actor, 3)}`,
-        input.actor.principalType === "application"
-          ? [input.workspaceId, input.uploadId, input.actor.id]
-          : [input.workspaceId, input.uploadId],
-      );
-      if (!result.rows[0])
-        throw codedError("OPERATION_NOT_FOUND", "Upload session was not found.");
-      return mapUpload(result.rows[0]);
-    }, input.actor);
+        if (updated.rowCount === 1) {
+          await db.query(
+            "UPDATE operations SET state='completed',result_json=$3::jsonb,updated_at=$4,completed_at=$4 WHERE workspace_id=$1 AND id=(SELECT operation_id FROM upload_sessions WHERE id=$2)",
+            [
+              input.workspaceId,
+              input.uploadId,
+              JSON.stringify({
+                blobId: input.blobId,
+                ingestOperationId: input.ingestOperationId,
+              }),
+              input.completedAt,
+            ],
+          );
+        }
+        const result = await db.query<UploadRow>(
+          `${uploadSelect} WHERE u.workspace_id=$1 AND u.id=$2${applicationOwnerClause(input.actor, 3)}`,
+          input.actor.principalType === "application"
+            ? [input.workspaceId, input.uploadId, input.actor.id]
+            : [input.workspaceId, input.uploadId],
+        );
+        if (!result.rows[0])
+          throw codedError(
+            "OPERATION_NOT_FOUND",
+            "Upload session was not found.",
+          );
+        return mapUpload(result.rows[0]);
+      },
+      input.actor,
+    );
   }
 
   private scoped<T>(
@@ -573,6 +661,7 @@ interface DatasetRow {
   dataset_type: string;
   name: string;
   status: DatasetRecord["status"];
+  retention_policy_id: string | null;
   created_at: string | Date;
   updated_at: string | Date;
 }
@@ -731,6 +820,7 @@ function mapDataset(row: DatasetRow): DatasetRecord {
     datasetType: row.dataset_type,
     name: row.name,
     status: row.status,
+    retentionPolicyId: row.retention_policy_id,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };

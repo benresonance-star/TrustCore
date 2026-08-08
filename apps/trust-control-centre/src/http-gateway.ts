@@ -34,6 +34,38 @@ export const httpGateway: ControlCentreGateway = {
     };
   },
   getHistory: (workspaceId) => client.history.list({ workspaceId }),
+  createArchiveExport: (workspaceId, datasetIds, reauthenticationProof) =>
+    client.datasetsContext({ workspaceId }).portability.exports.create({
+      datasetIds,
+      reauthenticationProof,
+    }),
+  downloadArchiveExport: (workspaceId, exportId, reauthenticationProof) =>
+    client
+      .datasetsContext({ workspaceId })
+      .portability.exports.downloadBytes(exportId, reauthenticationProof),
+  async listApplications(workspaceId) {
+    return (await client.datasetsContext({ workspaceId }).applications.list())
+      .items;
+  },
+  registerApplication: (workspaceId, input) =>
+    client.datasetsContext({ workspaceId }).applications.register({
+      ...input,
+      idempotencyKey: client.idempotency.create("register-application"),
+    }),
+  async listPolicyAssignments(workspaceId) {
+    return (
+      await client.datasetsContext({ workspaceId }).policyAssignments.list()
+    ).items;
+  },
+  createPolicyAssignment: (workspaceId, input) =>
+    client.datasetsContext({ workspaceId }).policyAssignments.create({
+      ...input,
+      idempotencyKey: client.idempotency.create("policy-assignment"),
+    }),
+  revokePolicyAssignment: (workspaceId, assignmentId) =>
+    client
+      .datasetsContext({ workspaceId })
+      .policyAssignments.revoke(assignmentId),
   restoreResource: (workspaceId, resourceId) =>
     client.datasetsContext({ workspaceId }).resources.restore(resourceId, {
       changeNote: "Restored from Trust Core Control Centre",
@@ -71,6 +103,23 @@ export const httpGateway: ControlCentreGateway = {
     client
       .datasetsContext({ workspaceId })
       .portability.operations.get(operationId),
+  createDownloadGrant: (workspaceId, input) =>
+    client.datasetsContext({ workspaceId }).blobs.createDownloadGrant({
+      objectId: input.objectId,
+      idempotencyKey: client.idempotency.create("download-grant"),
+      ...(input.requestedTtlSeconds === undefined
+        ? {}
+        : { requestedTtlSeconds: input.requestedTtlSeconds }),
+      ...(input.fileName === undefined ? {} : { fileName: input.fileName }),
+    }),
+  async getQuarantineScanSummary() {
+    return {
+      available: false,
+      summary:
+        "Quarantine scan status is not exposed on a public Control Centre API yet. Scan orchestration runs in Trust API/worker services only.",
+      items: [],
+    };
+  },
 };
 function readCookie(name: string): string | undefined {
   return document.cookie

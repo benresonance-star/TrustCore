@@ -22,7 +22,7 @@ const phases: Readonly<Record<ArchiveRecordKind | "blob-bytes", number>> = {
   relations: 80,
   tombstones: 90,
   "audit-events": 100,
-  retention: 110,
+  retention: 25,
 };
 
 export function planArchiveImport(
@@ -223,6 +223,7 @@ function buildIdMappings(
     "blobs",
     "relations",
     "tombstones",
+    "retention",
   ] as const;
   return Object.fromEntries([
     ["workspaces", new Map([[sourceWorkspaceId, targetWorkspaceId]])],
@@ -264,6 +265,10 @@ function mapRecord(
     case "retention":
       break;
     case "datasets":
+      mapped.retentionPolicyId = mapReference(
+        mappings.retention,
+        mapped.retentionPolicyId,
+      );
       break;
     case "resources":
       mapped.datasetId = mapReference(mappings.datasets, mapped.datasetId);

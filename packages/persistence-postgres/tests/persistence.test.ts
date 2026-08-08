@@ -86,12 +86,12 @@ describe("PostgreSQL persistence", () => {
       client.calls.filter((call) =>
         call.text.startsWith("INSERT INTO resources"),
       ),
-    ).toHaveLength(9);
+    ).toHaveLength(10);
     expect(
       client.calls.filter((call) =>
         call.text.startsWith("INSERT INTO revisions"),
       ),
-    ).toHaveLength(9);
+    ).toHaveLength(10);
     expect(
       client.calls.some((call) =>
         call.text.includes("set_config('trust.workspace_id'"),

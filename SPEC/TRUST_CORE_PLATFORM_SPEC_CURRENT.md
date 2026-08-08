@@ -2,12 +2,12 @@
 
 ## Current implementation specification for Codex
 
-- **Specification version:** 1.2
-- **Current source checkpoint:** 0.1L
-- **Date:** 2026-08-04
+- **Specification version:** 1.3
+- **Current source checkpoint:** 0.2H
+- **Date:** 2026-08-05
 - **Audience:** Codex agents and human maintainers
-- **Status:** Release 0.1 complete; post-0.1 operational hardening and Release 0.2 portability are tracked separately
-- **Docker report source revision:** recorded in the generated report; the current working tree is uncommitted
+- **Status:** Releases 0.1 and 0.2 complete; Release 0.3 cloud and recovery proof is next
+- **Release evidence source revision:** `24d125a7953395c0711c11f0a664d537feb27025`
 
 ---
 
@@ -311,21 +311,21 @@ process interruption against real services. Reports are written to
 `reports/release-0.1-docker-gate.json` and
 `reports/release-0.1-docker-gate.md`.
 
-The latest generated Docker report records a 27.216-second run on `win32 x64`,
-Node `v25.2.1` and Docker Linux engine `29.6.2`. The working tree contains
-uncommitted changes, so the report's source-revision metadata is not presented
-as current committed-HEAD evidence.
+The retained Release 0.1 regression report records a passing run on `win32 x64`,
+Node `v25.2.1` and Docker Linux engine `29.6.2` for clean source commit
+`24d125a7953395c0711c11f0a664d537feb27025`.
 
-## 8.3 Remaining post-0.1 operational hardening
+## 8.3 Subsequent gate and remaining operational hardening
 
-Release 0.1 is complete. These deployment exercises remain distinct from its
-implemented product scope and local real-service gate:
+Release 0.2 portability is complete at checkpoint 0.2H. These Release 0.3
+deployment exercises remain:
 
 - integrate organisation identity against a real external OIDC provider tenant
   and verify production claim mapping, MFA/passkey and session behavior;
 - execute production backup/restore and credential-rotation drills in the
   target operating environment;
-- implement and prove Release 0.2 archive/export/import portability.
+- prove monitoring, alert delivery and recovery while the primary environment
+  is unavailable.
 
 ---
 
@@ -354,9 +354,10 @@ Repository inspection and the verified 0.1L completion gates produced this statu
 19. [x] Add CI for lint, generated OpenAPI, strict typecheck, tests, production build, the service-adapter candidate and scheduled/main Docker integration.
 20. [x] Implement `pnpm trust:test:docker` and its machine/human reports.
 
-All Release 0.1 checklist items are complete. External-provider identity
-integration, production backup/restore and credential-rotation drills, and
-Release 0.2 archive/export/import remain explicitly outside this checkpoint.
+All Release 0.1 checklist items are complete. Release 0.2 archive/export/import
+is complete at checkpoint 0.2H. External-provider identity integration,
+production backup/restore, credential rotation and primary-environment outage
+recovery remain Release 0.3 work.
 
 Codex must inspect the repository before assuming any listed gap remains. If current code already satisfies an item, prove it with evidence and update this document.
 
@@ -675,15 +676,16 @@ Required:
 
 **Gate:** independent reconstruction succeeds without the source app or provider.
 
-### Deferred PC/Docker proof
+### Completed PC/Docker proof
 
-Source-only archive implementation may proceed, but the portability gate remains
-open until a Docker-capable PC runs export, destroys the isolated PostgreSQL and
-MinIO source stores, imports into clean stores, verifies both Ivan's Diary and
-WeSketch, and exercises corrupted, missing, oversized, traversal and interrupted
-archive cases. The report must identify the exact clean commit. Real OIDC,
-production ingress, secret rotation, monitoring, and combined-store recovery are
-separate external 0.1P/0.3 gates recorded in `CHECKPOINT_0.1P.md`.
+Checkpoint 0.2H passed on clean committed source
+`24d125a7953395c0711c11f0a664d537feb27025`. The gate exported Ivan's Diary and
+WeSketch, destroyed the isolated PostgreSQL and MinIO source stores, imported
+into clean stores, verified both datasets and exercised corrupted, missing,
+oversized, traversal and interrupted archive cases. Evidence is recorded in
+`CHECKPOINT_0.2H.md` and `reports/release-0.2-portability-gate.md`. Real OIDC,
+production ingress, secret rotation, monitoring and combined-store recovery are
+separate Release 0.3 gates.
 
 ## 0.3 — Cloud and recovery proof
 
@@ -709,6 +711,12 @@ separate external 0.1P/0.3 gates recorded in `CHECKPOINT_0.1P.md`.
 - no app imports server internals or accesses storage directly.
 
 **Gate:** Ivan’s Diary and WeSketch can use the same public trust module without kernel changes.
+
+The 0.4 source candidate is recorded in `CHECKPOINT_0.4_SOURCE.md`. Governed
+publication, compatibility classification, deterministic application types,
+the public TypeScript conformance runner and `TrustCoreKit` now exist and pass
+source/cross-language fixture tests. The external live dual-SDK report remains
+an operational gate after Release 0.3 recovery infrastructure is available.
 
 ## 0.5 — Local-first continuity
 
@@ -754,26 +762,17 @@ rewrite canonical facts, permissions, history or retention state.
 measurable improvement over simpler baselines without tenant leakage,
 permission bypass or loss of source-level explanation.
 
-## Next source-only checkpoints before Docker is available
+## Completed Release 0.2 checkpoints
 
-1. **0.2E — Logical model and contract alignment:** publish the Logical Data
-   Model, invariant matrix and mappings to API, archive and physical stores;
-   resolve identity or lifecycle inconsistencies.
-2. **0.2F — Portability API candidate:** add authenticated upload,
-   verification, dry-run planning, operation-status and guarded execute
-   contracts using the provider-neutral executor; prove authorization,
-   idempotency and failure behavior with source tests.
-3. **0.2G — Control Centre and independent viewer candidate:** connect live UI
-   states to the public contracts, retain explicit re-authentication and
-   confirmation boundaries, and build a read-only reference viewer for both
-   synthetic fixtures.
-4. **0.2H — PC/Docker portability proof (deferred):** implement PostgreSQL and
-   MinIO production adapters, terminate and resume real processes, destroy the
-   isolated source stores, reconstruct both fixtures and attach sanitized
-   evidence to the exact clean commit.
-
-Checkpoints 0.2E through 0.2G may produce candidate evidence without Docker.
-Only 0.2H may close the Release 0.2 portability gate.
+1. **0.2E — Logical model and contract alignment:** published the Logical Data
+   Model, invariant matrix and mappings to API, archive and physical stores.
+2. **0.2F — Portability API candidate:** added authenticated upload,
+   verification, dry-run planning, operation status and guarded execution.
+3. **0.2G — Control Centre and independent viewer candidate:** connected the UI
+   lifecycle and built the read-only viewer for both synthetic fixtures.
+4. **0.2H — PC/Docker portability proof:** implemented PostgreSQL and MinIO
+   adapters, process resumption, isolated source destruction and clean
+   reconstruction with sanitized exact-commit evidence.
 
 Checkpoint 0.2E is recorded in `CHECKPOINT_0.2E.md`; its authoritative model and
 matrix are `docs/logical-data-model.md` and
@@ -792,14 +791,14 @@ fixtures directly from verified archive bytes. The checkpoint lists the
 remaining PC/Docker destruction, reconstruction, interruption and real-OIDC
 tests; none are claimed by the source candidate.
 
-The 0.2H acceptance implementation is recorded in `CHECKPOINT_0.2H_PREP.md`
-and is run with
+The 0.2H acceptance implementation is described by `CHECKPOINT_0.2H_PREP.md`,
+closed by `CHECKPOINT_0.2H.md`, and is run with
 `corepack pnpm@10.15.0 trust:test:portability:docker`. Its acceptance scope is
 live PostgreSQL/MinIO export, durable handoff, source destruction, clean-target
 reconstruction of Ivan and WeSketch, strict invalid-archive rejection, offline
 viewer use and process-level import resumption. Managed signatures and real
-OIDC remain deferred. This text does not close 0.2H; closure requires a passing
-sanitized report from that command on the exact clean committed candidate SHA.
+OIDC remain deferred to Release 0.3. The passing sanitized report identifies the
+exact clean committed candidate SHA.
 
 ---
 

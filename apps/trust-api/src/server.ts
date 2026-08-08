@@ -23,7 +23,6 @@ import {
   OidcIdentityService,
   StandardsOidcProvider,
 } from "@trust-core/identity";
-import { MinioObjectStorage } from "@trust-core/storage-minio";
 import {
   BlobVerificationService,
   StructuralVerificationService,
@@ -40,6 +39,8 @@ import { PostgresCommandProvider } from "./postgres-commands.js";
 import { fixtureProvider } from "./fixture-provider.js";
 import { FixturePortabilityProvider } from "./portability.js";
 import { PostgresPortabilityProvider } from "./postgres-portability.js";
+import { createObjectStorageFromEnv } from "./storage-factory.js";
+import { S3TransferSigner } from "@trust-core/storage-s3";
 
 const databaseUrl = process.env.DATABASE_URL;
 const pgPool = databaseUrl
@@ -82,7 +83,12 @@ const ingest =
       )
     : undefined;
 const commandProvider = pool
-  ? new PostgresCommandProvider(pool, verification, ingest)
+  ? new PostgresCommandProvider(
+      pool,
+      verification,
+      ingest,
+      createGrantOptions(),
+    )
   : createFixtureCommands();
 const portability =
   pool && storage
@@ -281,6 +287,7 @@ createServer(async (request, response) => {
     const result = await route(request.method ?? "GET", pathname, {
       headers: {
         authorization: header(request.headers.authorization),
+        accept: header(request.headers.accept),
         cookie: header(request.headers.cookie),
         "x-request-id": requestId,
         "x-trust-csrf": header(request.headers["x-trust-csrf"]),
@@ -293,7 +300,9 @@ createServer(async (request, response) => {
       },
       body,
     });
-    send(response, result.status, result.body);
+    if (result.body instanceof Uint8Array)
+      sendBinary(response, result.status, result.body, result.headers);
+    else send(response, result.status, result.body, result.headers);
   } catch (error) {
     const tooLarge =
       error instanceof Error && error.message === "request_too_large";
@@ -373,7 +382,7 @@ function send(
   response: ServerResponse,
   status: number,
   body: unknown,
-  headers: Record<string, string | string[]> = {},
+  headers: Readonly<Record<string, string | string[]>> = {},
 ): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -382,6 +391,20 @@ function send(
     ...headers,
   });
   response.end(body === undefined ? undefined : JSON.stringify(body));
+}
+function sendBinary(
+  response: ServerResponse,
+  status: number,
+  body: Uint8Array,
+  headers: Readonly<Record<string, string>> = {},
+): void {
+  response.writeHead(status, {
+    "content-type": "application/octet-stream",
+    "cache-control": "no-store",
+    ...securityResponseHeaders(),
+    ...headers,
+  });
+  response.end(body);
 }
 function securityResponseHeaders(): Record<string, string> {
   return {
@@ -457,21 +480,45 @@ function createOidc(): OidcIdentityService | undefined {
     },
   });
 }
-function createStorage(): MinioObjectStorage | undefined {
-  const endpoint = process.env.TRUST_STORAGE_ENDPOINT,
-    bucket = process.env.TRUST_STORAGE_BUCKET,
-    accessKeyId = process.env.TRUST_STORAGE_ACCESS_KEY,
-    secretAccessKey = process.env.TRUST_STORAGE_SECRET_KEY;
-  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey)
-    return undefined;
-  return new MinioObjectStorage({
-    endpoint,
-    bucket,
-    accessKeyId,
-    secretAccessKey,
-    region: process.env.TRUST_STORAGE_REGION ?? "us-east-1",
-    forcePathStyle: process.env.TRUST_STORAGE_FORCE_PATH_STYLE !== "false",
-  });
+function createStorage() {
+  return createObjectStorageFromEnv(process.env);
+}
+
+function createGrantOptions():
+  | { signer: S3TransferSigner; maxTtlSeconds: number }
+  | undefined {
+  const maxTtlSeconds = Number(
+    process.env.TRUST_TRANSFER_GRANT_MAX_TTL_SECONDS ?? 900,
+  );
+  if (!Number.isSafeInteger(maxTtlSeconds) || maxTtlSeconds <= 0) {
+    throw new Error(
+      "TRUST_TRANSFER_GRANT_MAX_TTL_SECONDS must be a positive integer",
+    );
+  }
+  const bucket = process.env.TRUST_STORAGE_BUCKET;
+  const region = process.env.TRUST_STORAGE_REGION ?? "us-east-1";
+  if (!bucket) return undefined;
+  const endpoint = process.env.TRUST_STORAGE_ENDPOINT;
+  const accessKeyId = process.env.TRUST_STORAGE_ACCESS_KEY;
+  const secretAccessKey = process.env.TRUST_STORAGE_SECRET_KEY;
+  if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
+    throw new Error(
+      "Transfer signer static credentials require both TRUST_STORAGE_ACCESS_KEY and TRUST_STORAGE_SECRET_KEY",
+    );
+  }
+  // Prefer real S3-compatible presigning whenever storage bucket config exists.
+  return {
+    maxTtlSeconds,
+    signer: new S3TransferSigner({
+      region,
+      bucket,
+      forcePathStyle: process.env.TRUST_STORAGE_FORCE_PATH_STYLE !== "false",
+      ...(endpoint ? { endpoint } : {}),
+      ...(accessKeyId && secretAccessKey
+        ? { accessKeyId, secretAccessKey }
+        : {}),
+    }),
+  };
 }
 async function afterIngestEffect(checkpoint: IngestCheckpoint): Promise<void> {
   if (process.env.TRUST_FAIL_AFTER_CHECKPOINT === checkpoint) {

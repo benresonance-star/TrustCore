@@ -37,7 +37,7 @@ export class PostgresVerificationCatalog implements StructuralVerificationCatalo
     return inTransaction(this.pool, async (db) => {
       await scope(db, workspaceId);
       const result = await db.query<BlobRow>(
-        "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at FROM blob_objects WHERE workspace_id=$1 ORDER BY id",
+        "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at FROM blob_objects WHERE workspace_id=$1 ORDER BY id",
         [workspaceId],
       );
       return result.rows.map(mapBlob);
@@ -138,7 +138,7 @@ export class PostgresVerificationCatalog implements StructuralVerificationCatalo
         [workspaceId],
       );
       const blobs = await db.query<BlobRow>(
-        "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,verification_state,created_at FROM blob_objects WHERE workspace_id=$1 ORDER BY id",
+        "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at FROM blob_objects WHERE workspace_id=$1 ORDER BY id",
         [workspaceId],
       );
       const revisionBlobs = await db.query<RevisionBlobRow>(
@@ -240,6 +240,8 @@ interface BlobRow {
   media_type: string;
   storage_provider: string;
   storage_key: string;
+  encryption_state: BlobObject["encryptionState"];
+  encryption_key_ref: string | null;
   verification_state: BlobObject["verificationState"];
   created_at: string | Date;
 }
@@ -378,6 +380,8 @@ function mapBlob(row: BlobRow): BlobObject {
     mediaType: row.media_type,
     storageProvider: row.storage_provider,
     storageKey: row.storage_key,
+    encryptionState: row.encryption_state,
+    encryptionKeyRef: row.encryption_key_ref,
     verificationState: row.verification_state,
     createdAt: iso(row.created_at),
   };

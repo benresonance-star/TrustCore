@@ -9,9 +9,13 @@ import { assertSafeArchivePath } from "./paths.js";
 import type {
   ArchiveContainerLimits,
   ArchiveEntrySet,
+  ArchiveManifestVerifier,
   ParsedTrustArchive,
 } from "./types.js";
-import { verifyArchiveEntries } from "./verify.js";
+import {
+  verifyArchiveEntries,
+  verifyArchiveEntriesWithSignatures,
+} from "./verify.js";
 
 const defaultLimits: ArchiveContainerLimits = {
   maxContainerBytes: 10 * 1024 * 1024 * 1024,
@@ -59,6 +63,7 @@ export async function writeTrustArchive(
 export async function readTrustArchive(
   bytes: Uint8Array,
   limits: Partial<ArchiveContainerLimits> = {},
+  signatureVerifier?: ArchiveManifestVerifier,
 ): Promise<ParsedTrustArchive> {
   const bounded = { ...defaultLimits, ...limits };
   if (bytes.byteLength > bounded.maxContainerBytes)
@@ -90,14 +95,18 @@ export async function readTrustArchive(
         );
       extracted.set(entry.filename, data);
     }
-    const verification = verifyArchiveEntries(
-      { entries: extracted },
-      {
-        maxEntries: bounded.maxEntries,
-        maxEntryBytes: bounded.maxEntryBytes,
-        maxTotalBytes: bounded.maxTotalBytes,
-      },
-    );
+    const verificationLimits = {
+      maxEntries: bounded.maxEntries,
+      maxEntryBytes: bounded.maxEntryBytes,
+      maxTotalBytes: bounded.maxTotalBytes,
+    };
+    const verification = signatureVerifier
+      ? await verifyArchiveEntriesWithSignatures(
+          { entries: extracted },
+          signatureVerifier,
+          verificationLimits,
+        )
+      : verifyArchiveEntries({ entries: extracted }, verificationLimits);
     const manifest = verification.manifest;
     if (!manifest)
       throw new ArchiveContainerError(

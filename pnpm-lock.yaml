@@ -4,9 +4,15 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  nanoid: ">=3.3.17"
+
 importers:
   .:
     devDependencies:
+      "@playwright/test":
+        specifier: ^1.62.1
+        version: 1.62.1
       "@types/node":
         specifier: ^24.0.0
         version: 24.13.3
@@ -49,9 +55,15 @@ importers:
       "@trust-core/schema-registry":
         specifier: workspace:*
         version: link:../../packages/schema-registry
+      "@trust-core/storage":
+        specifier: workspace:*
+        version: link:../../packages/storage
       "@trust-core/storage-minio":
         specifier: workspace:*
         version: link:../../packages/storage-minio
+      "@trust-core/storage-s3":
+        specifier: workspace:*
+        version: link:../../packages/storage-s3
       "@trust-core/verification":
         specifier: workspace:*
         version: link:../../packages/verification
@@ -132,9 +144,15 @@ importers:
       "@trust-core/reconciliation":
         specifier: workspace:*
         version: link:../../packages/reconciliation
+      "@trust-core/storage":
+        specifier: workspace:*
+        version: link:../../packages/storage
       "@trust-core/storage-minio":
         specifier: workspace:*
         version: link:../../packages/storage-minio
+      "@trust-core/storage-s3":
+        specifier: workspace:*
+        version: link:../../packages/storage-s3
       pg:
         specifier: ^8.16.0
         version: 8.22.0
@@ -272,11 +290,20 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
 
+  packages/observability:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
+
   packages/operations:
     dependencies:
       "@trust-core/core":
         specifier: workspace:*
         version: link:../core
+      "@trust-core/policy":
+        specifier: workspace:*
+        version: link:../policy
       "@trust-core/protocol":
         specifier: workspace:*
         version: link:../protocol
@@ -382,6 +409,12 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
 
+  packages/recovery:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)(tsx@4.23.4)
+
   packages/schema-registry:
     devDependencies:
       "@types/node":
@@ -406,6 +439,12 @@ importers:
       "@trust-core/fixtures-wesketch":
         specifier: workspace:*
         version: link:../fixtures-wesketch
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.3
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.4
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -423,6 +462,21 @@ importers:
       "@aws-sdk/lib-storage":
         specifier: ^3.1101.0
         version: 3.1101.0(@aws-sdk/client-s3@3.1102.0)
+      "@trust-core/storage":
+        specifier: workspace:*
+        version: link:../storage
+
+  packages/storage-s3:
+    dependencies:
+      "@aws-sdk/client-s3":
+        specifier: ^3.1102.0
+        version: 3.1102.0
+      "@aws-sdk/lib-storage":
+        specifier: ^3.1101.0
+        version: 3.1101.0(@aws-sdk/client-s3@3.1102.0)
+      "@aws-sdk/s3-request-presigner":
+        specifier: ^3.1106.0
+        version: 3.1106.0
       "@trust-core/storage":
         specifier: workspace:*
         version: link:../storage
@@ -491,6 +545,13 @@ packages:
     deprecated: |-
       Deprecated due to Document number parsing bug in JSON, see
         https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
+
+  "@aws-sdk/core@3.977.6":
+    resolution:
+      {
+        integrity: sha512-QiaJV4/zDrB4ZY2mfeSXSzSTc36W16sZXcGz+SPFk0CJ26gziO0cS+4LjJUMAbdeeBOvS0k0Aq1cZpfGdUXxSw==,
+      }
+    engines: { node: ">=20.0.0" }
 
   "@aws-sdk/credential-provider-env@3.972.66":
     resolution:
@@ -568,6 +629,13 @@ packages:
     resolution:
       {
         integrity: sha512-hEdHT0PBR4fkGxWhwKG5EtEYKnAM7HKkp0vD10ufk4YcXejH4r4q6G/XhPzjUc6Yxo5kBS2vHg7llj4ViR9VTQ==,
+      }
+    engines: { node: ">=20.0.0" }
+
+  "@aws-sdk/s3-request-presigner@3.1106.0":
+    resolution:
+      {
+        integrity: sha512-ZI5SCkyz8jB3Qr6NPSJ7R4A/PkniQvbD1DO8APwhMsubFcfwPSJMMUxrkv9k1E20ikRk7skpM9itZh+0wI9K/w==,
       }
     engines: { node: ">=20.0.0" }
 
@@ -1069,6 +1137,14 @@ packages:
     engines: { node: ^22.20 || ^24.12 || >=25 }
     cpu: [x64]
     os: [linux]
+
+  "@playwright/test@1.62.1":
+    resolution:
+      {
+        integrity: sha512-DTcUc8qii+cpHvtOwggMtBRMjKZHXYWdw8syRYu2vtzuq4Wxphqq4NfCs5Zt44L6mA8rfDfj+PHnxFc/FeK6mQ==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
 
   "@rolldown/pluginutils@1.0.0-rc.3":
     resolution:
@@ -1737,6 +1813,14 @@ packages:
       picomatch:
         optional: true
 
+  fsevents@2.3.2:
+    resolution:
+      {
+        integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==,
+      }
+    engines: { node: ^8.16.0 || ^10.6.0 || >=11.0.0 }
+    os: [darwin]
+
   fsevents@2.3.3:
     resolution:
       {
@@ -1903,12 +1987,12 @@ packages:
         integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==,
       }
 
-  nanoid@3.3.16:
+  nanoid@6.0.1:
     resolution:
       {
-        integrity: sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==,
+        integrity: sha512-3wVS3i51pE2pi1k5FFL/95BGfVS0kSsvDVuGXHOtxox/TywUmtgq+3qiTOTbs9J7KfHaXPiN171k/A6dBnaXFw==,
       }
-    engines: { node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1 }
+    engines: { node: ^22 || ^24 || >=26 }
     hasBin: true
 
   node-releases@2.0.51:
@@ -2013,6 +2097,22 @@ packages:
         integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==,
       }
     engines: { node: ">=12" }
+
+  playwright-core@1.62.1:
+    resolution:
+      {
+        integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
+  playwright@1.62.1:
+    resolution:
+      {
+        integrity: sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
 
   postcss@8.5.25:
     resolution:
@@ -2543,6 +2643,17 @@ snapshots:
       bowser: 2.14.1
       tslib: 2.8.1
 
+  "@aws-sdk/core@3.977.6":
+    dependencies:
+      "@aws-sdk/types": 3.974.2
+      "@aws-sdk/xml-builder": 3.972.37
+      "@aws/lambda-invoke-store": 0.3.0
+      "@smithy/core": 3.31.1
+      "@smithy/signature-v4": 5.6.12
+      "@smithy/types": 4.16.1
+      bowser: 2.14.1
+      tslib: 2.8.1
+
   "@aws-sdk/credential-provider-env@3.972.66":
     dependencies:
       "@aws-sdk/core": 3.977.5
@@ -2654,6 +2765,15 @@ snapshots:
       "@smithy/core": 3.31.1
       "@smithy/fetch-http-handler": 5.6.13
       "@smithy/node-http-handler": 4.9.13
+      "@smithy/types": 4.16.1
+      tslib: 2.8.1
+
+  "@aws-sdk/s3-request-presigner@3.1106.0":
+    dependencies:
+      "@aws-sdk/core": 3.977.6
+      "@aws-sdk/signature-v4-multi-region": 3.996.43
+      "@aws-sdk/types": 3.974.2
+      "@smithy/core": 3.31.1
       "@smithy/types": 4.16.1
       tslib: 2.8.1
 
@@ -2918,6 +3038,10 @@ snapshots:
 
   "@napi-rs/lzma-linux-x64-gnu@1.5.1":
     optional: true
+
+  "@playwright/test@1.62.1":
+    dependencies:
+      playwright: 1.62.1
 
   "@rolldown/pluginutils@1.0.0-rc.3": {}
 
@@ -3292,6 +3416,9 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
+  fsevents@2.3.2:
+    optional: true
+
   fsevents@2.3.3:
     optional: true
 
@@ -3386,7 +3513,7 @@ snapshots:
 
   ms@2.1.3: {}
 
-  nanoid@3.3.16: {}
+  nanoid@6.0.1: {}
 
   node-releases@2.0.51: {}
 
@@ -3439,9 +3566,17 @@ snapshots:
 
   picomatch@4.0.5: {}
 
+  playwright-core@1.62.1: {}
+
+  playwright@1.62.1:
+    dependencies:
+      playwright-core: 1.62.1
+    optionalDependencies:
+      fsevents: 2.3.2
+
   postcss@8.5.25:
     dependencies:
-      nanoid: 3.3.16
+      nanoid: 6.0.1
       picocolors: 1.1.1
       source-map-js: 1.2.1
 

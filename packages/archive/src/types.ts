@@ -34,9 +34,18 @@ export interface ArchiveSource {
   readonly blobs?: readonly ArchiveBlobInput[];
 }
 
+export type ArchiveSignatureAlgorithm = "Ed25519";
+export type ArchiveSignatureProfile =
+  | "unsigned"
+  | {
+      readonly name: "trust-core-manifest-signature-v1";
+      readonly algorithm: ArchiveSignatureAlgorithm;
+      readonly keyId: string;
+    };
+
 export interface TrustArchiveManifest {
   readonly format: "trustarchive";
-  readonly formatVersion: "0.2";
+  readonly formatVersion: "0.2" | "0.3";
   readonly exportId: string;
   readonly workspaceId: string;
   readonly datasetIds: readonly string[];
@@ -45,7 +54,7 @@ export interface TrustArchiveManifest {
   readonly sourceVersion: string;
   readonly checksumAlgorithm: "sha256";
   readonly canonicalJsonProfile: "trust-core-canonical-json-v1";
-  readonly signatureProfile: "unsigned";
+  readonly signatureProfile: ArchiveSignatureProfile;
   readonly auditLineage: {
     readonly mode: "source_chain";
     readonly sourceWorkspaceId: string;
@@ -56,6 +65,38 @@ export interface TrustArchiveManifest {
   readonly recordCounts: Readonly<Record<ArchiveRecordKind, number>>;
   readonly blobCount: number;
   readonly totalBlobBytes: number;
+}
+
+export interface ArchiveManifestSignature {
+  readonly profile: "trust-core-manifest-signature-v1";
+  readonly algorithm: ArchiveSignatureAlgorithm;
+  readonly keyId: string;
+  readonly signedEntries: readonly [
+    "manifest.json",
+    "checksums/sha256sums.txt",
+  ];
+  readonly signatureEncoding: "base64";
+  readonly signature: string;
+}
+
+export interface ArchiveManifestSigner {
+  readonly algorithm: ArchiveSignatureAlgorithm;
+  readonly keyId: string;
+  signManifest(manifestBytes: Uint8Array): Promise<Uint8Array>;
+}
+
+export type ArchiveSignatureVerificationResult =
+  | "valid"
+  | "invalid"
+  | "unknown_key";
+
+export interface ArchiveManifestVerifier {
+  verifyManifest(input: {
+    readonly algorithm: ArchiveSignatureAlgorithm;
+    readonly keyId: string;
+    readonly manifestBytes: Uint8Array;
+    readonly signature: Uint8Array;
+  }): Promise<ArchiveSignatureVerificationResult>;
 }
 
 export interface ArchiveEntrySet {

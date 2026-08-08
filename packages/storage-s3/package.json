@@ -1,0 +1,18 @@
+{
+  "name": "@trust-core/storage-s3",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:docker": "vitest run tests/s3-live.contract.test.ts -t \"S3ObjectStorage live contract\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1102.0",
+    "@aws-sdk/lib-storage": "^3.1101.0",
+    "@aws-sdk/s3-request-presigner": "^3.1106.0",
+    "@trust-core/storage": "workspace:*"
+  }
+}

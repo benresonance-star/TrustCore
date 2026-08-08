@@ -1,14 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   ResourceHistoryService,
+  TransferGrantService,
+  GrantDeniedError,
   type ObjectIngestResult,
   type ObjectIngestService,
+  type TransferSigner,
 } from "@trust-core/operations";
 import { isPolicyAction } from "@trust-core/policy";
 import {
+  PostgresBlobCatalog,
   PostgresContractRepository,
   PostgresHistoryRepository,
+  PostgresRetentionPolicyRepository,
   PostgresVerificationCatalog,
+  deterministicUuid,
   inTransaction,
   type DatabasePool,
 } from "@trust-core/persistence-postgres";
@@ -16,18 +22,25 @@ import type {
   ApplicationRegistration,
   AuthenticatedActor,
   CompleteUploadCommand,
+  CreateDownloadGrantCommand,
+  CreatePolicyAssignmentCommand,
+  CreateRetentionPolicyCommand,
   CreateUploadCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
+  DownloadGrant,
   HistorySnapshot,
+  PolicyAssignment,
   RecoverableItem,
   RegisterApplicationCommand,
   RestoreResourceCommand,
+  RevokePolicyAssignmentCommand,
   RevisionCommand,
   RevisionCommandResult,
   RunVerificationCommand,
   ServiceHealth,
   TrustEventSummary,
+  UpdateRetentionPolicyCommand,
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type {
@@ -42,6 +55,9 @@ export class PostgresCommandProvider implements CommandProvider {
   private readonly history: ResourceHistoryService;
   private readonly contracts: PostgresContractRepository;
   private readonly reports: PostgresVerificationCatalog;
+  private readonly retention: PostgresRetentionPolicyRepository;
+  private readonly blobs: PostgresBlobCatalog;
+  private readonly grantService?: TransferGrantService;
   constructor(
     private readonly pool: DatabasePool,
     private readonly verification?: {
@@ -49,6 +65,10 @@ export class PostgresCommandProvider implements CommandProvider {
       structural: StructuralVerificationService;
     },
     private readonly ingest?: ObjectIngestService,
+    grantOptions?: {
+      signer: TransferSigner;
+      maxTtlSeconds: number;
+    },
     private readonly clock: () => Date = () => new Date(),
   ) {
     this.history = new ResourceHistoryService(
@@ -56,6 +76,19 @@ export class PostgresCommandProvider implements CommandProvider {
     );
     this.contracts = new PostgresContractRepository(pool);
     this.reports = new PostgresVerificationCatalog(pool);
+    this.retention = new PostgresRetentionPolicyRepository(pool);
+    this.blobs = new PostgresBlobCatalog(pool);
+    this.grantService = grantOptions
+      ? new TransferGrantService(
+          { maxTtlSeconds: grantOptions.maxTtlSeconds },
+          grantOptions.signer,
+          {
+            async record() {
+              // Audit persistence for grants is deferred to the existing audit path.
+            },
+          },
+        )
+      : undefined;
   }
 
   async listWorkspaces(workspaceId: string) {
@@ -88,11 +121,125 @@ export class PostgresCommandProvider implements CommandProvider {
       updatedAt: now,
     });
   }
+  async listPolicyAssignments(workspaceId: string) {
+    return { items: await this.contracts.listPolicyAssignments(workspaceId) };
+  }
+  async createPolicyAssignment(
+    actor: AuthenticatedActor,
+    command: CreatePolicyAssignmentCommand,
+  ): Promise<PolicyAssignment> {
+    const id = deterministicUuid(
+      `policy-assignment:${command.workspaceId}:${actor.id}:${command.idempotencyKey}`,
+    );
+    const existing = (
+      await this.contracts.listPolicyAssignments(command.workspaceId)
+    ).find((assignment) => assignment.id === id);
+    if (existing) {
+      if (samePolicyAssignment(existing, command)) return existing;
+      throw codedError(
+        "IDEMPOTENCY_CONFLICT",
+        "Policy assignment idempotency key was reused with different input.",
+      );
+    }
+    const created = await this.contracts.createPolicyAssignment({
+      id,
+      workspaceId: command.workspaceId,
+      principalType: command.principalType,
+      principalId: command.principalId,
+      role: command.role,
+      scopeKind: command.scopeKind,
+      scopeId: command.scopeId,
+      createdBy: actor.id,
+      createdAt: this.clock().toISOString(),
+    });
+    await this.contracts.recordPolicyAssignmentChange({
+      workspaceId: command.workspaceId,
+      actor,
+      assignmentId: created.id,
+      action: "policy_assignment.created",
+      requestId: command.idempotencyKey,
+      occurredAt: created.createdAt,
+      metadata: {
+        principalType: created.principalType,
+        principalId: created.principalId,
+        role: created.role,
+        scopeKind: created.scopeKind,
+        scopeId: created.scopeId,
+      },
+    });
+    return created;
+  }
+  async revokePolicyAssignment(
+    assignmentId: string,
+    actor: AuthenticatedActor,
+    command: RevokePolicyAssignmentCommand,
+  ): Promise<PolicyAssignment> {
+    const assignment = await this.contracts.getPolicyAssignment(
+      command.workspaceId,
+      assignmentId,
+    );
+    if (!assignment)
+      throw codedError(
+        "POLICY_ASSIGNMENT_NOT_FOUND",
+        "Policy assignment was not found.",
+      );
+    if (assignment.revokedAt) return assignment;
+    const revokedAt = this.clock().toISOString();
+    await this.contracts.revokePolicyAssignment(
+      command.workspaceId,
+      assignmentId,
+      revokedAt,
+    );
+    await this.contracts.recordPolicyAssignmentChange({
+      workspaceId: command.workspaceId,
+      actor,
+      assignmentId,
+      action: "policy_assignment.revoked",
+      requestId: command.idempotencyKey,
+      occurredAt: revokedAt,
+      metadata: {},
+    });
+    return { ...assignment, revokedAt };
+  }
   async listDatasets(workspaceId: string) {
     return { items: await this.contracts.listDatasets(workspaceId) };
   }
   getDataset(workspaceId: string, datasetId: string) {
     return this.contracts.getDataset(workspaceId, datasetId);
+  }
+  async listRetentionPolicies(workspaceId: string) {
+    return { items: await this.retention.list(workspaceId) };
+  }
+  getRetentionPolicy(workspaceId: string, policyId: string) {
+    return this.retention.get(workspaceId, policyId);
+  }
+  createRetentionPolicy(
+    actor: AuthenticatedActor,
+    command: CreateRetentionPolicyCommand,
+  ) {
+    return this.retention.create({
+      ...retentionValues(command),
+      id: randomUUID(),
+      workspaceId: command.workspaceId,
+      actorId: actor.id,
+      idempotencyKey: command.idempotencyKey,
+      at: this.clock().toISOString(),
+    });
+  }
+  updateRetentionPolicy(
+    policyId: string,
+    actor: AuthenticatedActor,
+    command: UpdateRetentionPolicyCommand,
+  ) {
+    return this.retention.update(policyId, {
+      ...retentionValues(command),
+      id: policyId,
+      workspaceId: command.workspaceId,
+      actorId: actor.id,
+      idempotencyKey: command.idempotencyKey,
+      expectedUpdatedAt: command.expectedUpdatedAt,
+      at: this.clock().toISOString(),
+    });
   }
   async listResources(workspaceId: string, datasetId?: string) {
     return {
@@ -331,6 +478,73 @@ export class PostgresCommandProvider implements CommandProvider {
       completedAt: this.clock().toISOString(),
     });
   }
+
+  async createDownloadGrant(
+    actor: AuthenticatedActor,
+    command: CreateDownloadGrantCommand,
+  ): Promise<DownloadGrant> {
+    if (!this.grantService) {
+      throw codedError(
+        "COMMAND_BOUNDARY_UNAVAILABLE",
+        "Download grants require a configured transfer signer.",
+      );
+    }
+    const blob = await this.blobs.findById(
+      command.workspaceId,
+      command.objectId,
+    );
+    if (!blob) {
+      throw codedError("OPERATION_NOT_FOUND", "Blob object was not found.");
+    }
+    const downloadable = blob.verificationState === "verified";
+    try {
+      const grant = await this.grantService.issue({
+        actor,
+        workspaceId: command.workspaceId,
+        operation: "download",
+        target: {
+          workspaceId: command.workspaceId,
+          objectId: blob.id,
+          storageKey: blob.storageKey,
+          mediaType: blob.mediaType,
+          expectedSha256: blob.sha256,
+          expectedByteLength: blob.byteLength,
+          downloadable,
+          quarantineState: downloadable ? undefined : "quarantined",
+        },
+        requestedTtlSeconds: command.requestedTtlSeconds,
+        requestId: command.idempotencyKey,
+        correlationId: command.idempotencyKey,
+        ...(command.fileName ? { fileName: command.fileName } : {}),
+        policyInput: {
+          principal: {
+            id: actor.id,
+            type: actor.principalType ?? "user",
+            roles: actor.roles,
+            workspaceIds: actor.workspaceIds,
+          },
+          scope: { workspaceId: command.workspaceId },
+        },
+      });
+      return {
+        grantId: grant.grantId,
+        objectId: grant.objectId,
+        workspaceId: grant.workspaceId,
+        expiresAt: grant.expiresAt,
+        transfer: {
+          method: "GET",
+          url: grant.transfer.url,
+          headers: grant.transfer.headers,
+        },
+      };
+    } catch (error) {
+      if (error instanceof GrantDeniedError) {
+        throw codedError("PERMISSION_DENIED", error.message);
+      }
+      throw error;
+    }
+  }
+
   async ingestObject(
     actor: AuthenticatedActor,
     command: ObjectIngestCommand,
@@ -352,6 +566,19 @@ export class PostgresCommandProvider implements CommandProvider {
       bytes,
     });
   }
+}
+function samePolicyAssignment(
+  assignment: PolicyAssignment,
+  command: CreatePolicyAssignmentCommand,
+): boolean {
+  return (
+    assignment.workspaceId === command.workspaceId &&
+    assignment.principalType === command.principalType &&
+    assignment.principalId === command.principalId &&
+    assignment.role === command.role &&
+    assignment.scopeKind === command.scopeKind &&
+    assignment.scopeId === command.scopeId
+  );
 }
 
 function decodeBase64(value: string): Buffer {
@@ -428,4 +655,29 @@ function mapEvent(row: EventRow): TrustEventSummary {
 }
 function assertNever(value: never): never {
   throw new Error(`Unhandled verification level: ${String(value)}`);
+}
+
+const retentionKnownFields = new Set([
+  "workspaceId",
+  "name",
+  "recoveryWindowDays",
+  "minimumHistoryDays",
+  "backupRetentionDays",
+  "purgeEnabled",
+  "idempotencyKey",
+  "expectedUpdatedAt",
+  "extensions",
+]);
+function retentionValues(command: CreateRetentionPolicyCommand) {
+  const unknown = Object.fromEntries(
+    Object.entries(command).filter(([key]) => !retentionKnownFields.has(key)),
+  );
+  return {
+    name: command.name,
+    recoveryWindowDays: command.recoveryWindowDays,
+    minimumHistoryDays: command.minimumHistoryDays,
+    backupRetentionDays: command.backupRetentionDays,
+    purgeEnabled: command.purgeEnabled,
+    extensions: { ...unknown, ...(command.extensions ?? {}) },
+  };
 }

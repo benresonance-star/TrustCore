@@ -1,21 +1,31 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   SchemaRegistry,
+  generateTypeScriptTypes,
   validateResourcePayload,
 } from "@trust-core/schema-registry";
 import { describe, expect, it } from "vitest";
-import { createWeSketchFixture, weSketchSchema } from "../src/index.js";
+import {
+  createWeSketchFixture,
+  createWeSketchPublicationRequest,
+  weSketchSchema,
+} from "../src/index.js";
 
 describe("WeSketch synthetic creative-generation fixture", () => {
   it("publishes app/wesketch/1.0.0 and validates every revision payload", () => {
     const registry = new SchemaRegistry();
-    const published = registry.publish(
-      weSketchSchema,
+    const published = registry.publishGoverned(
+      createWeSketchPublicationRequest(
+        { approvedBy: "test-admin", approvalId: "approval-wesketch" },
+        "publish-wesketch",
+      ),
       "2026-08-04T10:00:00.000Z",
     );
     const fixture = createWeSketchFixture();
     expect(published.key).toBe("app/wesketch/1.0.0");
     expect(fixture.classification).toBe("synthetic-demo");
+    expect(published.governance?.approvedBy).toBe("test-admin");
     expect(
       new Set(fixture.resources.map(({ resourceType }) => resourceType)),
     ).toEqual(
@@ -99,6 +109,14 @@ describe("WeSketch synthetic creative-generation fixture", () => {
         `${relation.id}: ${sourceType} ${relation.relationType} ${targetType}`,
       ).toBe(true);
     }
+  });
+
+  it("keeps committed app types byte-for-byte deterministic", () => {
+    const committed = readFileSync(
+      new URL("../src/generated-types.ts", import.meta.url),
+      "utf8",
+    );
+    expect(committed).toBe(generateTypeScriptTypes(weSketchSchema).source);
   });
 
   it("reconstructs prompt-to-placement provenance and preserves a recoverable output", () => {

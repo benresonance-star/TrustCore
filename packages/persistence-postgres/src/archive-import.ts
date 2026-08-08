@@ -154,13 +154,6 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
           issues.push(staleIssue(action));
         continue;
       }
-      if (action.kind === "retention" && action.disposition === "insert") {
-        issues.push({
-          code: "IMPORT_RETENTION_ADAPTER_UNAVAILABLE",
-          message: "The target schema has no durable retention-policy table.",
-        });
-        continue;
-      }
       if (
         action.kind === "workspaces" &&
         plan.mode === "mapped_workspace" &&
@@ -537,7 +530,24 @@ export class PostgresArchiveImportTarget implements ArchiveImportExecutionTarget
         );
         return;
       case "retention":
-        throw new Error("Retention metadata adapter is unavailable.");
+        await db.query(
+          "INSERT INTO retention_policies (id,workspace_id,name,recovery_window_days,minimum_history_days,backup_retention_days,purge_enabled,extensions_json,created_by,updated_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12) ON CONFLICT (workspace_id,id) DO NOTHING",
+          [
+            id(action.targetId),
+            this.workspaceId,
+            text(record, "name"),
+            number(record, "recoveryWindowDays"),
+            number(record, "minimumHistoryDays"),
+            number(record, "backupRetentionDays"),
+            boolean(record, "purgeEnabled"),
+            json(record, "extensions", {}),
+            text(record, "createdBy"),
+            text(record, "updatedBy"),
+            text(record, "createdAt"),
+            text(record, "updatedAt"),
+          ],
+        );
+        return;
       case "blob-bytes":
         return;
       default: {
@@ -563,6 +573,10 @@ export async function loadArchiveImportInventory(
     );
     const datasets = await db.query<Record<string, unknown>>(
       'SELECT id::text,workspace_id::text AS "workspaceId",schema_package_id::text AS "schemaPackageId",dataset_type AS "datasetType",name,status,retention_policy_id::text AS "retentionPolicyId",created_by AS "createdBy",created_at AS "createdAt",updated_at AS "updatedAt" FROM datasets WHERE workspace_id=$1',
+      [workspaceId],
+    );
+    const retention = await db.query<Record<string, unknown>>(
+      'SELECT id::text,workspace_id::text AS "workspaceId",name,recovery_window_days AS "recoveryWindowDays",minimum_history_days AS "minimumHistoryDays",backup_retention_days AS "backupRetentionDays",purge_enabled AS "purgeEnabled",extensions_json AS extensions,created_by AS "createdBy",updated_by AS "updatedBy",created_at AS "createdAt",updated_at AS "updatedAt" FROM retention_policies WHERE workspace_id=$1',
       [workspaceId],
     );
     const resources = await db.query<Record<string, unknown>>(
@@ -594,6 +608,7 @@ export async function loadArchiveImportInventory(
       records: {
         workspaces: index(workspace.rows),
         "schema-packages": index(schemas.rows),
+        retention: index(retention.rows),
         datasets: index(datasets.rows),
         resources: index(resources.rows),
         revisions: index(revisions.rows),
@@ -685,6 +700,16 @@ function number(
   const value = record[key];
   if (typeof value !== "number" || !Number.isSafeInteger(value))
     throw new Error(`Imported ${key} must be a safe integer.`);
+  return value;
+}
+
+function boolean(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): boolean {
+  const value = record[key];
+  if (typeof value !== "boolean")
+    throw new Error(`Imported ${key} must be a boolean.`);
   return value;
 }
 

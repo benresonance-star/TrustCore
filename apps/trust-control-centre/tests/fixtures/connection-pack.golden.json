@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1.0.0",
+  "workspaceId": "workspace-demo",
+  "apiBase": "/api",
+  "applicationId": "fixture-app-1",
+  "sdkPackage": "@trust-core/sdk",
+  "tcapVersion": "TCAP/1.0",
+  "manifest": null,
+  "methods": null,
+  "agentBrief": "Generate an App protocol bundle before handing off to an agent.",
+  "policyAssignmentIds": ["assignment-1"],
+  "capabilityGrants": ["dataset:read"],
+  "probeResult": {
+    "ok": true,
+    "checkedAt": "2026-08-04T00:00:00.000Z",
+    "scope": "session_snapshot",
+    "message": "ok"
+  },
+  "application": {
+    "id": "fixture-app-1",
+    "namespace": "app/demo",
+    "name": "Demo",
+    "applicationVersion": "1.0.0",
+    "capabilities": ["dataset:read"],
+    "status": "active"
+  }
+}

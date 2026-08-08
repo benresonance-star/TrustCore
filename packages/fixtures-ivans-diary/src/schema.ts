@@ -1,4 +1,7 @@
-import type { SchemaPackageManifest } from "@trust-core/schema-registry";
+import type {
+  GovernedPublicationRequest,
+  SchemaPackageManifest,
+} from "@trust-core/schema-registry";
 
 const commonFields = {
   createdAt: { kind: "timestamp", required: true, description: "Original creation time" },
@@ -32,3 +35,27 @@ export const ivansDiarySchema: SchemaPackageManifest = {
     { type: "references", sourceTypes: ["Bookmark"], targetTypes: ["Entry", "JournalPage", "SketchPage"], cardinality: "many-to-many" },
   ],
 };
+
+export function createIvansDiaryPublicationRequest(
+  approval: GovernedPublicationRequest["approval"],
+  idempotencyKey: string,
+): GovernedPublicationRequest {
+  return {
+    manifest: ivansDiarySchema,
+    application: {
+      protocolVersion: "TCAP/1.0",
+      namespace: "app/ivans-diary",
+      applicationVersion: "1.0.0",
+      schemaPackage: {
+        key: "app/ivans-diary/1.0.0",
+        version: "1.0.0",
+        resourceTypes: ivansDiarySchema.resourceTypes.map(({ name }) => name),
+        relationTypes: ivansDiarySchema.relationships.map(({ type }) => type),
+        additionalFields: "preserve",
+      },
+    },
+    approval,
+    idempotencyKey,
+    expectedCompatibility: "initial",
+  };
+}

@@ -5,6 +5,15 @@ export type {
   TrustClientConfiguration,
   UploadInput,
 } from "./client.js";
+export { runAppConformance } from "./conformance.js";
+export type {
+  AppConformanceOptions,
+  AppConformanceProfile,
+  AppConformanceReport,
+  ConformanceCheck,
+  ConformanceCheckStatus,
+  ConformanceManifest,
+} from "./conformance.js";
 export { TrustApiError } from "./generated/transport.js";
 export type {
   TransportConfiguration,

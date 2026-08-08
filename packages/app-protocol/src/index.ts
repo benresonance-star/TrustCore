@@ -5,6 +5,7 @@ export const appCapabilities = [
   "resource:read",
   "revision:create",
   "object:ingest",
+  "blob:read",
   "relation:read",
   "history:read",
   "portability:read",
@@ -205,6 +206,15 @@ function interfaceMethods(
         purpose: "Ingest immutable blob bytes",
         sdk: "client.uploads.create(input)",
         http: "POST /v1/uploads",
+        required: false,
+      },
+    ],
+    [
+      "blob:read",
+      {
+        purpose: "Issue a short-lived download transfer grant",
+        sdk: "client.blobs.createDownloadGrant(input)",
+        http: "POST /v1/blobs/download-grants",
         required: false,
       },
     ],

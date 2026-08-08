@@ -19,7 +19,6 @@ import { createIvansDiaryFixture } from "@trust-core/fixtures-ivans-diary";
 import { createWeSketchFixture } from "@trust-core/fixtures-wesketch";
 import type {
   ArchiveCandidate,
-  ArchiveDownload,
   ArchiveExportSummary,
   AuthenticatedActor,
   CreateImportPlanCommand,
@@ -38,7 +37,7 @@ export interface PortabilityProvider {
   downloadExport(
     workspaceId: string,
     exportId: string,
-  ): Promise<ArchiveDownload | undefined>;
+  ): Promise<ArchiveExportTransfer | undefined>;
   uploadArchive(
     actor: AuthenticatedActor,
     command: UploadArchiveCommand,
@@ -64,6 +63,12 @@ export interface PortabilityProvider {
     workspaceId: string,
     operationId: string,
   ): Promise<ImportOperationSummary | undefined>;
+}
+export interface ArchiveExportTransfer {
+  summary: ArchiveExportSummary;
+  mediaType: "application/vnd.trust-core.archive+zip";
+  filename: string;
+  bytes: Uint8Array;
 }
 
 type StoredArchive = {
@@ -164,10 +169,10 @@ export class FixturePortabilityProvider implements PortabilityProvider {
     const stored = this.exports.get(scoped(workspaceId, exportId));
     return stored
       ? {
-          ...stored.summary,
+          summary: stored.summary,
           mediaType: "application/vnd.trust-core.archive+zip" as const,
           filename: `${stored.summary.id}.trustarchive`,
-          archiveBase64: Buffer.from(stored.bytes).toString("base64"),
+          bytes: stored.bytes,
         }
       : undefined;
   }

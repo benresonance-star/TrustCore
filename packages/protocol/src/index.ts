@@ -104,10 +104,13 @@ export type TrustAction =
   | "resource:delete"
   | "resource:restore"
   | "object:ingest"
+  | "blob:read"
   | "relation:read"
   | "history:read"
   | "audit:read"
   | "verification:run"
+  | "retention:manage"
+  | "access:manage"
   | "health:read"
   | "portability:read"
   | "portability:export"
@@ -154,6 +157,19 @@ export interface PolicyAssignment {
   createdAt: string;
   revokedAt?: string;
 }
+export interface CreatePolicyAssignmentCommand {
+  workspaceId: string;
+  principalType: PolicyAssignment["principalType"];
+  principalId: string;
+  role: "owner" | "admin" | "editor" | "recovery_operator" | "auditor";
+  scopeKind: PolicyAssignment["scopeKind"];
+  scopeId: string;
+  idempotencyKey: string;
+}
+export interface RevokePolicyAssignmentCommand {
+  workspaceId: string;
+  idempotencyKey: string;
+}
 export interface BreakGlassGrant {
   id: string;
   workspaceId: string;
@@ -172,8 +188,36 @@ export interface DatasetRecord {
   datasetType: string;
   name: string;
   status: "active" | "archived" | "deleted_logically" | "legal_hold";
+  retentionPolicyId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+export interface RetentionPolicyRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  recoveryWindowDays: number;
+  minimumHistoryDays: number;
+  backupRetentionDays: number;
+  purgeEnabled: false;
+  extensions: Readonly<Record<string, unknown>>;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CreateRetentionPolicyCommand {
+  workspaceId: string;
+  name: string;
+  recoveryWindowDays: number;
+  minimumHistoryDays: number;
+  backupRetentionDays: number;
+  purgeEnabled: false;
+  idempotencyKey: string;
+  extensions?: Readonly<Record<string, unknown>>;
+}
+export interface UpdateRetentionPolicyCommand extends CreateRetentionPolicyCommand {
+  expectedUpdatedAt: string;
 }
 export interface ResourceRecord {
   id: string;
@@ -373,6 +417,24 @@ export interface CreateUploadCommand {
 export interface CompleteUploadCommand {
   workspaceId: string;
   bytesBase64: string;
+}
+export interface CreateDownloadGrantCommand {
+  workspaceId: string;
+  objectId: string;
+  requestedTtlSeconds: number;
+  fileName?: string;
+  idempotencyKey: string;
+}
+export interface DownloadGrant {
+  grantId: string;
+  objectId: string;
+  workspaceId: string;
+  expiresAt: string;
+  transfer: {
+    method: "GET";
+    url: string;
+    headers: Readonly<Record<string, string>>;
+  };
 }
 export interface RevisionCommand {
   workspaceId: string;

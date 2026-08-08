@@ -10,7 +10,7 @@ describe("live Control Centre gateway", () => {
   it("uses the configured workspace for SDK reads and commands", async () => {
     vi.stubEnv("VITE_TRUST_API_BASE", "https://trust.example");
     vi.stubEnv("VITE_TRUST_WORKSPACE_ID", "workspace-live");
-    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const path = new URL(String(input)).pathname;
       if (path === "/v1/control-centre/snapshot") {
         return json({ status: {}, datasets: [] });
@@ -48,6 +48,41 @@ describe("live Control Centre gateway", () => {
           createdAt: "2026-08-04T00:00:00.000Z",
         });
       }
+      if (
+        path === "/v1/applications" &&
+        (!init || !init.method || init.method === "GET")
+      ) {
+        return json({
+          items: [
+            {
+              id: "app-1",
+              workspaceId: "workspace-live",
+              namespace: "app/live",
+              name: "Live App",
+              applicationVersion: "1.0.0",
+              schemaPackageIds: [],
+              capabilities: ["dataset:read"],
+              status: "active",
+              createdAt: "2026-08-04T00:00:00.000Z",
+              updatedAt: "2026-08-04T00:00:00.000Z",
+            },
+          ],
+        });
+      }
+      if (path === "/v1/applications" && init?.method === "POST") {
+        return json({
+          id: "app-2",
+          workspaceId: "workspace-live",
+          namespace: "app/new",
+          name: "New App",
+          applicationVersion: "0.1.0",
+          schemaPackageIds: [],
+          capabilities: ["dataset:read"],
+          status: "active",
+          createdAt: "2026-08-04T00:00:00.000Z",
+          updatedAt: "2026-08-04T00:00:00.000Z",
+        });
+      }
       return new Response(undefined, { status: 404 });
     });
     vi.stubGlobal("fetch", fetch);
@@ -60,8 +95,21 @@ describe("live Control Centre gateway", () => {
       httpGateway.runVerification(httpGateway.workspaceId, "metadata"),
       httpGateway.restoreResource(httpGateway.workspaceId, "resource-1"),
     ]);
+    const listed = await httpGateway.listApplications(httpGateway.workspaceId);
+    const registered = await httpGateway.registerApplication(
+      httpGateway.workspaceId,
+      {
+        namespace: "app/new",
+        name: "New App",
+        applicationVersion: "0.1.0",
+        schemaPackageIds: [],
+        capabilities: ["dataset:read"],
+      },
+    );
 
     expect(httpGateway.workspaceId).toBe("workspace-live");
+    expect(listed).toHaveLength(1);
+    expect(registered.id).toBe("app-2");
     for (const [, init] of fetch.mock.calls) {
       expect(new Headers(init?.headers).get("x-trust-workspace-id")).toBe(
         "workspace-live",
@@ -71,10 +119,15 @@ describe("live Control Centre gateway", () => {
       .map(([, init]) => init?.body)
       .filter((body): body is string => typeof body === "string")
       .map((body) => JSON.parse(body) as { workspaceId?: string });
-    expect(commandBodies).toEqual([
-      expect.objectContaining({ workspaceId: "workspace-live" }),
-      expect.objectContaining({ workspaceId: "workspace-live" }),
-    ]);
+    expect(commandBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ workspaceId: "workspace-live" }),
+        expect.objectContaining({
+          workspaceId: "workspace-live",
+          namespace: "app/new",
+        }),
+      ]),
+    );
   });
 });
 

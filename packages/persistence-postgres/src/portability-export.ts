@@ -68,6 +68,11 @@ export class PostgresPortabilityExportReader {
           "DATASET_NOT_FOUND",
           "A selected dataset is missing or belongs to another workspace.",
         );
+      const retention = await records(
+        client,
+        "SELECT to_jsonb(p) AS record FROM retention_policies p WHERE p.workspace_id=$1 AND p.id IN (SELECT d.retention_policy_id FROM datasets d WHERE d.workspace_id=$1 AND d.id=ANY($2::uuid[]) AND d.retention_policy_id IS NOT NULL) ORDER BY p.id",
+        [input.workspaceId, datasetIds],
+      );
       const resources = await records(
         client,
         "SELECT to_jsonb(r) AS record FROM resources r WHERE r.workspace_id=$1 AND r.dataset_id=ANY($2::uuid[]) ORDER BY r.id",
@@ -126,6 +131,7 @@ export class PostgresPortabilityExportReader {
       );
       assertReferences({
         datasets,
+        retention,
         resources,
         revisions,
         revisionBlobs,
@@ -143,10 +149,11 @@ export class PostgresPortabilityExportReader {
         datasetIds,
         createdAt: input.createdAt,
         createdBy: input.createdBy,
-        sourceVersion: "0.2H",
+        sourceVersion: "0.3",
         records: {
           workspaces: workspace,
           "schema-packages": schemas,
+          retention,
           datasets,
           resources,
           revisions,
@@ -213,6 +220,7 @@ function camelizeRecord(
     manifest_json: "manifest",
     canonical_payload_json: "canonicalPayload",
     metadata_json: "metadata",
+    extensions_json: "extensions",
   };
   return Object.fromEntries(
     Object.entries(record).map(([key, value]) => {
@@ -240,6 +248,7 @@ function normalizeValue(key: string, value: unknown): unknown {
 
 function assertReferences(input: {
   datasets: readonly ArchiveRecord[];
+  retention: readonly ArchiveRecord[];
   resources: readonly ArchiveRecord[];
   revisions: readonly ArchiveRecord[];
   revisionBlobs: readonly ArchiveRecord[];
@@ -248,12 +257,20 @@ function assertReferences(input: {
   relations: readonly ArchiveRecord[];
 }): void {
   const schemas = ids(input.schemas);
+  const retention = ids(input.retention);
   const datasets = ids(input.datasets);
   const resources = ids(input.resources);
   const revisions = ids(input.revisions);
   const blobs = ids(input.blobRecords);
   for (const dataset of input.datasets)
     assertReference(schemas, dataset.schemaPackageId, "dataset schema package");
+  for (const dataset of input.datasets)
+    if (typeof dataset.retentionPolicyId === "string")
+      assertReference(
+        retention,
+        dataset.retentionPolicyId,
+        "dataset retention policy",
+      );
   for (const resource of input.resources)
     assertReference(datasets, resource.datasetId, "resource dataset");
   for (const revision of input.revisions) {

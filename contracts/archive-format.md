@@ -106,3 +106,38 @@ trust-archive-viewer <archive.trustarchive> [--output archive.html]
 
 It exits `0` only after strict archive verification and successful HTML output,
 `1` when archive verification or output fails, and `2` for invalid invocation.
+
+## 0.3 managed-signature source candidate
+
+The unsigned 0.2 profile remains valid and unchanged: its manifest has
+`formatVersion: "0.2"` and `signatureProfile: "unsigned"`, and it has no
+signature artifact.
+
+A signed source candidate has `formatVersion: "0.3"` and the following manifest
+profile:
+
+```json
+{
+  "signatureProfile": {
+    "name": "trust-core-manifest-signature-v1",
+    "algorithm": "Ed25519",
+    "keyId": "provider-neutral-managed-key-id"
+  }
+}
+```
+
+The signature is stored at `signatures/manifest-signature.json`. It records the
+same profile, algorithm and key ID, identifies `manifest.json` and
+`checksums/sha256sums.txt` as the signed entries, and contains canonical base64
+signature bytes. Ed25519 signs a canonical envelope containing the SHA-256 of
+the exact manifest and checksum-file bytes. This binds every checksummed archive
+entry to the managed signature while excluding the signature artifact itself
+from the checksum file.
+
+Signing and verification use provider-neutral interfaces. Key custody,
+authorization, rotation and public-key lookup belong to the provider adapter,
+not the archive format. Strict readers reject missing or malformed artifacts,
+profile/artifact disagreement, unsupported profiles or algorithms, unknown
+keys, invalid signatures, signed archives without a verifier, and signature
+artifacts attached to unsigned archives. Verification errors use stable
+`ARCHIVE_SIGNATURE_*` codes.

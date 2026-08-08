@@ -1,4 +1,10 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+  type KeyObject,
+} from "node:crypto";
 import { createIvansDiaryFixture } from "@trust-core/fixtures-ivans-diary";
 import { createWeSketchFixture } from "@trust-core/fixtures-wesketch";
 import {
@@ -16,8 +22,12 @@ import {
   assertSafeArchivePath,
   planArchiveImport,
   readTrustArchive,
+  signArchiveEntries,
   verifyArchiveEntries,
+  verifyArchiveEntriesWithSignatures,
   writeTrustArchive,
+  type ArchiveManifestSigner,
+  type ArchiveManifestVerifier,
   type ArchiveSource,
   type ArchiveImportAction,
   type ArchiveImportOperation,
@@ -107,7 +117,7 @@ describe("Trust Archive 0.2A logical entry set", () => {
     expect([...first.entries]).toEqual([...second.entries]);
     const report = verifyArchiveEntries(first);
     expect(report.valid).toBe(true);
-    expect(report.manifest?.recordCounts.resources).toBe(9);
+    expect(report.manifest?.recordCounts.resources).toBe(10);
     expect(report.records.workspaces?.[0]?.futureWorkspaceField).toEqual({
       retained: true,
     });
@@ -237,6 +247,150 @@ describe("Trust Archive 0.2A logical entry set", () => {
     expect(report.issues).toContainEqual(
       expect.objectContaining({ code: "ARCHIVE_AUDIT_LINEAGE_INVALID" }),
     );
+  });
+});
+
+describe("Trust Archive 0.3 manifest signatures", () => {
+  it("signs and strictly verifies an Ed25519 manifest", async () => {
+    const keys = generateKeyPairSync("ed25519");
+    const signed = await signArchiveEntries(
+      assembleArchiveEntries(source()),
+      signer(keys.privateKey),
+    );
+    const report = await verifyArchiveEntriesWithSignatures(
+      signed,
+      verifier(keys.publicKey),
+    );
+
+    expect(report.valid).toBe(true);
+    expect(report.manifest?.formatVersion).toBe("0.3");
+    expect(report.manifest?.signatureProfile).toEqual({
+      name: "trust-core-manifest-signature-v1",
+      algorithm: "Ed25519",
+      keyId: "managed-key:test-release",
+    });
+    expect(signed.entries.has("signatures/manifest-signature.json")).toBe(true);
+    const parsedSigned = await readTrustArchive(
+      await writeTrustArchive(signed),
+      {},
+      verifier(keys.publicKey),
+    );
+    expect(parsedSigned.verification.valid).toBe(true);
+  });
+
+  it("rejects tampered manifests and signature artifacts", async () => {
+    const keys = generateKeyPairSync("ed25519");
+    const signed = await signArchiveEntries(
+      assembleArchiveEntries(source()),
+      signer(keys.privateKey),
+    );
+    const manifestEntries = new Map(signed.entries);
+    const manifest = JSON.parse(
+      new TextDecoder().decode(requiredEntry(manifestEntries, "manifest.json")),
+    ) as Record<string, unknown>;
+    manifest.createdBy = "tampered-exporter";
+    manifestEntries.set(
+      "manifest.json",
+      encoder.encode(`${canonicalForTest(manifest)}\n`),
+    );
+    refreshChecksums(manifestEntries);
+    const manifestReport = await verifyArchiveEntriesWithSignatures(
+      { entries: manifestEntries },
+      verifier(keys.publicKey),
+    );
+    expect(manifestReport.issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_SIGNATURE_INVALID" }),
+    );
+
+    const signatureEntries = new Map(signed.entries);
+    const artifact = JSON.parse(
+      new TextDecoder().decode(
+        requiredEntry(
+          signatureEntries,
+          "signatures/manifest-signature.json",
+        ),
+      ),
+    ) as Record<string, unknown>;
+    const signature = String(artifact.signature);
+    artifact.signature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+    signatureEntries.set(
+      "signatures/manifest-signature.json",
+      encoder.encode(`${canonicalForTest(artifact)}\n`),
+    );
+    const signatureReport = await verifyArchiveEntriesWithSignatures(
+      { entries: signatureEntries },
+      verifier(keys.publicKey),
+    );
+    expect(signatureReport.issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_SIGNATURE_INVALID" }),
+    );
+
+    const checksumEntries = new Map(signed.entries);
+    const checksums = requiredEntry(
+      checksumEntries,
+      "checksums/sha256sums.txt",
+    );
+    checksumEntries.set(
+      "checksums/sha256sums.txt",
+      Uint8Array.from([...checksums, 0x0a]),
+    );
+    const checksumReport = await verifyArchiveEntriesWithSignatures(
+      { entries: checksumEntries },
+      verifier(keys.publicKey),
+    );
+    expect(checksumReport.issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_SIGNATURE_INVALID" }),
+    );
+  });
+
+  it("reports unknown keys and signature profiles distinctly", async () => {
+    const keys = generateKeyPairSync("ed25519");
+    const signed = await signArchiveEntries(
+      assembleArchiveEntries(source()),
+      signer(keys.privateKey),
+    );
+    const unknownKey = await verifyArchiveEntriesWithSignatures(signed, {
+      async verifyManifest() {
+        return "unknown_key";
+      },
+    });
+    expect(unknownKey.issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_SIGNATURE_KEY_UNKNOWN" }),
+    );
+
+    const entries = new Map(signed.entries);
+    const manifest = JSON.parse(
+      new TextDecoder().decode(requiredEntry(entries, "manifest.json")),
+    ) as Record<string, unknown>;
+    manifest.signatureProfile = {
+      name: "future-signature-profile",
+      algorithm: "Ed25519",
+      keyId: "managed-key:test-release",
+    };
+    entries.set(
+      "manifest.json",
+      encoder.encode(`${canonicalForTest(manifest)}\n`),
+    );
+    refreshChecksums(entries);
+    const unknownProfile = await verifyArchiveEntriesWithSignatures(
+      { entries },
+      verifier(keys.publicKey),
+    );
+    expect(unknownProfile.issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_SIGNATURE_PROFILE_UNKNOWN" }),
+    );
+  });
+
+  it("preserves unsigned 0.2 verification compatibility", async () => {
+    const archive = assembleArchiveEntries(source());
+    const report = await verifyArchiveEntriesWithSignatures(archive, {
+      async verifyManifest() {
+        throw new Error("Unsigned archives must not invoke a verifier.");
+      },
+    });
+    expect(report.valid).toBe(true);
+    expect(report.manifest?.formatVersion).toBe("0.2");
+    expect(report.manifest?.signatureProfile).toBe("unsigned");
   });
 });
 
@@ -682,6 +836,74 @@ describe("Trust Archive 0.2D resumable import execution", () => {
     ).rejects.toMatchObject({ code: "IMPORT_PLAN_ID_INVALID" });
   });
 });
+
+function signer(privateKey: KeyObject): ArchiveManifestSigner {
+  return {
+    algorithm: "Ed25519",
+    keyId: "managed-key:test-release",
+    async signManifest(manifestBytes) {
+      return Uint8Array.from(cryptoSign(null, manifestBytes, privateKey));
+    },
+  };
+}
+
+function verifier(publicKey: KeyObject): ArchiveManifestVerifier {
+  return {
+    async verifyManifest(input) {
+      if (input.keyId !== "managed-key:test-release") return "unknown_key";
+      return cryptoVerify(
+        null,
+        input.manifestBytes,
+        publicKey,
+        input.signature,
+      )
+        ? "valid"
+        : "invalid";
+    },
+  };
+}
+
+function refreshChecksums(entries: Map<string, Uint8Array>): void {
+  const sums = [...entries]
+    .filter(
+      ([path]) =>
+        path !== "checksums/sha256sums.txt" && !path.startsWith("signatures/"),
+    )
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([path, bytes]) =>
+        `${createHash("sha256").update(bytes).digest("hex")}  ${path}`,
+    )
+    .join("\n");
+  entries.set("checksums/sha256sums.txt", encoder.encode(`${sums}\n`));
+}
+
+function canonicalForTest(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new Error("Value is not JSON encodable.");
+    return encoded;
+  }
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalForTest(item)).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map(
+      (key) =>
+        `${JSON.stringify(key)}:${canonicalForTest(record[key])}`,
+    )
+    .join(",")}}`;
+}
+
+function requiredEntry(
+  entries: ReadonlyMap<string, Uint8Array>,
+  path: string,
+): Uint8Array {
+  const bytes = entries.get(path);
+  if (!bytes) throw new Error(`Archive test entry is missing: ${path}`);
+  return bytes;
+}
 
 async function arbitraryZip(
   path: string,
