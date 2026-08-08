@@ -23,6 +23,8 @@ export const policyActions = [
   "break_glass:revoke",
   "break_glass:use",
   "health:read",
+  "storage:probe_ingest",
+  "storage:manage",
   "operation:process",
   "portability:read",
   "portability:export",
@@ -146,6 +148,8 @@ const roleCapabilities: Readonly<
     "break_glass:grant",
     "break_glass:revoke",
     "health:read",
+    "storage:probe_ingest",
+    "storage:manage",
     "portability:read",
     "portability:export",
     "portability:plan",
@@ -226,6 +230,8 @@ export function actionBoundary(action: PolicyAction): ActionBoundary {
     case "audit:read":
     case "verification:run":
     case "health:read":
+    case "storage:probe_ingest":
+    case "storage:manage":
     case "operation:process":
     case "portability:read":
       return "infrastructure";

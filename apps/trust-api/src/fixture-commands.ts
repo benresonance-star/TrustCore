@@ -22,6 +22,11 @@ import type {
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type { CommandProvider } from "./app.js";
+import { InMemoryAppStorageRegistry } from "./app-storage-bindings.js";
+import {
+  createAppStorageCommandMethods,
+  seedFoundationAppStorage,
+} from "./app-storage-commands.js";
 
 const retentionKnownFields = new Set([
   "workspaceId",
@@ -96,7 +101,26 @@ export function createFixtureCommands(
       metadata: { retentionDays: 90 },
     },
   ];
-  const applications: ApplicationRegistration[] = [];
+  const applications: ApplicationRegistration[] = [
+    {
+      id: "22222222-2222-2222-2222-222222222222",
+      workspaceId: workspace.id,
+      namespace: "foundation",
+      name: "Foundation",
+      applicationVersion: "1.0.0",
+      schemaPackageIds: [],
+      capabilities: ["storage"],
+      status: "active",
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+    },
+  ];
+  const appStorage = new InMemoryAppStorageRegistry();
+  seedFoundationAppStorage(appStorage, {
+    workspaceId: workspace.id,
+    applicationId: applications[0]!.id,
+  });
+  const appStorageCommands = createAppStorageCommandMethods(appStorage);
   const policyAssignments: readonly PolicyAssignment[] = [
     {
       id: "fixture-policy-admin",
@@ -138,6 +162,19 @@ export function createFixtureCommands(
       metadata,
     });
   return {
+    ...appStorageCommands,
+    async getStorageBindingRollup(workspaceId) {
+      return appStorageCommands.getStorageBindingRollup(
+        workspaceId,
+        applications
+          .filter((item) => item.workspaceId === workspaceId)
+          .map((item) => ({ id: item.id, name: item.name })),
+        {
+          status: "healthy",
+          summary: "Fixture platform storage healthy",
+        },
+      );
+    },
     async listWorkspaces(workspaceId) {
       return { items: workspaceId === workspace.id ? [workspace] : [] };
     },
@@ -452,7 +489,50 @@ export function createFixtureCommands(
         status: "not_configured",
         checkedAt: clock().toISOString(),
         summary: "Fixture mode has no object storage.",
-        details: { objectStorageConfigured: false },
+        details: {
+          provider: "minio",
+          region: "us-east-1",
+          bucket: "",
+          credentialMode: "missing",
+          endpointHost: null,
+          transferSignerConfigured: false,
+          objectStorageConfigured: false,
+          cataloguedObjects: 0,
+          failedVerificationObjects: 0,
+          consoleLinks: [],
+          probe: null,
+        },
+      };
+    },
+    async probeStorageHealth(_actor, command) {
+      const probeId = "fixture-probe";
+      const checkedAt = clock().toISOString();
+      return {
+        status: "not_configured",
+        checkedAt,
+        summary: "Storage is not set up on the server.",
+        details: {
+          provider: "minio",
+          region: "us-east-1",
+          bucket: "",
+          credentialMode: "missing",
+          endpointHost: null,
+          transferSignerConfigured: false,
+          objectStorageConfigured: false,
+          cataloguedObjects: 0,
+          failedVerificationObjects: 0,
+          consoleLinks: [],
+          probe: {
+            probeId,
+            tier: command.tier === "ingest" ? "ingest" : "connectivity",
+            ok: false,
+            latencyMs: 1,
+            issueClass: "not_configured",
+            issueCode: "not_configured",
+            checkedAt,
+            summary: "Storage is not set up on the server.",
+          },
+        },
       };
     },
     async getBackupHealth() {

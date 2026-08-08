@@ -112,6 +112,8 @@ export type TrustAction =
   | "retention:manage"
   | "access:manage"
   | "health:read"
+  | "storage:probe_ingest"
+  | "storage:manage"
   | "portability:read"
   | "portability:export"
   | "portability:plan"
@@ -145,6 +147,180 @@ export interface ApplicationRegistration {
   createdAt: string;
   updatedAt: string;
 }
+
+/** App-domain tenant (e.g. Foundation Tenant ID) — not a Trust Workspace. */
+export interface ApplicationTenant {
+  id: string;
+  workspaceId: string;
+  applicationId: string;
+  externalTenantKey: string;
+  displayName: string;
+  status: "active" | "suspended" | "closed";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type StorageBindingTier = "managed" | "byob" | "premium";
+export type StorageBindingCredentialMode =
+  | "platform_iam"
+  | "cross_account_role"
+  | "static_keys_ref"
+  | "missing";
+export type StorageBindingStatus =
+  | "draft"
+  | "awaiting_customer_role"
+  | "configured"
+  | "connected"
+  | "needs_attention"
+  | "disabled"
+  | "migrating";
+export type StoragePlanSyncState =
+  | "synced"
+  | "drift_detected"
+  | "upgrade_recognised"
+  | "unknown"
+  | "over_capacity";
+export type StorageCostPosture =
+  | "customer_billed_byob"
+  | "platform_managed"
+  | "unknown";
+export type StorageInheritedFrom = "platform" | "app" | "none";
+
+export interface StorageProfileSummary {
+  id: string;
+  provider: StorageProviderName;
+  region: string;
+  bucket: string;
+  prefix: string;
+  tier: StorageBindingTier;
+  credentialMode: StorageBindingCredentialMode;
+  expectedBucketOwner: string | null;
+  endpointHost: string | null;
+  roleArn: string | null;
+  declaredPlanCode: string | null;
+  declaredCapacityBytes: number | null;
+}
+
+export interface StorageBindingSummary {
+  id: string;
+  workspaceId: string;
+  applicationId: string;
+  applicationTenantId: string | null;
+  profile: StorageProfileSummary;
+  status: StorageBindingStatus;
+  generation: number;
+  lastProbeOk: boolean | null;
+  lastProbeAt: string | null;
+  lastProbeSummary: string | null;
+  lastIssueClass: StorageIssueClass | null;
+  planSyncState: StoragePlanSyncState;
+  observedUsageBytes: number | null;
+  observedQuotaBytes: number | null;
+  observedAt: string | null;
+  disabled: boolean;
+  costPosture: StorageCostPosture;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EffectiveStorageSummary {
+  scope: "platform" | "app" | "tenant";
+  status: StorageBindingStatus | "not_configured";
+  inheritedFrom: StorageInheritedFrom;
+  binding: StorageBindingSummary | null;
+  provider: StorageProviderName | null;
+  tier: StorageBindingTier | null;
+  region: string | null;
+  bucket: string | null;
+  prefix: string | null;
+  credentialMode: StorageBindingCredentialMode | null;
+  usage: {
+    cataloguedObjects: number;
+    failedVerificationObjects: number;
+  };
+  costPosture: StorageCostPosture;
+  planSyncState: StoragePlanSyncState;
+  declaredCapacityBytes: number | null;
+  observedUsageBytes: number | null;
+  observedQuotaBytes: number | null;
+}
+
+export interface StorageBindingRollup {
+  platformStatus: "healthy" | "degraded" | "not_configured";
+  platformSummary: string;
+  applications: readonly {
+    applicationId: string;
+    applicationName: string;
+    connected: number;
+    attention: number;
+    configured: number;
+    notSetUp: number;
+    topIssues: readonly {
+      applicationTenantId: string | null;
+      externalTenantKey: string | null;
+      issueClass: string | null;
+      summary: string;
+    }[];
+  }[];
+  attentionTotal: number;
+}
+
+export interface CreateApplicationTenantCommand {
+  workspaceId: string;
+  applicationId: string;
+  externalTenantKey: string;
+  displayName: string;
+  idempotencyKey: string;
+}
+
+export interface UpsertStorageBindingCommand {
+  workspaceId: string;
+  applicationId: string;
+  applicationTenantId?: string | null;
+  provider: StorageProviderName;
+  region: string;
+  bucket: string;
+  prefix?: string;
+  tier: StorageBindingTier;
+  credentialMode: StorageBindingCredentialMode;
+  expectedBucketOwner?: string | null;
+  endpointHost?: string | null;
+  roleArn?: string | null;
+  declaredPlanCode?: string | null;
+  declaredCapacityBytes?: number | null;
+  idempotencyKey: string;
+}
+
+export interface ProbeStorageBindingCommand {
+  workspaceId: string;
+  bindingId: string;
+  tier?: StorageProbeTier;
+}
+
+export interface RefreshStoragePlanCommand {
+  workspaceId: string;
+  bindingId: string;
+  /** Synthetic observation for tests/fixtures; ignored unless TRUST allows. */
+  observedQuotaBytes?: number;
+  observedUsageBytes?: number;
+}
+
+export interface AcceptStoragePlanCommand {
+  workspaceId: string;
+  bindingId: string;
+  declaredCapacityBytes: number;
+  planCode?: string;
+}
+
+export interface CutoverStorageMigrateCommand {
+  workspaceId: string;
+  sourceBindingId: string;
+  targetBindingId: string;
+  /** Digest proofs for each object being cut over (S9). */
+  objectDigests: readonly { objectId: string; sha256: string }[];
+  idempotencyKey: string;
+}
+
 export interface PolicyAssignment {
   id: string;
   workspaceId: string;
@@ -428,6 +604,73 @@ export interface ServiceHealth {
   checkedAt: string;
   summary: string;
   details: Readonly<Record<string, unknown>>;
+}
+
+/** Canonical object-store provider names for health/diagnostics. */
+export type StorageProviderName = "minio" | "s3";
+
+export type StorageCredentialMode =
+  | "iam_role"
+  | "static_keys_configured"
+  | "missing";
+
+export type StorageIssueClass =
+  | "not_configured"
+  | "auth"
+  | "permission"
+  | "not_found"
+  | "wrong_region"
+  | "network"
+  | "provider_outage"
+  | "internal";
+
+/** Tier A = connectivity; Tier B = temp put+delete ingest path. */
+export type StorageProbeTier = "connectivity" | "ingest";
+
+export interface StorageConsoleLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
+export interface StorageProbeResult {
+  probeId: string;
+  tier: StorageProbeTier;
+  ok: boolean;
+  latencyMs: number;
+  issueClass: StorageIssueClass | null;
+  issueCode: string | null;
+  checkedAt: string;
+  summary: string;
+  billingHint?: string;
+  /** Region reported by HeadBucket (`x-amz-bucket-region`), when available. */
+  bucketRegion?: string | null;
+  /** False when configured region disagrees with HeadBucket. */
+  regionMatch?: boolean | null;
+}
+
+/** Typed storage health details embedded in ServiceHealth.details. */
+export interface StorageHealthDetails {
+  provider: StorageProviderName;
+  region: string;
+  bucket: string;
+  credentialMode: StorageCredentialMode;
+  endpointHost: string | null;
+  transferSignerConfigured: boolean;
+  objectStorageConfigured: boolean;
+  cataloguedObjects: number;
+  failedVerificationObjects: number;
+  consoleLinks: readonly StorageConsoleLink[];
+  probe: StorageProbeResult | null;
+  /** Minimal IAM actions for Connect checklist (documentation only). */
+  minimalIamActions?: readonly string[];
+  /** True only when TRUST_SCANNER=fake (or a future vendor) is active. */
+  scannerConfigured?: boolean;
+}
+
+export interface ProbeStorageCommand {
+  workspaceId: string;
+  tier?: StorageProbeTier;
 }
 export interface RegisterApplicationCommand {
   workspaceId: string;

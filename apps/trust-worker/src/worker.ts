@@ -84,6 +84,7 @@ function createStorage(): ObjectStorage {
     const endpoint = process.env.TRUST_STORAGE_ENDPOINT;
     const accessKeyId = process.env.TRUST_STORAGE_ACCESS_KEY;
     const secretAccessKey = process.env.TRUST_STORAGE_SECRET_KEY;
+    const sessionToken = process.env.TRUST_STORAGE_SESSION_TOKEN;
     if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
       throw new Error(
         "S3 static credentials require both TRUST_STORAGE_ACCESS_KEY and TRUST_STORAGE_SECRET_KEY",
@@ -95,7 +96,11 @@ function createStorage(): ObjectStorage {
       forcePathStyle: process.env.TRUST_STORAGE_FORCE_PATH_STYLE === "true",
       ...(endpoint ? { endpoint } : {}),
       ...(accessKeyId && secretAccessKey
-        ? { accessKeyId, secretAccessKey }
+        ? {
+            accessKeyId,
+            secretAccessKey,
+            ...(sessionToken ? { sessionToken } : {}),
+          }
         : {}),
     });
   }

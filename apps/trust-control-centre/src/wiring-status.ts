@@ -33,17 +33,101 @@ const entries = {
   },
   "section.flow": {
     id: "section.flow",
-    label: "Flow (help)",
+    label: "System overview",
+    level: "partial",
+    detail:
+      "Topology, inspector, and workspace signals use gateway snapshot/health/applications where available. Several node signals are status notes, not measured telemetry. Semantic layer remains Dummy. Prefer Connections for setup; Platform status for the release catalog.",
+  },
+  "flow.node.apps": {
+    id: "flow.node.apps",
+    label: "Applications",
+    level: "partial",
+    detail:
+      "Application list/register live in Connections. Overview shows registered count; application-principal auth probe is not covered here.",
+  },
+  "flow.node.gateway": {
+    id: "flow.node.gateway",
+    label: "Trust API",
+    level: "live",
+    detail:
+      "Control Centre gateway mode and storage health from snapshot/operational APIs. Does not configure API credentials from this diagram.",
+  },
+  "flow.node.identity": {
+    id: "flow.node.identity",
+    label: "Identity & policy",
+    level: "partial",
+    detail:
+      "Session and policy flows are gateway-wired in Access. Passkey/MFA remains Dummy preview copy.",
+  },
+  "flow.node.revision": {
+    id: "flow.node.revision",
+    label: "Revision engine",
+    level: "live",
+    detail:
+      "History list/restore is Live. Overview links into History; it does not mutate revisions from the canvas.",
+  },
+  "flow.node.portability": {
+    id: "flow.node.portability",
+    label: "Portability",
+    level: "live",
+    detail:
+      "Export/import flows are Live in Portability. Overview does not run archive operations from the canvas.",
+  },
+  "flow.node.semantic": {
+    id: "flow.node.semantic",
+    label: "Semantic layer",
     level: "dummy",
     detail:
-      "Help/docs diagram only. Nodes do not call the API or change system state. Prefer Connections for setup.",
+      "AI / semantic layer is explicitly deferred. No API calls; derived indexes must never write canonical bytes.",
+  },
+  "flow.node.metadata": {
+    id: "flow.node.metadata",
+    label: "Metadata store",
+    level: "partial",
+    detail:
+      "Datasets and integrity labels come from gateway snapshot. Create/edit is not exposed in Control Centre.",
+  },
+  "flow.node.objects": {
+    id: "flow.node.objects",
+    label: "Canonical objects",
+    level: "partial",
+    detail:
+      "Storage diagnostics and download grants. Public multipart upload remains outstanding; open Storage for provider connection checks.",
+  },
+  "flow.node.audit": {
+    id: "flow.node.audit",
+    label: "Audit log",
+    level: "live",
+    detail:
+      "Trust events are available via History. Overview does not append audit events from the canvas.",
+  },
+  "flow.node.backup": {
+    id: "flow.node.backup",
+    label: "Backup & archive",
+    level: "partial",
+    detail:
+      "Reads health.backup and links to Health/Portability. Telemetry may report not_configured until a provider exists.",
   },
   "section.health": {
     id: "section.health",
     label: "Health",
     level: "partial",
     detail:
-      "Metrics use snapshot plus gateway.getOperationalSnapshot and runVerification. Backup telemetry is often not_configured; no storage-provider admin UI.",
+      "Metrics use snapshot plus gateway.getOperationalSnapshot and runVerification. Storage diagnostics live under Storage; backup telemetry is often not_configured.",
+  },
+  "section.storage": {
+    id: "section.storage",
+    label: "Storage",
+    level: "partial",
+    detail:
+      "Operator diagnostics for the platform blob store: health details, Test connection (probe), and allowlisted provider console links. Credentials stay on the API host — no secrets in the browser. App/tenant bindings live under Apps & Tenants (ADR-016).",
+  },
+  "section.apps": {
+    id: "section.apps",
+    label: "Apps & Tenants",
+    level: "partial",
+    detail:
+      "Application tenants and storage bindings (ADR-016). Fixture API routes and durable Postgres persistence (migration 0015 + SQL repo) are in place. Control Centre live gateway rollup/tenants fetch remains outstanding. Live dual-account STS AssumeRole hardening and BYOB data-plane routing remain Partial. Source connectors deferred (ADR-015).",
   },
   "section.history": {
     id: "section.history",
@@ -155,6 +239,8 @@ export const sectionWiringIds = {
   datasets: "section.datasets",
   flow: "section.flow",
   health: "section.health",
+  storage: "section.storage",
+  apps: "section.apps",
   history: "section.history",
   portability: "section.portability",
   "app-protocol": "section.app-protocol",
@@ -216,6 +302,18 @@ export const platformStatus = {
       id: "quarantine",
       text: "Quarantine scan orchestration + promotion primitives (services)",
     },
+    {
+      id: "adr-016-api",
+      text: "ADR-016 storage binding API routes (fixture + OpenAPI/SDK)",
+    },
+    {
+      id: "adr-016-schema",
+      text: "Migration 0015 application tenants / storage bindings schema",
+    },
+    {
+      id: "adr-016-postgres-repo",
+      text: "Durable Postgres repository for application-tenant storage bindings",
+    },
   ],
   outstanding: [
     {
@@ -224,7 +322,31 @@ export const platformStatus = {
     },
     {
       id: "cc-grants-ui",
-      text: "Control Centre UI for blob download grants, multipart, and scan status",
+      text: "Control Centre UI for multipart upload and workspace quarantine summary",
+    },
+    {
+      id: "cc-apps-gateway",
+      text: "Control Centre gateway wiring for tenants/bindings/rollup (Apps & Tenants UI still fixture-backed for bindings)",
+    },
+    {
+      id: "cc-apps-live-strip",
+      text: "Home storage attention strip from live /v1/storage/bindings/rollup",
+    },
+    {
+      id: "sts-assumerole-hardening",
+      text: "Live dual-account STS AssumeRole hardening for BYOB binding probes",
+    },
+    {
+      id: "byob-data-plane",
+      text: "Ingest/worker resolve per storage binding (platform ObjectStorage only today)",
+    },
+    {
+      id: "user-drive-connectors",
+      text: "User cloud-drive connectors (Google/Microsoft/Apple/local) — deferred; see ADR-015",
+    },
+    {
+      id: "storage-ops-niceties",
+      text: "Storage ops niceties deferred: pause-ingest, worker config-drift UI, probe metrics, clock-skew diagnostic",
     },
     {
       id: "app-principal-probe",
@@ -266,6 +388,8 @@ export function platformStatusCounts(): {
   let partial = 0;
   let dummy = 0;
   for (const entry of Object.values(wiringEntries)) {
+    // Diagram node badges are documentation wiring, not Control Centre surfaces.
+    if (entry.id.startsWith("flow.node.")) continue;
     if (entry.level === "live") live += 1;
     else if (entry.level === "partial") partial += 1;
     else dummy += 1;

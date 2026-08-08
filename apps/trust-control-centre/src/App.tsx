@@ -2,12 +2,10 @@ import {
   Activity,
   Archive,
   BadgeCheck,
-  Box,
   Braces,
   CircleCheckBig,
   Clock3,
   Database,
-  FileClock,
   FileCheck2,
   Files,
   Fingerprint,
@@ -19,16 +17,12 @@ import {
   Library,
   Link2,
   ClipboardList,
-  Network,
   NotebookPen,
   PackageOpen,
   PlugZap,
-  PanelsTopLeft,
   Search,
   ShieldCheck,
   ShieldAlert,
-  Sparkles,
-  TableProperties,
   Trash2,
   Upload,
   UserPlus,
@@ -49,6 +43,7 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  ApplicationRegistration,
   ArchiveCandidate,
   ArchiveExportSummary,
   HistorySnapshot,
@@ -66,8 +61,12 @@ import type {
   Section,
 } from "./model";
 import { ConnectionsView } from "./ConnectionsView";
+import { AppsTenantsView, StorageAttentionStrip } from "./AppsTenantsView";
+import { FlowView } from "./FlowView";
+import { foundationStorageRollup } from "./foundation-storage-fixture";
 import { PlatformStatusView } from "./PlatformStatusView";
 import { remediationFor } from "./remediation";
+import { StorageProviderView, describeProbeError } from "./StorageProviderView";
 import { TransfersPanel } from "./TransfersPanel";
 import { WiringBadge } from "./WiringBadge";
 import {
@@ -80,9 +79,11 @@ const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
   [
     { id: "home", label: "Home", Icon: Home },
     { id: "connections", label: "Connections", Icon: Link2 },
+    { id: "apps", label: "Apps & Tenants", Icon: BadgeCheck },
     { id: "datasets", label: "Datasets", Icon: Database },
-    { id: "flow", label: "Flow (help)", Icon: Waypoints },
+    { id: "flow", label: "System overview", Icon: Waypoints },
     { id: "health", label: "Health", Icon: Activity },
+    { id: "storage", label: "Storage", Icon: HardDrive },
     { id: "history", label: "History", Icon: History },
     { id: "portability", label: "Portability", Icon: PackageOpen },
     { id: "app-protocol", label: "App protocol", Icon: PlugZap },
@@ -105,9 +106,20 @@ export function App({
     useState<OperationalSnapshot | null>(null);
   const [operationalError, setOperationalError] = useState("");
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [applicationCount, setApplicationCount] = useState<number | null>(null);
+  const [applicationsList, setApplicationsList] = useState<
+    readonly ApplicationRegistration[]
+  >([]);
+  const [applicationsError, setApplicationsError] = useState<string | null>(
+    null,
+  );
   const [appAuthRequired, setAppAuthRequired] = useState(false);
   const [appToken, setAppToken] = useState("");
   const [appError, setAppError] = useState("");
+  const [storageProbing, setStorageProbing] = useState(false);
+  const [storageProbeError, setStorageProbeError] = useState<string | null>(
+    null,
+  );
 
   const loadSnapshot = useCallback(async () => {
     if (gateway.mode === "live" && !gateway.workspaceId) {
@@ -145,9 +157,69 @@ export function App({
         );
     }
   }, [gateway]);
+
+  const probeStorage = useCallback(
+    async (tier: "connectivity" | "ingest") => {
+      setStorageProbing(true);
+      setStorageProbeError(null);
+      try {
+        const result = await gateway.probeStorage({ tier });
+        setOperationalSnapshot((current) =>
+          current
+            ? { ...current, storage: result }
+            : {
+                storage: result,
+                backup: {
+                  status: "not_configured",
+                  checkedAt: result.checkedAt,
+                  summary: "Backup health not loaded.",
+                  details: {},
+                },
+                latestVerification: null,
+              },
+        );
+      } catch (error) {
+        setStorageProbeError(describeProbeError(error));
+      } finally {
+        setStorageProbing(false);
+      }
+    },
+    [gateway],
+  );
+
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    if (section !== "flow" && section !== "apps") return;
+    let cancelled = false;
+    setApplicationsError(null);
+    void gateway
+      .listApplications(gateway.workspaceId)
+      .then((apps) => {
+        if (!cancelled) {
+          setApplicationCount(apps.length);
+          setApplicationsList(apps);
+          setApplicationsError(null);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setApplicationCount(null);
+          setApplicationsList([]);
+          setApplicationsError(
+            error instanceof Error
+              ? error.message
+              : "Application list unavailable.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section, gateway]);
+
   async function authenticateApp(event: FormEvent) {
     event.preventDefault();
     setAppError("");
@@ -310,6 +382,15 @@ export function App({
               navigateHistory={() => setSection("history")}
             />
           )}
+          {section === "apps" && (
+            <AppsTenantsView
+              applications={applicationsList}
+              mode={gateway.mode}
+              onOpenConnections={() => setSection("connections")}
+              onOpenStorage={() => setSection("storage")}
+              onOpenPortability={() => setSection("portability")}
+            />
+          )}
           {section === "platform-status" && (
             <PlatformStatusView mode={gateway.mode} />
           )}
@@ -323,7 +404,16 @@ export function App({
               mode={gateway.mode}
             />
           )}
-          {section === "flow" && <FlowView mode={gateway.mode} />}
+          {section === "flow" && (
+            <FlowView
+              mode={gateway.mode}
+              snapshot={snapshot}
+              operational={operationalSnapshot}
+              applicationCount={applicationCount}
+              applicationsError={applicationsError}
+              navigate={setSection}
+            />
+          )}
           {section === "health" && (
             <HealthView
               snapshot={snapshot}
@@ -331,6 +421,16 @@ export function App({
               operationalError={operationalError}
               gateway={gateway}
               navigateHistory={() => setSection("history")}
+              navigateStorage={() => setSection("storage")}
+            />
+          )}
+          {section === "storage" && (
+            <StorageProviderView
+              health={operationalSnapshot?.storage ?? null}
+              mode={gateway.mode}
+              probing={storageProbing}
+              probeError={storageProbeError}
+              onProbe={probeStorage}
             />
           )}
           {section === "history" && (
@@ -456,6 +556,41 @@ function HomeView({
           </span>
         }
       />
+      <StorageAttentionStrip
+        rollup={mode === "fixture" ? foundationStorageRollup() : null}
+        onOpenApps={() => navigate("apps")}
+        onOpenStorage={() => navigate("storage")}
+      />
+      {mode === "live" ? (
+        <div className="status-notice" role="status">
+          <HardDrive size={18} aria-hidden />
+          <div>
+            <strong>App binding rollup unavailable.</strong>
+            <small>
+              {" "}
+              Home attention strip for app/tenant bindings is not wired to the
+              Control Centre gateway yet. Open Apps &amp; Tenants or platform
+              Storage for diagnostics.
+            </small>
+            <div className="button-row" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => navigate("apps")}
+              >
+                Open Apps &amp; Tenants
+              </button>
+              <button
+                type="button"
+                className="button"
+                onClick={() => navigate("storage")}
+              >
+                Open platform Storage
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <section>
         <div className="section-heading">
           <h2>Recent projects</h2>
@@ -810,147 +945,20 @@ function DatasetsView({
   );
 }
 
-const flowNodes = [
-  {
-    id: "apps",
-    label: "Applications",
-    note: "Foundation · WeSketch · Ivan",
-    Icon: PanelsTopLeft,
-  },
-  {
-    id: "gateway",
-    label: "Trust API",
-    note: "One governed entry point",
-    Icon: Network,
-  },
-  {
-    id: "identity",
-    label: "Identity & policy",
-    note: "Owner · role · permission",
-    Icon: Fingerprint,
-  },
-  {
-    id: "revision",
-    label: "Revision engine",
-    note: "Immutable history",
-    Icon: GitBranch,
-  },
-  {
-    id: "portability",
-    label: "Portability",
-    note: "Import · export · migrate",
-    Icon: PackageOpen,
-  },
-  {
-    id: "semantic",
-    label: "Semantic layer",
-    note: "Derived, never canonical",
-    Icon: Sparkles,
-  },
-  {
-    id: "metadata",
-    label: "Metadata store",
-    note: "Identity and relationships",
-    Icon: TableProperties,
-  },
-  {
-    id: "objects",
-    label: "Canonical objects",
-    note: "Original bytes preserved",
-    Icon: Box,
-  },
-  {
-    id: "audit",
-    label: "Audit log",
-    note: "Append-only trust events",
-    Icon: FileClock,
-  },
-  {
-    id: "backup",
-    label: "Backup & archive",
-    note: "Restore beyond the app",
-    Icon: Archive,
-  },
-] as const;
-
-function FlowView({ mode }: { mode: GatewayMode }) {
-  const [selected, setSelected] = useState("gateway");
-  const item = flowNodes.find((node) => node.id === selected)!;
-  const SelectedIcon = item.Icon;
-  return (
-    <>
-      <PageHeading
-        title="System flow"
-        subtitle="How apps write, protect, recover and derive meaning from trusted data."
-        wiringId="section.flow"
-        mode={mode}
-      />
-      <div className="flow-canvas">
-        <svg
-          viewBox="0 0 1000 600"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <defs>
-            <marker
-              id="arrow"
-              viewBox="0 0 8 8"
-              refX="7"
-              refY="4"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto"
-            >
-              <path d="M0 0L8 4L0 8Z" />
-            </marker>
-          </defs>
-          <path d="M210 246L248 246" />
-          <path d="M440 246C466 246 463 63 488 63" />
-          <path d="M440 246L488 206" />
-          <path d="M440 246C466 246 463 350 488 350" />
-          <path d="M690 63L758 63" />
-          <path d="M690 206L758 206" />
-          <path d="M690 350L758 350" />
-          <path d="M865 245L865 458" />
-          <path d="M758 245C650 245 650 495 445 495" />
-          <path d="M345 458L345 285" />
-        </svg>
-        {flowNodes.map(({ id, label, note, Icon }) => (
-          <button
-            type="button"
-            key={id}
-            className={`flow-node flow-${id} ${selected === id ? "active" : ""}`}
-            onClick={() => setSelected(id)}
-          >
-            <Icon size={17} />
-            <span>
-              <strong>{label}</strong>
-              <small>{note}</small>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="card flow-detail">
-        <SelectedIcon size={18} />
-        <strong>{item.label}:</strong>
-        <span>{item.note}. Select another node to inspect the boundary.</span>
-      </div>
-    </>
-  );
-}
-
 function HealthView({
   snapshot,
   operational,
   operationalError,
   gateway,
   navigateHistory,
+  navigateStorage,
 }: {
   snapshot: ControlCentreSnapshot;
   operational: OperationalSnapshot | null;
   operationalError: string;
   gateway: ControlCentreGateway;
   navigateHistory: () => void;
+  navigateStorage: () => void;
 }) {
   const [running, setRunning] = useState(false),
     [result, setResult] = useState<string>("");
@@ -1043,6 +1051,13 @@ function HealthView({
                 status={operational.storage.status}
                 summary={operational.storage.summary}
               />
+              <button
+                type="button"
+                className="text-button"
+                onClick={navigateStorage}
+              >
+                Open storage diagnostics
+              </button>
               <ServiceStatus
                 label="Backup service"
                 status={operational.backup.status}

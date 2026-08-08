@@ -29,6 +29,11 @@ export {
   PortabilityArchiveObjectStore,
   PostgresPortabilityStore,
 } from "./portability-store.js";
+export { PostgresAppStorageRepository } from "./app-storage-repository.js";
+export type {
+  AppStorageBindingRow,
+  AppStorageProfileRow,
+} from "./app-storage-repository.js";
 export { PostgresPortabilityExportReader } from "./portability-export.js";
 export type {
   DurablePortabilityArchive,

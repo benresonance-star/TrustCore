@@ -2,8 +2,59 @@ import type {
   ApplicationRegistration,
   HistorySnapshot,
   PolicyAssignment,
+  ServiceHealth,
 } from "@trust-core/protocol";
 import type { ControlCentreGateway, ControlCentreSnapshot } from "./model";
+
+function fixtureHealthyStorage(): ServiceHealth {
+  return {
+    status: "healthy",
+    checkedAt: "2026-08-04T02:14:00.000Z",
+    summary: "Fixture provider connectivity succeeded.",
+    details: {
+      provider: "s3",
+      region: "ap-southeast-2",
+      bucket: "trust-core-fixture",
+      credentialMode: "iam_role",
+      endpointHost: null,
+      transferSignerConfigured: true,
+      objectStorageConfigured: true,
+      cataloguedObjects: 18_426,
+      failedVerificationObjects: 0,
+      consoleLinks: [
+        {
+          id: "s3_bucket",
+          label: "Open in Amazon S3",
+          url: "https://ap-southeast-2.console.aws.amazon.com/s3/buckets/trust-core-fixture?region=ap-southeast-2",
+        },
+        {
+          id: "iam",
+          label: "Open IAM",
+          url: "https://ap-southeast-2.console.aws.amazon.com/iam/home#/home",
+        },
+      ],
+      probe: {
+        probeId: "fixture-probe-ok",
+        tier: "connectivity",
+        ok: true,
+        latencyMs: 12,
+        issueClass: null,
+        issueCode: null,
+        checkedAt: "2026-08-04T02:14:00.000Z",
+        summary: "Fixture provider connectivity succeeded.",
+        bucketRegion: "ap-southeast-2",
+        regionMatch: true,
+      },
+      minimalIamActions: [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+      ],
+      scannerConfigured: false,
+    },
+  };
+}
 
 const snapshot: ControlCentreSnapshot = {
   status: {
@@ -117,12 +168,7 @@ export const fixtureGateway: ControlCentreGateway = {
   },
   async getOperationalSnapshot() {
     return {
-      storage: {
-        status: "healthy",
-        checkedAt: "2026-08-04T02:14:00.000Z",
-        summary: "Fixture object storage is operational.",
-        details: {},
-      },
+      storage: fixtureHealthyStorage(),
       backup: {
         status: "healthy",
         checkedAt: "2026-08-04T02:14:00.000Z",
@@ -130,6 +176,32 @@ export const fixtureGateway: ControlCentreGateway = {
         details: {},
       },
       latestVerification: null,
+    };
+  },
+  async probeStorage(input = {}) {
+    const tier = input.tier === "ingest" ? "ingest" : "connectivity";
+    return {
+      ...fixtureHealthyStorage(),
+      summary:
+        tier === "ingest"
+          ? "Fixture connectivity and upload path succeeded."
+          : "Fixture provider connectivity succeeded.",
+      details: {
+        ...fixtureHealthyStorage().details,
+        probe: {
+          probeId: "fixture-probe-ok",
+          tier,
+          ok: true,
+          latencyMs: 12,
+          issueClass: null,
+          issueCode: null,
+          checkedAt: "2026-08-04T02:15:00.000Z",
+          summary:
+            tier === "ingest"
+              ? "Fixture connectivity and upload path succeeded."
+              : "Fixture provider connectivity succeeded.",
+        },
+      },
     };
   },
   async getHistory(workspaceId) {
@@ -379,6 +451,18 @@ export const fixtureGateway: ControlCentreGateway = {
 };
 
 let fixtureApplications: ApplicationRegistration[] = [
+  {
+    id: "fixture-app-foundation",
+    workspaceId: "workspace-demo",
+    namespace: "app/foundation",
+    name: "Foundation",
+    applicationVersion: "1.0.0",
+    schemaPackageIds: [],
+    capabilities: ["dataset:read", "resource:read", "object:ingest"],
+    status: "active",
+    createdAt: "2026-08-03T00:00:00.000Z",
+    updatedAt: "2026-08-03T00:00:00.000Z",
+  },
   {
     id: "fixture-app-wesketch",
     workspaceId: "workspace-demo",

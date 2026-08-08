@@ -209,7 +209,13 @@ describe("Release 0.1 API routing", () => {
         .replace("{operationId}", "missing")
         .replace("{uploadId}", "missing")
         .replace("{archiveId}", "missing")
-        .replace("{planId}", "missing");
+        .replace("{planId}", "missing")
+        .replace(
+          "{applicationId}",
+          "22222222-2222-2222-2222-222222222222",
+        )
+        .replace("{tenantId}", "missing")
+        .replace("{bindingId}", "missing");
       const body = bodyFor(contract.operationId);
       const result = await route(contract.method, path, {
         headers,
@@ -1491,6 +1497,50 @@ describe("Release 0.1 API routing", () => {
     expect(conforms(resources.body, release01Schemas.ResourceList)).toBe(true);
     expect(conforms(error.body, release01Schemas.ApiError)).toBe(true);
   });
+
+  it("lists Foundation tenants and refuses auditor storage:manage", async () => {
+    const { route } = configured();
+    const listed = await route(
+      "GET",
+      "/v1/applications/22222222-2222-2222-2222-222222222222/tenants",
+      { headers },
+    );
+    expect(listed.status).toBe(200);
+    expect(
+      (listed.body as { items: unknown[] }).items.length,
+    ).toBeGreaterThanOrEqual(3);
+    const rollup = await route("GET", "/v1/storage/bindings/rollup", {
+      headers,
+    });
+    expect(rollup.status).toBe(200);
+    expect(
+      (rollup.body as { attentionTotal: number }).attentionTotal,
+    ).toBeGreaterThan(0);
+    const auditor: AuthenticatedActor = {
+      id: "auditor",
+      displayName: "Auditor",
+      roles: ["auditor"],
+      workspaceIds: ["workspace-demo"],
+    };
+    const denied = configured(auditor).route;
+    expect(
+      (
+        await denied("POST", "/v1/storage/bindings", {
+          headers,
+          body: {
+            workspaceId: "workspace-demo",
+            applicationId: "22222222-2222-2222-2222-222222222222",
+            provider: "s3",
+            region: "ap-southeast-2",
+            bucket: "x",
+            tier: "managed",
+            credentialMode: "platform_iam",
+            idempotencyKey: "denied",
+          },
+        })
+      ).body,
+    ).toMatchObject({ code: "PERMISSION_DENIED" });
+  });
 });
 
 async function fixtureArchiveBase64(): Promise<string> {
@@ -1668,6 +1718,53 @@ function bodyFor(
     case "portability.plans.get":
     case "portability.operations.get":
     case "portability.exports.download":
+      return undefined;
+    case "storage.probe":
+      return {
+        workspaceId: "workspace-demo",
+        tier: "connectivity",
+      };
+    case "applicationTenants.create":
+      return {
+        workspaceId: "workspace-demo",
+        externalTenantKey: "contract-tenant",
+        displayName: "Contract Tenant",
+        idempotencyKey: "contract-tenant",
+      };
+    case "storageBindings.upsert":
+      return {
+        workspaceId: "workspace-demo",
+        applicationId: "22222222-2222-2222-2222-222222222222",
+        provider: "s3",
+        region: "ap-southeast-2",
+        bucket: "contract-binding",
+        tier: "managed",
+        credentialMode: "platform_iam",
+        idempotencyKey: "contract-binding",
+      };
+    case "storageBindings.probe":
+    case "storageBindings.planRefresh":
+      return { workspaceId: "workspace-demo" };
+    case "storageBindings.planAccept":
+      return {
+        workspaceId: "workspace-demo",
+        declaredCapacityBytes: 1024,
+      };
+    case "storageBindings.migrateCutover":
+      return {
+        workspaceId: "workspace-demo",
+        sourceBindingId: "11111111-1111-1111-1111-111111111111",
+        targetBindingId: "22222222-2222-2222-2222-222222222222",
+        objectDigests: [],
+        idempotencyKey: "contract-cutover",
+      };
+    case "storageBindings.disable":
+    case "storageBindings.rollback":
+      return { workspaceId: "workspace-demo" };
+    case "applicationTenants.list":
+    case "applicationStorage.effective":
+    case "applicationTenantStorage.effective":
+    case "storageBindings.rollup":
       return undefined;
     default:
       return assertNever(operationId);

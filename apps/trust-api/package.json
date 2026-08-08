@@ -16,6 +16,7 @@
     "test:portability:docker": "vitest run tests/portability.docker.integration.test.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1102.0",
     "@trust-core/archive": "workspace:*",
     "@trust-core/fixtures-ivans-diary": "workspace:*",
     "@trust-core/fixtures-wesketch": "workspace:*",
@@ -32,7 +33,6 @@
     "pg": "^8.16.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "^3.1102.0",
     "@trust-core/sdk": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",

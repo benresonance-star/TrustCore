@@ -2,7 +2,9 @@ import { verificationLevels } from "@trust-core/protocol";
 import type {
   ApiErrorResponse,
   ApplicationRegistration,
+  ApplicationTenant,
   AuthenticatedActor,
+  AcceptStoragePlanCommand,
   CompleteUploadCommand,
   ControlCentreSnapshot,
   CreatePolicyAssignmentCommand,
@@ -11,26 +13,35 @@ import type {
   CreateUploadCommand,
   CreateImportPlanCommand,
   CreateRetentionPolicyCommand,
+  CreateApplicationTenantCommand,
+  CutoverStorageMigrateCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
   DownloadGrant,
+  EffectiveStorageSummary,
   HealthResponse,
   HistorySnapshot,
   PublicErrorCode,
   PolicyAssignment,
+  ProbeStorageCommand,
+  ProbeStorageBindingCommand,
   RegisterApplicationCommand,
   RestoreResourceCommand,
   RevokePolicyAssignmentCommand,
   RetentionPolicyRecord,
+  RefreshStoragePlanCommand,
   RevisionCommand,
   RevisionCommandResult,
   RunVerificationCommand,
   ExecuteImportCommand,
+  StorageBindingRollup,
+  StorageBindingSummary,
   TrustAction,
   UploadSession,
   UploadScanStatus,
   UploadArchiveCommand,
   UpdateRetentionPolicyCommand,
+  UpsertStorageBindingCommand,
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type { ObjectIngestResult } from "@trust-core/operations";
@@ -144,6 +155,10 @@ export interface CommandProvider {
     operationId: string,
   ): Promise<unknown | undefined>;
   getStorageHealth(workspaceId: string): Promise<unknown>;
+  probeStorageHealth?(
+    actor: AuthenticatedActor,
+    command: ProbeStorageCommand,
+  ): Promise<unknown>;
   getBackupHealth(workspaceId: string): Promise<unknown>;
   createUpload(
     actor: AuthenticatedActor,
@@ -172,6 +187,50 @@ export interface CommandProvider {
     actor: AuthenticatedActor,
     command: ObjectIngestCommand,
   ): Promise<ObjectIngestResult>;
+  listApplicationTenants?(
+    workspaceId: string,
+    applicationId: string,
+  ): Promise<unknown>;
+  createApplicationTenant?(
+    actor: AuthenticatedActor,
+    command: CreateApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  getEffectiveStorage?(
+    workspaceId: string,
+    applicationId: string,
+    applicationTenantId?: string,
+  ): Promise<EffectiveStorageSummary>;
+  getStorageBindingRollup?(workspaceId: string): Promise<StorageBindingRollup>;
+  upsertStorageBinding?(
+    actor: AuthenticatedActor,
+    command: UpsertStorageBindingCommand,
+  ): Promise<unknown>;
+  probeStorageBinding?(
+    actor: AuthenticatedActor,
+    command: ProbeStorageBindingCommand,
+  ): Promise<StorageBindingSummary>;
+  refreshStoragePlan?(
+    actor: AuthenticatedActor,
+    command: RefreshStoragePlanCommand,
+  ): Promise<StorageBindingSummary>;
+  acceptStoragePlan?(
+    actor: AuthenticatedActor,
+    command: AcceptStoragePlanCommand,
+  ): Promise<StorageBindingSummary>;
+  disableStorageBinding?(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+  ): Promise<StorageBindingSummary>;
+  rollbackStorageBinding?(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+  ): Promise<StorageBindingSummary>;
+  cutoverStorageMigrate?(
+    actor: AuthenticatedActor,
+    command: CutoverStorageMigrateCommand,
+  ): Promise<StorageBindingSummary>;
 }
 
 export interface AuthorizationScope extends PolicyScope {
@@ -327,6 +386,225 @@ export function createApi(
           ),
         validApplication,
       );
+    const applicationTenantsMatch = match(
+      pathname,
+      /^\/v1\/applications\/([^/]+)\/tenants$/,
+    );
+    const applicationTenantStorageParts = pathname.match(
+      /^\/v1\/applications\/([^/]+)\/tenants\/([^/]+)\/storage$/,
+    );
+    const applicationStorageMatch = match(
+      pathname,
+      /^\/v1\/applications\/([^/]+)\/storage$/,
+    );
+    const bindingProbeMatch = match(
+      pathname,
+      /^\/v1\/storage\/bindings\/([^/]+)\/probe$/,
+    );
+    const bindingPlanRefreshMatch = match(
+      pathname,
+      /^\/v1\/storage\/bindings\/([^/]+)\/plan\/refresh$/,
+    );
+    const bindingPlanAcceptMatch = match(
+      pathname,
+      /^\/v1\/storage\/bindings\/([^/]+)\/plan\/accept$/,
+    );
+    const bindingDisableMatch = match(
+      pathname,
+      /^\/v1\/storage\/bindings\/([^/]+)\/disable$/,
+    );
+    const bindingRollbackMatch = match(
+      pathname,
+      /^\/v1\/storage\/bindings\/([^/]+)\/rollback$/,
+    );
+    if (applicationTenantsMatch && method === "GET")
+      return commands?.listApplicationTenants
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) =>
+              commands!.listApplicationTenants!(
+                workspaceId,
+                applicationTenantsMatch,
+              ),
+          )
+        : unavailable(request);
+    if (applicationTenantsMatch && method === "POST")
+      return commands?.createApplicationTenant
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.createApplicationTenant!(actor, {
+                ...(request.body as CreateApplicationTenantCommand),
+                applicationId: applicationTenantsMatch,
+              }),
+            validCreateApplicationTenant,
+          )
+        : unavailable(request);
+    if (applicationStorageMatch && method === "GET")
+      return commands?.getEffectiveStorage
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) =>
+              commands!.getEffectiveStorage!(
+                workspaceId,
+                applicationStorageMatch,
+              ),
+          )
+        : unavailable(request);
+    if (applicationTenantStorageParts && method === "GET")
+      return commands?.getEffectiveStorage
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) =>
+              commands!.getEffectiveStorage!(
+                workspaceId,
+                decodeURIComponent(applicationTenantStorageParts[1]!),
+                decodeURIComponent(applicationTenantStorageParts[2]!),
+              ),
+          )
+        : unavailable(request);
+    if (pathname === "/v1/storage/bindings/rollup" && method === "GET")
+      return commands?.getStorageBindingRollup
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) => commands!.getStorageBindingRollup!(workspaceId),
+          )
+        : unavailable(request);
+    if (pathname === "/v1/storage/bindings" && method === "POST")
+      return commands?.upsertStorageBinding
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.upsertStorageBinding!(
+                actor,
+                request.body as UpsertStorageBindingCommand,
+              ),
+            validUpsertStorageBinding,
+          )
+        : unavailable(request);
+    if (bindingProbeMatch && method === "POST")
+      return commands?.probeStorageBinding
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId, actor) =>
+              commands!.probeStorageBinding!(actor, {
+                workspaceId,
+                bindingId: bindingProbeMatch,
+                ...(request.body as Partial<ProbeStorageBindingCommand>),
+              }),
+            validProbeStorageBinding,
+          )
+        : unavailable(request);
+    if (bindingPlanRefreshMatch && method === "POST")
+      return commands?.refreshStoragePlan
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId, actor) =>
+              commands!.refreshStoragePlan!(actor, {
+                workspaceId,
+                bindingId: bindingPlanRefreshMatch,
+                ...(request.body as Partial<RefreshStoragePlanCommand>),
+              }),
+            validRefreshStoragePlan,
+          )
+        : unavailable(request);
+    if (bindingPlanAcceptMatch && method === "POST")
+      return commands?.acceptStoragePlan
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId, actor) =>
+              commands!.acceptStoragePlan!(actor, {
+                ...(request.body as AcceptStoragePlanCommand),
+                workspaceId,
+                bindingId: bindingPlanAcceptMatch,
+              }),
+            validAcceptStoragePlan,
+          )
+        : unavailable(request);
+    if (bindingDisableMatch && method === "POST")
+      return commands?.disableStorageBinding
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId, actor) =>
+              commands!.disableStorageBinding!(
+                actor,
+                bindingDisableMatch,
+                workspaceId,
+              ),
+          )
+        : unavailable(request);
+    if (bindingRollbackMatch && method === "POST")
+      return commands?.rollbackStorageBinding
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId, actor) =>
+              commands!.rollbackStorageBinding!(
+                actor,
+                bindingRollbackMatch,
+                workspaceId,
+              ),
+          )
+        : unavailable(request);
+    if (pathname === "/v1/storage/bindings/migrate/cutover" && method === "POST")
+      return commands?.cutoverStorageMigrate
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.cutoverStorageMigrate!(
+                actor,
+                request.body as CutoverStorageMigrateCommand,
+              ),
+            validCutoverStorageMigrate,
+          )
+        : unavailable(request);
     if (pathname === "/v1/policy-assignments" && method === "GET")
       return secured(
         "access:manage",
@@ -682,6 +960,34 @@ export function createApi(
         access,
         (workspaceId) => commands!.getStorageHealth(workspaceId),
       );
+    if (pathname === "/v1/health/storage/probe" && method === "POST") {
+      const tier =
+        record(request.body) && request.body.tier === "ingest"
+          ? "ingest"
+          : "connectivity";
+      return secured(
+        tier === "ingest" ? "storage:probe_ingest" : "health:read",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) => {
+          if (!commands!.probeStorageHealth) {
+            return Promise.reject(
+              Object.assign(
+                new Error("Storage probe is not available in this mode."),
+                { code: "COMMAND_BOUNDARY_UNAVAILABLE" },
+              ),
+            );
+          }
+          return commands!.probeStorageHealth(
+            actor,
+            request.body as ProbeStorageCommand,
+          );
+        },
+        validProbeStorage,
+      );
+    }
     if (pathname === "/v1/health/backup" && method === "GET")
       return secured(
         "health:read",
@@ -1308,6 +1614,68 @@ function validVerification(body: unknown): boolean {
     default:
       return false;
   }
+}
+function validProbeStorage(body: unknown): boolean {
+  if (!validWorkspaceBody(body)) return false;
+  if (body.tier === undefined) return true;
+  return body.tier === "connectivity" || body.tier === "ingest";
+}
+function validCreateApplicationTenant(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.externalTenantKey) &&
+    nonEmpty(body.displayName) &&
+    nonEmpty(body.idempotencyKey)
+  );
+}
+function validUpsertStorageBinding(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.applicationId) &&
+    nonEmpty(body.provider) &&
+    nonEmpty(body.region) &&
+    nonEmpty(body.bucket) &&
+    nonEmpty(body.tier) &&
+    nonEmpty(body.credentialMode) &&
+    nonEmpty(body.idempotencyKey)
+  );
+}
+function validProbeStorageBinding(body: unknown): boolean {
+  if (body == null) return true;
+  if (!record(body)) return false;
+  if (body.tier === undefined) return true;
+  return body.tier === "connectivity" || body.tier === "ingest";
+}
+function validRefreshStoragePlan(body: unknown): boolean {
+  if (body == null) return true;
+  if (!record(body)) return false;
+  if (
+    body.observedQuotaBytes != null &&
+    typeof body.observedQuotaBytes !== "number"
+  )
+    return false;
+  if (
+    body.observedUsageBytes != null &&
+    typeof body.observedUsageBytes !== "number"
+  )
+    return false;
+  return true;
+}
+function validAcceptStoragePlan(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    typeof body.declaredCapacityBytes === "number" &&
+    Number.isFinite(body.declaredCapacityBytes)
+  );
+}
+function validCutoverStorageMigrate(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.sourceBindingId) &&
+    nonEmpty(body.targetBindingId) &&
+    nonEmpty(body.idempotencyKey) &&
+    Array.isArray(body.objectDigests)
+  );
 }
 function validObjectIngest(body: unknown): boolean {
   return (

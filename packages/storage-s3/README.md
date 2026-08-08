@@ -42,9 +42,15 @@ TRUST_STORAGE_REGION=us-east-1
 TRUST_STORAGE_BUCKET=trust-core-local
 TRUST_STORAGE_ACCESS_KEY=...
 TRUST_STORAGE_SECRET_KEY=...
+TRUST_STORAGE_SESSION_TOKEN=
+TRUST_STORAGE_EXPECTED_BUCKET_OWNER=
+TRUST_STORAGE_CONSOLE_URL=
 TRUST_STORAGE_FORCE_PATH_STYLE=true
 ```
 
+- `TRUST_STORAGE_SESSION_TOKEN` — optional STS session token with static keys
+- `TRUST_STORAGE_EXPECTED_BUCKET_OWNER` — optional AWS account id for `ExpectedBucketOwner` on HeadBucket
+- `TRUST_STORAGE_CONSOLE_URL` — optional MinIO console override (API S3 API port 9000 maps to console 9001 by default)
 ## Transfer sequences (internal services)
 
 ```text

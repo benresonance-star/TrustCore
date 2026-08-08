@@ -3,6 +3,13 @@ export type RemediationKey =
   | "workspace_env"
   | "storage_env"
   | "storage_degraded"
+  | "storage_auth"
+  | "storage_permission"
+  | "storage_not_found"
+  | "storage_wrong_region"
+  | "storage_network"
+  | "storage_outage"
+  | "storage_internal"
   | "backup_not_configured"
   | "register_app"
   | "grant_access"
@@ -19,7 +26,21 @@ const copy: Readonly<Record<RemediationKey, string>> = {
   storage_env:
     "Object storage is not configured on the Trust API host. A server operator must set TRUST_STORAGE_PROVIDER and related bucket credentials (see deploy README).",
   storage_degraded:
-    "Canonical storage reported a degraded state. Check Trust API storage health and object-store connectivity before registering apps that ingest blobs.",
+    "Canonical storage reported a degraded state. Run Test connection on Storage, then open the provider console if the probe fails.",
+  storage_auth:
+    "The API host cannot prove its identity to the provider. Check IAM role assumption or access keys on the Trust API host — not in this browser.",
+  storage_permission:
+    "Identity works but the role lacks bucket rights. Open IAM and grant the minimal object-storage actions from the deploy README.",
+  storage_not_found:
+    "Bucket or region looks wrong. Confirm TRUST_STORAGE_BUCKET and TRUST_STORAGE_REGION on the API host, then reopen the provider console.",
+  storage_wrong_region:
+    "The provider reports a different region than TRUST_STORAGE_REGION. Update the API host region to match the bucket (use HeadBucket / console region), then Test connection again.",
+  storage_network:
+    "Cannot reach the provider. Check internet, VPN, VPC endpoints, and firewall rules from the API host.",
+  storage_outage:
+    "The provider looks unhealthy. Check the provider status page; if access looks right, also review account or billing.",
+  storage_internal:
+    "Unexpected storage diagnostic error. Copy the probe id and inspect Trust API logs.",
   backup_not_configured:
     "Backup telemetry is not configured. Continuity still works for verified storage; a server operator must attach a backup telemetry provider for this row to turn green.",
   register_app:

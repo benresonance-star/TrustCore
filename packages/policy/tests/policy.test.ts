@@ -71,11 +71,33 @@ describe("Release 0.1 policy evaluation", () => {
 
   it("keeps infrastructure capability separate from content access", () => {
     expect(actionBoundary("health:read")).toBe("infrastructure");
+    expect(actionBoundary("storage:probe_ingest")).toBe("infrastructure");
     expect(actionBoundary("resource:read")).toBe("content");
     expect(
       evaluatePolicy(evaluation("infrastructure_operator", "health:read"))
         .allowed,
     ).toBe(true);
+    expect(
+      evaluatePolicy(
+        evaluation("infrastructure_operator", "storage:probe_ingest"),
+      ).allowed,
+    ).toBe(false);
+    expect(
+      evaluatePolicy(evaluation("auditor", "storage:probe_ingest")).allowed,
+    ).toBe(false);
+    expect(
+      evaluatePolicy(evaluation("admin", "storage:probe_ingest")).allowed,
+    ).toBe(true);
+    expect(
+      evaluatePolicy(evaluation("admin", "storage:manage")).allowed,
+    ).toBe(true);
+    expect(
+      evaluatePolicy(evaluation("editor", "storage:manage")).allowed,
+    ).toBe(false);
+    expect(
+      evaluatePolicy(evaluation("auditor", "storage:manage")).allowed,
+    ).toBe(false);
+    expect(actionBoundary("storage:manage")).toBe("infrastructure");
     expect(
       evaluatePolicy(evaluation("infrastructure_operator", "resource:read"))
         .allowed,
