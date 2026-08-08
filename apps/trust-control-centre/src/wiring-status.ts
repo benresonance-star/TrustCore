@@ -33,10 +33,80 @@ const entries = {
   },
   "section.flow": {
     id: "section.flow",
-    label: "Flow (help)",
+    label: "System overview",
+    level: "partial",
+    detail:
+      "Topology, inspector, and workspace signals use gateway snapshot/health/applications where available. Several node signals are status notes, not measured telemetry. Semantic layer remains Dummy. Prefer Connections for setup; Platform status for the release catalog.",
+  },
+  "flow.node.apps": {
+    id: "flow.node.apps",
+    label: "Applications",
+    level: "partial",
+    detail:
+      "Application list/register live in Connections. Overview shows registered count; application-principal auth probe is not covered here.",
+  },
+  "flow.node.gateway": {
+    id: "flow.node.gateway",
+    label: "Trust API",
+    level: "live",
+    detail:
+      "Control Centre gateway mode and storage health from snapshot/operational APIs. Does not configure API credentials from this diagram.",
+  },
+  "flow.node.identity": {
+    id: "flow.node.identity",
+    label: "Identity & policy",
+    level: "partial",
+    detail:
+      "Session and policy flows are gateway-wired in Access. Passkey/MFA remains Dummy preview copy.",
+  },
+  "flow.node.revision": {
+    id: "flow.node.revision",
+    label: "Revision engine",
+    level: "live",
+    detail:
+      "History list/restore is Live. Overview links into History; it does not mutate revisions from the canvas.",
+  },
+  "flow.node.portability": {
+    id: "flow.node.portability",
+    label: "Portability",
+    level: "live",
+    detail:
+      "Export/import flows are Live in Portability. Overview does not run archive operations from the canvas.",
+  },
+  "flow.node.semantic": {
+    id: "flow.node.semantic",
+    label: "Semantic layer",
     level: "dummy",
     detail:
-      "Help/docs diagram only. Nodes do not call the API or change system state. Prefer Connections for setup.",
+      "AI / semantic layer is explicitly deferred. No API calls; derived indexes must never write canonical bytes.",
+  },
+  "flow.node.metadata": {
+    id: "flow.node.metadata",
+    label: "Metadata store",
+    level: "partial",
+    detail:
+      "Datasets and integrity labels come from gateway snapshot. Create/edit is not exposed in Control Centre.",
+  },
+  "flow.node.objects": {
+    id: "flow.node.objects",
+    label: "Canonical objects",
+    level: "partial",
+    detail:
+      "Storage health and download grants surface in Health. Public multipart upload and storage admin UI remain outstanding.",
+  },
+  "flow.node.audit": {
+    id: "flow.node.audit",
+    label: "Audit log",
+    level: "live",
+    detail:
+      "Trust events are available via History. Overview does not append audit events from the canvas.",
+  },
+  "flow.node.backup": {
+    id: "flow.node.backup",
+    label: "Backup & archive",
+    level: "partial",
+    detail:
+      "Reads health.backup and links to Health/Portability. Telemetry may report not_configured until a provider exists.",
   },
   "section.health": {
     id: "section.health",
@@ -266,6 +336,8 @@ export function platformStatusCounts(): {
   let partial = 0;
   let dummy = 0;
   for (const entry of Object.values(wiringEntries)) {
+    // Diagram node badges are documentation wiring, not Control Centre surfaces.
+    if (entry.id.startsWith("flow.node.")) continue;
     if (entry.level === "live") live += 1;
     else if (entry.level === "partial") partial += 1;
     else dummy += 1;

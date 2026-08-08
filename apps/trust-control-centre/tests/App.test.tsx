@@ -23,7 +23,7 @@ describe("Trust Core Control Centre", () => {
     expect(screen.getByText("WeSketch — Courtyard Study")).toBeVisible();
   });
 
-  it("switches between registry and system flow sections", async () => {
+  it("switches between registry and system overview sections", async () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
     fireEvent.click(screen.getByRole("button", { name: "Datasets" }));
@@ -31,9 +31,19 @@ describe("Trust Core Control Centre", () => {
       screen.getByRole("heading", { name: "Dataset registry" }),
     ).toBeVisible();
     expect(screen.getAllByText("Synthetic fixture data")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Flow (help)" }));
-    expect(screen.getByRole("heading", { name: "System flow" })).toBeVisible();
-    expect(screen.getByRole("button", { name: /Trust API/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "System overview" }));
+    expect(
+      screen.getByRole("heading", { name: "System overview" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Trust API" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Legend" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Workspace signals" }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open Health" }));
+    expect(
+      await screen.findByRole("heading", { name: "System health" }),
+    ).toBeVisible();
   });
 
   it("opens a project directly in its dataset detail", async () => {
@@ -299,7 +309,7 @@ describe("Trust Core Control Centre", () => {
       within(nav).getByLabelText(/Partial:.*getSnapshot.*Foundation/),
     ).toBeVisible();
     expect(
-      within(nav).getByLabelText(/Dummy:.*Help\/docs diagram only/),
+      within(nav).getByLabelText(/Partial:.*Topology, inspector/),
     ).toBeVisible();
     expect(
       within(nav).getByLabelText(

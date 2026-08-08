@@ -2,12 +2,10 @@ import {
   Activity,
   Archive,
   BadgeCheck,
-  Box,
   Braces,
   CircleCheckBig,
   Clock3,
   Database,
-  FileClock,
   FileCheck2,
   Files,
   Fingerprint,
@@ -19,16 +17,12 @@ import {
   Library,
   Link2,
   ClipboardList,
-  Network,
   NotebookPen,
   PackageOpen,
   PlugZap,
-  PanelsTopLeft,
   Search,
   ShieldCheck,
   ShieldAlert,
-  Sparkles,
-  TableProperties,
   Trash2,
   Upload,
   UserPlus,
@@ -66,6 +60,7 @@ import type {
   Section,
 } from "./model";
 import { ConnectionsView } from "./ConnectionsView";
+import { FlowView } from "./FlowView";
 import { PlatformStatusView } from "./PlatformStatusView";
 import { remediationFor } from "./remediation";
 import { TransfersPanel } from "./TransfersPanel";
@@ -81,7 +76,7 @@ const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
     { id: "home", label: "Home", Icon: Home },
     { id: "connections", label: "Connections", Icon: Link2 },
     { id: "datasets", label: "Datasets", Icon: Database },
-    { id: "flow", label: "Flow (help)", Icon: Waypoints },
+    { id: "flow", label: "System overview", Icon: Waypoints },
     { id: "health", label: "Health", Icon: Activity },
     { id: "history", label: "History", Icon: History },
     { id: "portability", label: "Portability", Icon: PackageOpen },
@@ -105,6 +100,12 @@ export function App({
     useState<OperationalSnapshot | null>(null);
   const [operationalError, setOperationalError] = useState("");
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [applicationCount, setApplicationCount] = useState<number | null>(
+    null,
+  );
+  const [applicationsError, setApplicationsError] = useState<string | null>(
+    null,
+  );
   const [appAuthRequired, setAppAuthRequired] = useState(false);
   const [appToken, setAppToken] = useState("");
   const [appError, setAppError] = useState("");
@@ -148,6 +149,34 @@ export function App({
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    if (section !== "flow") return;
+    let cancelled = false;
+    setApplicationsError(null);
+    void gateway
+      .listApplications(gateway.workspaceId)
+      .then((apps) => {
+        if (!cancelled) {
+          setApplicationCount(apps.length);
+          setApplicationsError(null);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setApplicationCount(null);
+          setApplicationsError(
+            error instanceof Error
+              ? error.message
+              : "Application list unavailable.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section, gateway]);
+
   async function authenticateApp(event: FormEvent) {
     event.preventDefault();
     setAppError("");
@@ -323,7 +352,16 @@ export function App({
               mode={gateway.mode}
             />
           )}
-          {section === "flow" && <FlowView mode={gateway.mode} />}
+          {section === "flow" && (
+            <FlowView
+              mode={gateway.mode}
+              snapshot={snapshot}
+              operational={operationalSnapshot}
+              applicationCount={applicationCount}
+              applicationsError={applicationsError}
+              navigate={setSection}
+            />
+          )}
           {section === "health" && (
             <HealthView
               snapshot={snapshot}
@@ -806,135 +844,6 @@ function DatasetsView({
           )}
         </div>
       </section>
-    </>
-  );
-}
-
-const flowNodes = [
-  {
-    id: "apps",
-    label: "Applications",
-    note: "Foundation · WeSketch · Ivan",
-    Icon: PanelsTopLeft,
-  },
-  {
-    id: "gateway",
-    label: "Trust API",
-    note: "One governed entry point",
-    Icon: Network,
-  },
-  {
-    id: "identity",
-    label: "Identity & policy",
-    note: "Owner · role · permission",
-    Icon: Fingerprint,
-  },
-  {
-    id: "revision",
-    label: "Revision engine",
-    note: "Immutable history",
-    Icon: GitBranch,
-  },
-  {
-    id: "portability",
-    label: "Portability",
-    note: "Import · export · migrate",
-    Icon: PackageOpen,
-  },
-  {
-    id: "semantic",
-    label: "Semantic layer",
-    note: "Derived, never canonical",
-    Icon: Sparkles,
-  },
-  {
-    id: "metadata",
-    label: "Metadata store",
-    note: "Identity and relationships",
-    Icon: TableProperties,
-  },
-  {
-    id: "objects",
-    label: "Canonical objects",
-    note: "Original bytes preserved",
-    Icon: Box,
-  },
-  {
-    id: "audit",
-    label: "Audit log",
-    note: "Append-only trust events",
-    Icon: FileClock,
-  },
-  {
-    id: "backup",
-    label: "Backup & archive",
-    note: "Restore beyond the app",
-    Icon: Archive,
-  },
-] as const;
-
-function FlowView({ mode }: { mode: GatewayMode }) {
-  const [selected, setSelected] = useState("gateway");
-  const item = flowNodes.find((node) => node.id === selected)!;
-  const SelectedIcon = item.Icon;
-  return (
-    <>
-      <PageHeading
-        title="System flow"
-        subtitle="How apps write, protect, recover and derive meaning from trusted data."
-        wiringId="section.flow"
-        mode={mode}
-      />
-      <div className="flow-canvas">
-        <svg
-          viewBox="0 0 1000 600"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <defs>
-            <marker
-              id="arrow"
-              viewBox="0 0 8 8"
-              refX="7"
-              refY="4"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto"
-            >
-              <path d="M0 0L8 4L0 8Z" />
-            </marker>
-          </defs>
-          <path d="M210 246L248 246" />
-          <path d="M440 246C466 246 463 63 488 63" />
-          <path d="M440 246L488 206" />
-          <path d="M440 246C466 246 463 350 488 350" />
-          <path d="M690 63L758 63" />
-          <path d="M690 206L758 206" />
-          <path d="M690 350L758 350" />
-          <path d="M865 245L865 458" />
-          <path d="M758 245C650 245 650 495 445 495" />
-          <path d="M345 458L345 285" />
-        </svg>
-        {flowNodes.map(({ id, label, note, Icon }) => (
-          <button
-            type="button"
-            key={id}
-            className={`flow-node flow-${id} ${selected === id ? "active" : ""}`}
-            onClick={() => setSelected(id)}
-          >
-            <Icon size={17} />
-            <span>
-              <strong>{label}</strong>
-              <small>{note}</small>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="card flow-detail">
-        <SelectedIcon size={18} />
-        <strong>{item.label}:</strong>
-        <span>{item.note}. Select another node to inspect the boundary.</span>
-      </div>
     </>
   );
 }
