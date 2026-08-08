@@ -119,10 +119,10 @@ export class PostgresBlobCatalog implements BlobCatalog {
   }
 }
 const selectBlob =
-  "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at FROM blob_objects";
+  "SELECT id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at,storage_binding_id,storage_binding_generation FROM blob_objects";
 function recordBlob(db: Queryable, blob: BlobObject) {
   return db.query<BlobRow>(
-    `INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'verified',$10) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified' RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at`,
+    `INSERT INTO blob_objects (id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at,storage_binding_id,storage_binding_generation) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'verified',$10,$11,$12) ON CONFLICT (workspace_id,sha256) DO UPDATE SET verification_state='verified', storage_binding_id=COALESCE(EXCLUDED.storage_binding_id, blob_objects.storage_binding_id), storage_binding_generation=COALESCE(EXCLUDED.storage_binding_generation, blob_objects.storage_binding_generation) RETURNING id,workspace_id,sha256,byte_length,media_type,storage_provider,storage_key,encryption_state,encryption_key_ref,verification_state,created_at,storage_binding_id,storage_binding_generation`,
     [
       blob.id,
       blob.workspaceId,
@@ -134,6 +134,8 @@ function recordBlob(db: Queryable, blob: BlobObject) {
       blob.encryptionState,
       blob.encryptionKeyRef,
       blob.createdAt,
+      blob.storageBindingId ?? null,
+      blob.storageBindingGeneration ?? null,
     ],
   );
 }
@@ -158,6 +160,8 @@ interface BlobRow {
   encryption_key_ref: string | null;
   verification_state: BlobObject["verificationState"];
   created_at: string | Date;
+  storage_binding_id: string | null;
+  storage_binding_generation: number | string | null;
 }
 function mapBlob(row: BlobRow): BlobObject {
   return {
@@ -172,5 +176,10 @@ function mapBlob(row: BlobRow): BlobObject {
     encryptionKeyRef: row.encryption_key_ref,
     verificationState: row.verification_state,
     createdAt: new Date(row.created_at).toISOString(),
+    storageBindingId: row.storage_binding_id,
+    storageBindingGeneration:
+      row.storage_binding_generation == null
+        ? null
+        : Number(row.storage_binding_generation),
   };
 }

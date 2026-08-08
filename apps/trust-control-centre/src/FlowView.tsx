@@ -221,7 +221,7 @@ export function FlowView({
             type="button"
             className="card flow-signal-tile"
             aria-label={`Applications signal: ${signals.workspace.applicationsValue}`}
-            onClick={() => navigate("connections")}
+            onClick={() => navigate("apps")}
           >
             <span>{signals.workspace.applicationsLabel}</span>
             <strong>{signals.workspace.applicationsValue}</strong>

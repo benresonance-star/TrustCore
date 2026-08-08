@@ -4,6 +4,7 @@ export type Section =
   | "flow"
   | "health"
   | "storage"
+  | "apps"
   | "history"
   | "portability"
   | "app-protocol"

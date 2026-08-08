@@ -128,3 +128,17 @@ export interface ObjectIngestResult {
   deduplicated: boolean;
   resumed: boolean;
 }
+
+export type {
+  ApplicationTenant,
+  EffectiveStorageSummary,
+  StorageBindingRollup,
+  StorageBindingSummary,
+  CreateApplicationTenantCommand,
+  UpsertStorageBindingCommand,
+  ProbeStorageBindingCommand,
+  RefreshStoragePlanCommand,
+  AcceptStoragePlanCommand,
+  CutoverStorageMigrateCommand,
+} from "@trust-core/protocol";
+

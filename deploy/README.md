@@ -76,6 +76,38 @@ Notes:
 - Tier B “Test upload path” requires owner/admin (`storage:probe_ingest`); it
   writes and deletes a temporary object under `workspaces/.../temporary/`.
 
+### BYOB customer role (application-tenant bindings)
+
+For cross-account Bring Your Own Bucket bindings (ADR-016):
+
+1. Trust Core generates a per-binding **ExternalId** (server-only; one-time reveal
+   on create). Never put ExternalId in connection packs or browser health GET.
+2. Customer trust policy **must** require `sts:ExternalId`. Roles assumable
+   without ExternalId are rejected (confused-deputy hardening).
+3. Customer provides `roleArn`, `bucket`, `region`, and `ExpectedBucketOwner`
+   (AWS account id). Trust Core probes with ExpectedBucketOwner and refuses
+   Connected until Tier A connectivity succeeds.
+4. Prefer prefix-scoped IAM on the customer bucket (or exclusive bucket). Sample
+   trust-policy condition:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::<TRUST_ACCOUNT_ID>:root" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "<TRUST_ISSUED_EXTERNAL_ID>"
+        }
+      }
+    }
+  ]
+}
+```
+
 Configure the static Control Centre with:
 
 ```text

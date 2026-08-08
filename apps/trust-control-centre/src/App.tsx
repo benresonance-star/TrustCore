@@ -43,6 +43,7 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  ApplicationRegistration,
   ArchiveCandidate,
   ArchiveExportSummary,
   HistorySnapshot,
@@ -60,7 +61,9 @@ import type {
   Section,
 } from "./model";
 import { ConnectionsView } from "./ConnectionsView";
+import { AppsTenantsView, StorageAttentionStrip } from "./AppsTenantsView";
 import { FlowView } from "./FlowView";
+import { foundationStorageRollup } from "./foundation-storage-fixture";
 import { PlatformStatusView } from "./PlatformStatusView";
 import { remediationFor } from "./remediation";
 import {
@@ -79,6 +82,7 @@ const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
   [
     { id: "home", label: "Home", Icon: Home },
     { id: "connections", label: "Connections", Icon: Link2 },
+    { id: "apps", label: "Apps & Tenants", Icon: BadgeCheck },
     { id: "datasets", label: "Datasets", Icon: Database },
     { id: "flow", label: "System overview", Icon: Waypoints },
     { id: "health", label: "Health", Icon: Activity },
@@ -108,6 +112,9 @@ export function App({
   const [applicationCount, setApplicationCount] = useState<number | null>(
     null,
   );
+  const [applicationsList, setApplicationsList] = useState<
+    readonly ApplicationRegistration[]
+  >([]);
   const [applicationsError, setApplicationsError] = useState<string | null>(
     null,
   );
@@ -190,7 +197,7 @@ export function App({
   }, [loadSnapshot]);
 
   useEffect(() => {
-    if (section !== "flow") return;
+    if (section !== "flow" && section !== "apps") return;
     let cancelled = false;
     setApplicationsError(null);
     void gateway
@@ -198,12 +205,14 @@ export function App({
       .then((apps) => {
         if (!cancelled) {
           setApplicationCount(apps.length);
+          setApplicationsList(apps);
           setApplicationsError(null);
         }
       })
       .catch((error) => {
         if (!cancelled) {
           setApplicationCount(null);
+          setApplicationsList([]);
           setApplicationsError(
             error instanceof Error
               ? error.message
@@ -378,6 +387,15 @@ export function App({
               navigateHistory={() => setSection("history")}
             />
           )}
+          {section === "apps" && (
+            <AppsTenantsView
+              applications={applicationsList}
+              mode={gateway.mode}
+              onOpenConnections={() => setSection("connections")}
+              onOpenStorage={() => setSection("storage")}
+              onOpenPortability={() => setSection("portability")}
+            />
+          )}
           {section === "platform-status" && (
             <PlatformStatusView mode={gateway.mode} />
           )}
@@ -543,6 +561,41 @@ function HomeView({
           </span>
         }
       />
+      <StorageAttentionStrip
+        rollup={mode === "fixture" ? foundationStorageRollup() : null}
+        onOpenApps={() => navigate("apps")}
+        onOpenStorage={() => navigate("storage")}
+      />
+      {mode === "live" ? (
+        <div className="status-notice" role="status">
+          <HardDrive size={18} aria-hidden />
+          <div>
+            <strong>App binding rollup unavailable.</strong>
+            <small>
+              {" "}
+              Home attention strip for app/tenant bindings is not wired to the
+              Control Centre gateway yet. Open Apps &amp; Tenants or platform
+              Storage for diagnostics.
+            </small>
+            <div className="button-row" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => navigate("apps")}
+              >
+                Open Apps &amp; Tenants
+              </button>
+              <button
+                type="button"
+                className="button"
+                onClick={() => navigate("storage")}
+              >
+                Open platform Storage
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <section>
         <div className="section-heading">
           <h2>Recent projects</h2>

@@ -89,6 +89,16 @@ describe("Release 0.1 policy evaluation", () => {
       evaluatePolicy(evaluation("admin", "storage:probe_ingest")).allowed,
     ).toBe(true);
     expect(
+      evaluatePolicy(evaluation("admin", "storage:manage")).allowed,
+    ).toBe(true);
+    expect(
+      evaluatePolicy(evaluation("editor", "storage:manage")).allowed,
+    ).toBe(false);
+    expect(
+      evaluatePolicy(evaluation("auditor", "storage:manage")).allowed,
+    ).toBe(false);
+    expect(actionBoundary("storage:manage")).toBe("infrastructure");
+    expect(
       evaluatePolicy(evaluation("infrastructure_operator", "resource:read"))
         .allowed,
     ).toBe(false);

@@ -452,6 +452,18 @@ export const fixtureGateway: ControlCentreGateway = {
 
 let fixtureApplications: ApplicationRegistration[] = [
   {
+    id: "fixture-app-foundation",
+    workspaceId: "workspace-demo",
+    namespace: "app/foundation",
+    name: "Foundation",
+    applicationVersion: "1.0.0",
+    schemaPackageIds: [],
+    capabilities: ["dataset:read", "resource:read", "object:ingest"],
+    status: "active",
+    createdAt: "2026-08-03T00:00:00.000Z",
+    updatedAt: "2026-08-03T00:00:00.000Z",
+  },
+  {
     id: "fixture-app-wesketch",
     workspaceId: "workspace-demo",
     namespace: "app/wesketch",

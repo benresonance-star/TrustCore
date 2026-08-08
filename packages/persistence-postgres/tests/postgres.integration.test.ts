@@ -90,6 +90,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "0012_portability_correctness.sql",
       "0013_retention_and_blob_encryption.sql",
       "0014_quarantine_scan_jobs.sql",
+      "0015_application_tenants_storage_bindings.sql",
     ]);
     await expect(runMigrations(pool, migrationsDirectory)).resolves.toEqual([]);
     const protectedTables = await owner.query<{
@@ -100,6 +101,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname = ANY($1::text[]) ORDER BY relname",
       [
         [
+          "application_tenants",
           "imported_archive_audit_events",
           "portability_archives",
           "portability_exports",
@@ -108,10 +110,13 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
           "quarantine_scan_jobs",
           "retention_policies",
           "retention_policy_requests",
+          "storage_binding_versions",
+          "storage_bindings",
+          "storage_profiles",
         ],
       ],
     );
-    expect(protectedTables.rows).toHaveLength(8);
+    expect(protectedTables.rows).toHaveLength(12);
     expect(
       protectedTables.rows.every(
         ({ relrowsecurity, relforcerowsecurity }) =>

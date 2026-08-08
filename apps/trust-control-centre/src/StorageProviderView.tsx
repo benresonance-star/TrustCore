@@ -134,7 +134,7 @@ export function StorageProviderView({
           <div className="card soft">
             <h3>Reconnect checklist</h3>
             <p className="muted">{managedOnServerCopy}</p>
-            <ol className="check-list">
+            <ol className="step-list">
               {reconnectChecklist.map((step) => (
                 <li key={step}>{step}</li>
               ))}
@@ -231,7 +231,7 @@ export function StorageProviderView({
             )}
 
             <h3>Connect checklist</h3>
-            <ul className="check-list">
+            <ul className="step-list">
               {(details?.minimalIamActions ?? []).map((action) => (
                 <li key={action}>
                   <code>{action}</code>

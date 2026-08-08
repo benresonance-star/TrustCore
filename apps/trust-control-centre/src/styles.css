@@ -1331,6 +1331,30 @@ tbody tr.selected {
   background: var(--accent-soft);
   font-size: 12px;
 }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.data-table tr.selected-row {
+  background: var(--accent-soft);
+}
+.step-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.step-list li {
+  display: list-item;
+  line-height: 1.45;
+}
 .manifest-summary {
   padding: 12px 0;
 }

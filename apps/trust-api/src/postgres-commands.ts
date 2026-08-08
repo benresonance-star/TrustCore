@@ -26,17 +26,21 @@ import {
 import type {
   ApplicationRegistration,
   AuthenticatedActor,
+  AcceptStoragePlanCommand,
   CompleteUploadCommand,
   CreateDownloadGrantCommand,
   CreatePolicyAssignmentCommand,
   CreateRetentionPolicyCommand,
   CreateUploadCommand,
+  CreateApplicationTenantCommand,
+  CutoverStorageMigrateCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
   DownloadGrant,
   HistorySnapshot,
   PolicyAssignment,
   ProbeStorageCommand,
+  ProbeStorageBindingCommand,
   RecoverableItem,
   RegisterApplicationCommand,
   RestoreResourceCommand,
@@ -50,6 +54,8 @@ import type {
   TrustEventSummary,
   UpdateRetentionPolicyCommand,
   UploadScanStatus,
+  UpsertStorageBindingCommand,
+  RefreshStoragePlanCommand,
   VerificationRunResult,
 } from "@trust-core/protocol";
 import type { ObjectStorage } from "@trust-core/storage";
@@ -58,6 +64,8 @@ import type {
   StructuralVerificationService,
 } from "@trust-core/verification";
 import type { CommandProvider, ObjectIngestCommand } from "./app.js";
+import { createAppStorageCommandMethods } from "./app-storage-commands.js";
+import { PostgresAppStorageRegistry } from "./postgres-app-storage-registry.js";
 import {
   ProbeRateLimiter,
   StorageHealthCache,
@@ -88,6 +96,7 @@ export class PostgresCommandProvider implements CommandProvider {
   private readonly healthCache = new StorageHealthCache();
   private readonly probeLimiter = new ProbeRateLimiter();
   private readonly scanOrchestrator: QuarantineScanOrchestrator;
+  private readonly appStorage: ReturnType<typeof createAppStorageCommandMethods>;
   constructor(
     private readonly pool: DatabasePool,
     private readonly verification?: {
@@ -102,6 +111,9 @@ export class PostgresCommandProvider implements CommandProvider {
     private readonly clock: () => Date = () => new Date(),
     private readonly storageDiagnostics?: StorageDiagnosticsOptions,
   ) {
+    this.appStorage = createAppStorageCommandMethods(
+      new PostgresAppStorageRegistry(pool),
+    );
     this.history = new ResourceHistoryService(
       new PostgresHistoryRepository(pool),
     );
@@ -852,6 +864,82 @@ export class PostgresCommandProvider implements CommandProvider {
       mediaType: command.mediaType,
       bytes,
     });
+  }
+
+  listApplicationTenants(workspaceId: string, applicationId: string) {
+    return this.appStorage.listApplicationTenants(workspaceId, applicationId);
+  }
+  createApplicationTenant(
+    actor: AuthenticatedActor,
+    command: CreateApplicationTenantCommand,
+  ) {
+    return this.appStorage.createApplicationTenant(actor, command);
+  }
+  getEffectiveStorage(
+    workspaceId: string,
+    applicationId: string,
+    applicationTenantId?: string,
+  ) {
+    return this.appStorage.getEffectiveStorage(
+      workspaceId,
+      applicationId,
+      applicationTenantId,
+    );
+  }
+  async getStorageBindingRollup(workspaceId: string) {
+    const apps = await this.contracts.listApplications(workspaceId);
+    return this.appStorage.getStorageBindingRollup(
+      workspaceId,
+      apps.map((item) => ({ id: item.id, name: item.name })),
+    );
+  }
+  upsertStorageBinding(
+    actor: AuthenticatedActor,
+    command: UpsertStorageBindingCommand,
+  ) {
+    return this.appStorage.upsertStorageBinding(actor, command);
+  }
+  probeStorageBinding(
+    actor: AuthenticatedActor,
+    command: ProbeStorageBindingCommand,
+  ) {
+    return this.appStorage.probeStorageBinding(actor, command);
+  }
+  refreshStoragePlan(
+    actor: AuthenticatedActor,
+    command: RefreshStoragePlanCommand,
+  ) {
+    return this.appStorage.refreshStoragePlan(actor, command);
+  }
+  acceptStoragePlan(
+    actor: AuthenticatedActor,
+    command: AcceptStoragePlanCommand,
+  ) {
+    return this.appStorage.acceptStoragePlan(actor, command);
+  }
+  disableStorageBinding(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+  ) {
+    return this.appStorage.disableStorageBinding(actor, bindingId, workspaceId);
+  }
+  rollbackStorageBinding(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+  ) {
+    return this.appStorage.rollbackStorageBinding(
+      actor,
+      bindingId,
+      workspaceId,
+    );
+  }
+  cutoverStorageMigrate(
+    actor: AuthenticatedActor,
+    command: CutoverStorageMigrateCommand,
+  ) {
+    return this.appStorage.cutoverStorageMigrate(actor, command);
   }
 }
 function samePolicyAssignment(

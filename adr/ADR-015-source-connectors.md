@@ -28,3 +28,7 @@ cloud drives are not substitutes for the platform’s content-addressed store.
 - Deferred operational niceties (pause-ingest flag, API/worker config-drift
   signal, probe metrics dashboards, clock-skew diagnostics) stay out of the
   SourceConnector seam and may attach to platform storage diagnostics later.
+
+Application-tenant BYOB bindings (ADR-016) are **canonical object-store**
+configuration for connected apps. They are not SourceConnectors and must not be
+confused with user-drive import paths.

@@ -1,17 +1,22 @@
 import type {
   AdminSession,
   ApplicationRegistration,
+  ApplicationTenant,
   ArchiveCandidate,
   ArchiveDownload,
   ArchiveExportSummary,
   AuditEventRecord,
+  AcceptStoragePlanCommand,
   ControlCentreSnapshot,
   CreatePolicyAssignmentCommand,
   CreateImportPlanCommand,
   CreateRetentionPolicyCommand,
+  CreateApplicationTenantCommand,
+  CutoverStorageMigrateCommand,
   DatasetRecord,
   DeleteResourceCommand,
   DeleteResourceResult,
+  EffectiveStorageSummary,
   HealthResponse,
   HistorySnapshot,
   ImportOperationSummary,
@@ -21,6 +26,7 @@ import type {
   ObjectIngestResult,
   OperationSummary,
   PolicyAssignment,
+  ProbeStorageBindingCommand,
   RegisterApplicationCommand,
   RelationRecord,
   RetentionPolicyRecord,
@@ -33,9 +39,13 @@ import type {
   RunVerificationCommand,
   SchemaPackage,
   ServiceHealth,
+  StorageBindingRollup,
+  StorageBindingSummary,
   UploadSession,
   UploadScanStatus,
   UpdateRetentionPolicyCommand,
+  UpsertStorageBindingCommand,
+  RefreshStoragePlanCommand,
   VerificationRunResult,
   WorkspaceSummary,
 } from "./generated/types.js";
@@ -79,6 +89,53 @@ export interface TrustClient {
     register(
       command: WorkspaceCommand<RegisterApplicationCommand>,
     ): Promise<ApplicationRegistration>;
+  };
+  applicationTenants: {
+    list(applicationId: string): Promise<ListResponse<ApplicationTenant>>;
+    create(
+      applicationId: string,
+      command: Omit<
+        CreateApplicationTenantCommand,
+        "workspaceId" | "applicationId"
+      >,
+    ): Promise<ApplicationTenant>;
+  };
+  storageBindings: {
+    effective(
+      applicationId: string,
+      applicationTenantId?: string,
+    ): Promise<EffectiveStorageSummary>;
+    rollup(): Promise<StorageBindingRollup>;
+    upsert(
+      command: WorkspaceCommand<UpsertStorageBindingCommand>,
+    ): Promise<{
+      binding: StorageBindingSummary;
+      externalId?: string;
+      onboardingTemplate: string;
+    }>;
+    probe(
+      bindingId: string,
+      command?: Omit<
+        WorkspaceCommand<ProbeStorageBindingCommand>,
+        "bindingId"
+      >,
+    ): Promise<StorageBindingSummary>;
+    refreshPlan(
+      bindingId: string,
+      command?: Omit<
+        WorkspaceCommand<RefreshStoragePlanCommand>,
+        "bindingId"
+      >,
+    ): Promise<StorageBindingSummary>;
+    acceptPlan(
+      bindingId: string,
+      command: Omit<WorkspaceCommand<AcceptStoragePlanCommand>, "bindingId">,
+    ): Promise<StorageBindingSummary>;
+    disable(bindingId: string): Promise<StorageBindingSummary>;
+    rollback(bindingId: string): Promise<StorageBindingSummary>;
+    cutoverMigrate(
+      command: WorkspaceCommand<CutoverStorageMigrateCommand>,
+    ): Promise<StorageBindingSummary>;
   };
   policyAssignments: {
     list(): Promise<ListResponse<PolicyAssignment>>;
@@ -280,6 +337,92 @@ function createClient(
         transport.request("/v1/applications", { headers: contextHeaders() }),
       register: async (value) =>
         transport.request("/v1/applications", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: await command(value),
+        }),
+    },
+    applicationTenants: {
+      list: (applicationId) =>
+        transport.request(
+          `/v1/applications/${encodeURIComponent(applicationId)}/tenants`,
+          { headers: contextHeaders() },
+        ),
+      create: async (applicationId, value) =>
+        transport.request(
+          `/v1/applications/${encodeURIComponent(applicationId)}/tenants`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+    },
+    storageBindings: {
+      effective: (applicationId, applicationTenantId) =>
+        transport.request(
+          applicationTenantId
+            ? `/v1/applications/${encodeURIComponent(applicationId)}/tenants/${encodeURIComponent(applicationTenantId)}/storage`
+            : `/v1/applications/${encodeURIComponent(applicationId)}/storage`,
+          { headers: contextHeaders() },
+        ),
+      rollup: () =>
+        transport.request("/v1/storage/bindings/rollup", {
+          headers: contextHeaders(),
+        }),
+      upsert: async (value) =>
+        transport.request("/v1/storage/bindings", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: await command(value),
+        }),
+      probe: async (bindingId, value = {}) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}/probe`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+      refreshPlan: async (bindingId, value = {}) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}/plan/refresh`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+      acceptPlan: async (bindingId, value) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}/plan/accept`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command(value),
+          },
+        ),
+      disable: async (bindingId) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}/disable`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command({}),
+          },
+        ),
+      rollback: async (bindingId) =>
+        transport.request(
+          `/v1/storage/bindings/${encodeURIComponent(bindingId)}/rollback`,
+          {
+            method: "POST",
+            headers: contextHeaders(),
+            body: await command({}),
+          },
+        ),
+      cutoverMigrate: async (value) =>
+        transport.request("/v1/storage/bindings/migrate/cutover", {
           method: "POST",
           headers: contextHeaders(),
           body: await command(value),

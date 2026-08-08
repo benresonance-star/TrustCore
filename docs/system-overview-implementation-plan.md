@@ -281,3 +281,41 @@ pnpm --filter @trust-core/control-centre build   # before merge
 8. C.1–C.6 deep links + optional Live → **PR 3 ready**  
 
 **Start here:** Phase 0.4 (baseline), then A.1 `flow-model.ts` with A.2 tests before touching `App.tsx`.
+
+---
+
+## Apps & Tenants honesty (Step 0) + durable bindings (G1)
+
+Cross-link: [ADR-016](../adr/ADR-016-application-tenants-storage-bindings.md).
+
+### Honesty rules
+
+| Mode | Apps & Tenants | Home attention strip |
+|------|----------------|----------------------|
+| **Fixture** | Synthetic Foundation tenants/rollup; fixture banner; attention alert OK | `foundationStorageRollup()` when unhealthy |
+| **Live** | Live honesty banner; **no** fixture attention; applications from gateway list | Neutral “binding rollup unavailable” notice (G3 not wired) |
+
+### System overview mapping
+
+- **Applications** node/tile → deep link **Apps & Tenants** (`section.apps`, Partial).
+- **Canonical objects** → platform **Storage** + note that app/tenant BYOB data-plane remains Partial.
+
+### Platform Status IDs
+
+**Implemented:** `adr-016-api`, `adr-016-schema`, `adr-016-postgres-repo`
+
+**Outstanding:** `cc-apps-gateway`, `cc-apps-live-strip`, `sts-assumerole-hardening`, `byob-data-plane`
+
+### Benchmarks (Step 0 / G1)
+
+| ID | Pass bar |
+|----|----------|
+| S0-B5 | Fixture Apps shows Foundation attention when unhealthy |
+| S0-B6 | Live Apps shows live honesty banner; zero fixture attention alerts |
+| S0-B8 | Live Home shows unavailable notice (not silent) |
+| S0-B11 | System overview Applications reaches Apps & Tenants |
+| G1-B3 | Bindings survive reconnect (Postgres) |
+| G1-B6 | Rollup/effective omit ExternalId |
+| G1-B12 | `section.apps` remains Partial (not Live) |
+
+Remaining after this work: G2 STS, G3 live CC rollup fetch, G4 ingest/worker resolver.

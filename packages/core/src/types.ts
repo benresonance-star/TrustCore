@@ -71,6 +71,9 @@ export interface BlobObject {
   encryptionKeyRef: string | null;
   verificationState: "pending" | "verified" | "failed";
   createdAt: IsoTimestamp;
+  /** Sticky binding recorded at commit (ADR-016). */
+  storageBindingId?: TrustId | null;
+  storageBindingGeneration?: number | null;
 }
 
 export interface Relation {

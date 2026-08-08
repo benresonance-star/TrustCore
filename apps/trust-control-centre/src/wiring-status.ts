@@ -120,7 +120,14 @@ const entries = {
     label: "Storage",
     level: "partial",
     detail:
-      "Operator diagnostics for the platform blob store: health details, Test connection (probe), and allowlisted provider console links. Credentials stay on the API host — no secrets in the browser.",
+      "Operator diagnostics for the platform blob store: health details, Test connection (probe), and allowlisted provider console links. Credentials stay on the API host — no secrets in the browser. App/tenant bindings live under Apps & Tenants (ADR-016).",
+  },
+  "section.apps": {
+    id: "section.apps",
+    label: "Apps & Tenants",
+    level: "partial",
+    detail:
+      "Application tenants and storage bindings (ADR-016). Fixture API routes and durable Postgres persistence (migration 0015 + SQL repo) are in place. Control Centre live gateway rollup/tenants fetch remains outstanding. Live dual-account STS AssumeRole hardening and BYOB data-plane routing remain Partial. Source connectors deferred (ADR-015).",
   },
   "section.history": {
     id: "section.history",
@@ -233,6 +240,7 @@ export const sectionWiringIds = {
   flow: "section.flow",
   health: "section.health",
   storage: "section.storage",
+  apps: "section.apps",
   history: "section.history",
   portability: "section.portability",
   "app-protocol": "section.app-protocol",
@@ -294,6 +302,18 @@ export const platformStatus = {
       id: "quarantine",
       text: "Quarantine scan orchestration + promotion primitives (services)",
     },
+    {
+      id: "adr-016-api",
+      text: "ADR-016 storage binding API routes (fixture + OpenAPI/SDK)",
+    },
+    {
+      id: "adr-016-schema",
+      text: "Migration 0015 application tenants / storage bindings schema",
+    },
+    {
+      id: "adr-016-postgres-repo",
+      text: "Durable Postgres repository for application-tenant storage bindings",
+    },
   ],
   outstanding: [
     {
@@ -303,6 +323,22 @@ export const platformStatus = {
     {
       id: "cc-grants-ui",
       text: "Control Centre UI for multipart upload and workspace quarantine summary",
+    },
+    {
+      id: "cc-apps-gateway",
+      text: "Control Centre gateway wiring for tenants/bindings/rollup (Apps & Tenants UI still fixture-backed for bindings)",
+    },
+    {
+      id: "cc-apps-live-strip",
+      text: "Home storage attention strip from live /v1/storage/bindings/rollup",
+    },
+    {
+      id: "sts-assumerole-hardening",
+      text: "Live dual-account STS AssumeRole hardening for BYOB binding probes",
+    },
+    {
+      id: "byob-data-plane",
+      text: "Ingest/worker resolve per storage binding (platform ObjectStorage only today)",
     },
     {
       id: "user-drive-connectors",

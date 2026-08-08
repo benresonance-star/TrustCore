@@ -145,8 +145,8 @@ describe("platformStatusCounts", () => {
       (entry) => entry.level === "partial",
     ).length;
     const counts = platformStatusCounts();
-    expect(counts.implemented).toBe(8);
-    expect(counts.outstanding).toBe(10);
+    expect(counts.implemented).toBe(11);
+    expect(counts.outstanding).toBe(14);
     expect(counts.partial).toBeLessThan(allPartial);
     expect(
       Object.values(wiringEntries).some((entry) =>

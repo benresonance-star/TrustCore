@@ -83,10 +83,10 @@ export function deriveFlowSignals(input: {
             kind: "note",
             text: "Application count not loaded yet.",
           }
-        : {
-            kind: "measured",
-            text: `${input.applicationCount} registered application${input.applicationCount === 1 ? "" : "s"}.`,
-          },
+      : {
+          kind: "measured",
+          text: `${input.applicationCount} registered application${input.applicationCount === 1 ? "" : "s"}. App/tenant storage bindings are Partial — see Apps & Tenants.`,
+        },
     gateway: {
       kind: "measured",
       text: `Gateway mode: ${input.mode}${storageStatus ? ` · storage ${storageStatus}` : ""}.`,
@@ -129,11 +129,11 @@ export function deriveFlowSignals(input: {
     objects: storageStatus
       ? {
           kind: "measured",
-          text: `Object storage: ${storageStatus}. Download grants available in Health.`,
+          text: `Object storage: ${storageStatus}. Platform diagnostics in Storage; app/tenant BYOB data-plane routing remains Partial.`,
         }
       : {
           kind: "note",
-          text: "Object storage status unavailable.",
+          text: "Object storage status unavailable. App/tenant BYOB bindings are Partial — see Apps & Tenants.",
         },
     audit: {
       kind: "note",

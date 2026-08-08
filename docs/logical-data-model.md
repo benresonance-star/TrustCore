@@ -158,6 +158,21 @@ A workspace-scoped registration identified by ID and unique namespace. It
 declares schema packages and capabilities. Registration and capability are both
 required before an application assignment can authorize an action.
 
+### ApplicationTenant
+
+An app-domain tenant identity under one `ApplicationRegistration` (for example
+Foundation Tenant ID `1`). It is **not** a Trust Workspace. Stable identity is
+`(workspaceId, applicationId, externalTenantKey)`. Display names may change;
+external keys are immutable after create.
+
+### StorageProfile and StorageBinding
+
+Non-secret object-store metadata (`StorageProfile`) and a binding that attaches
+that profile to an application default (`applicationTenantId` null) or a tenant
+override. Effective resolution: tenant override → app default → platform host
+storage. See ADR-016. Bytes remain content-addressed; catalog rows record sticky
+`storage_binding_id` at commit.
+
 ### PolicyAssignment and PolicyScope
 
 An append/revoke record connecting one typed principal to one role within one

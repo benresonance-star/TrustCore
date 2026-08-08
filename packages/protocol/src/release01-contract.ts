@@ -186,6 +186,66 @@ export const release01Routes = [
     path: "/v1/health/storage/probe",
     operationId: "storage.probe",
   },
+  {
+    method: "GET",
+    path: "/v1/applications/{applicationId}/tenants",
+    operationId: "applicationTenants.list",
+  },
+  {
+    method: "POST",
+    path: "/v1/applications/{applicationId}/tenants",
+    operationId: "applicationTenants.create",
+  },
+  {
+    method: "GET",
+    path: "/v1/applications/{applicationId}/storage",
+    operationId: "applicationStorage.effective",
+  },
+  {
+    method: "GET",
+    path: "/v1/applications/{applicationId}/tenants/{tenantId}/storage",
+    operationId: "applicationTenantStorage.effective",
+  },
+  {
+    method: "GET",
+    path: "/v1/storage/bindings/rollup",
+    operationId: "storageBindings.rollup",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings",
+    operationId: "storageBindings.upsert",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings/{bindingId}/probe",
+    operationId: "storageBindings.probe",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings/{bindingId}/plan/refresh",
+    operationId: "storageBindings.planRefresh",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings/{bindingId}/plan/accept",
+    operationId: "storageBindings.planAccept",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings/{bindingId}/disable",
+    operationId: "storageBindings.disable",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings/{bindingId}/rollback",
+    operationId: "storageBindings.rollback",
+  },
+  {
+    method: "POST",
+    path: "/v1/storage/bindings/migrate/cutover",
+    operationId: "storageBindings.migrateCutover",
+  },
   { method: "GET", path: "/v1/health/backup", operationId: "backup.health" },
   {
     method: "POST",
@@ -972,6 +1032,125 @@ export const release01Schemas = {
     },
     ["workspaceId"],
   ),
+  ApplicationTenant: object(
+    {
+      id,
+      workspaceId: id,
+      applicationId: id,
+      externalTenantKey: { type: "string", minLength: 1 },
+      displayName: { type: "string", minLength: 1 },
+      status: { type: "string", enum: ["active", "suspended", "closed"] },
+      createdAt: dateTime,
+      updatedAt: dateTime,
+    },
+    [
+      "id",
+      "workspaceId",
+      "applicationId",
+      "externalTenantKey",
+      "displayName",
+      "status",
+      "createdAt",
+      "updatedAt",
+    ],
+  ),
+  CreateApplicationTenant: object(
+    {
+      workspaceId: id,
+      externalTenantKey: { type: "string", minLength: 1 },
+      displayName: { type: "string", minLength: 1 },
+      idempotencyKey: { type: "string", minLength: 1 },
+    },
+    ["workspaceId", "externalTenantKey", "displayName", "idempotencyKey"],
+  ),
+  EffectiveStorageSummary: stringMap,
+  StorageBindingRollup: stringMap,
+  StorageBindingSummary: stringMap,
+  UpsertStorageBinding: object(
+    {
+      workspaceId: id,
+      applicationId: id,
+      applicationTenantId: nullable(id),
+      provider: { type: "string", enum: ["minio", "s3"] },
+      region: { type: "string", minLength: 1 },
+      bucket: { type: "string", minLength: 1 },
+      prefix: { type: "string" },
+      tier: { type: "string", enum: ["managed", "byob", "premium"] },
+      credentialMode: {
+        type: "string",
+        enum: [
+          "platform_iam",
+          "cross_account_role",
+          "static_keys_ref",
+          "missing",
+        ],
+      },
+      expectedBucketOwner: nullable({ type: "string" }),
+      endpointHost: nullable({ type: "string" }),
+      roleArn: nullable({ type: "string" }),
+      declaredPlanCode: nullable({ type: "string" }),
+      declaredCapacityBytes: nullable({ type: "integer", minimum: 0 }),
+      idempotencyKey: { type: "string", minLength: 1 },
+    },
+    [
+      "workspaceId",
+      "applicationId",
+      "provider",
+      "region",
+      "bucket",
+      "tier",
+      "credentialMode",
+      "idempotencyKey",
+    ],
+  ),
+  ProbeStorageBinding: object(
+    {
+      workspaceId: id,
+      tier: { type: "string", enum: ["connectivity", "ingest"] },
+    },
+    ["workspaceId"],
+  ),
+  RefreshStoragePlan: object(
+    {
+      workspaceId: id,
+      observedQuotaBytes: { type: "integer", minimum: 0 },
+      observedUsageBytes: { type: "integer", minimum: 0 },
+    },
+    ["workspaceId"],
+  ),
+  AcceptStoragePlan: object(
+    {
+      workspaceId: id,
+      declaredCapacityBytes: { type: "integer", minimum: 0 },
+      planCode: { type: "string" },
+    },
+    ["workspaceId", "declaredCapacityBytes"],
+  ),
+  CutoverStorageMigrate: object(
+    {
+      workspaceId: id,
+      sourceBindingId: id,
+      targetBindingId: id,
+      objectDigests: array(
+        object(
+          {
+            objectId: id,
+            sha256: { type: "string", minLength: 64, maxLength: 64 },
+          },
+          ["objectId", "sha256"],
+        ),
+      ),
+      idempotencyKey: { type: "string", minLength: 1 },
+    },
+    [
+      "workspaceId",
+      "sourceBindingId",
+      "targetBindingId",
+      "objectDigests",
+      "idempotencyKey",
+    ],
+  ),
+  ApplicationTenantList: list("ApplicationTenant"),
   ControlCentreSnapshot: object({
     status: stringMap,
     datasets: array(stringMap),
@@ -1289,6 +1468,93 @@ export const release01OpenApi = {
         parameters: bodyContextParameters,
         mutation: true,
       }),
+    },
+    "/v1/applications/{applicationId}/tenants": {
+      get: operation("applicationTenants.list", "ApplicationTenantList", {
+        parameters: [pathParameter("applicationId"), ...readContextParameters],
+      }),
+      post: operation("applicationTenants.create", "ApplicationTenant", {
+        body: "CreateApplicationTenant",
+        parameters: [
+          pathParameter("applicationId"),
+          ...bodyContextParameters,
+        ],
+        mutation: true,
+      }),
+    },
+    "/v1/applications/{applicationId}/storage": {
+      get: operation("applicationStorage.effective", "EffectiveStorageSummary", {
+        parameters: [pathParameter("applicationId"), ...readContextParameters],
+      }),
+    },
+    "/v1/applications/{applicationId}/tenants/{tenantId}/storage": {
+      get: operation(
+        "applicationTenantStorage.effective",
+        "EffectiveStorageSummary",
+        {
+          parameters: [
+            pathParameter("applicationId"),
+            pathParameter("tenantId"),
+            ...readContextParameters,
+          ],
+        },
+      ),
+    },
+    "/v1/storage/bindings/rollup": {
+      get: operation("storageBindings.rollup", "StorageBindingRollup", {
+        parameters: readContextParameters,
+      }),
+    },
+    "/v1/storage/bindings": {
+      post: operation("storageBindings.upsert", "StorageBindingSummary", {
+        body: "UpsertStorageBinding",
+        parameters: bodyContextParameters,
+        mutation: true,
+      }),
+    },
+    "/v1/storage/bindings/{bindingId}/probe": {
+      post: operation("storageBindings.probe", "StorageBindingSummary", {
+        body: "ProbeStorageBinding",
+        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        mutation: true,
+      }),
+    },
+    "/v1/storage/bindings/{bindingId}/plan/refresh": {
+      post: operation("storageBindings.planRefresh", "StorageBindingSummary", {
+        body: "RefreshStoragePlan",
+        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        mutation: true,
+      }),
+    },
+    "/v1/storage/bindings/{bindingId}/plan/accept": {
+      post: operation("storageBindings.planAccept", "StorageBindingSummary", {
+        body: "AcceptStoragePlan",
+        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        mutation: true,
+      }),
+    },
+    "/v1/storage/bindings/{bindingId}/disable": {
+      post: operation("storageBindings.disable", "StorageBindingSummary", {
+        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        mutation: true,
+      }),
+    },
+    "/v1/storage/bindings/{bindingId}/rollback": {
+      post: operation("storageBindings.rollback", "StorageBindingSummary", {
+        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        mutation: true,
+      }),
+    },
+    "/v1/storage/bindings/migrate/cutover": {
+      post: operation(
+        "storageBindings.migrateCutover",
+        "StorageBindingSummary",
+        {
+          body: "CutoverStorageMigrate",
+          parameters: bodyContextParameters,
+          mutation: true,
+        },
+      ),
     },
     "/v1/health/backup": {
       get: operation("backup.health", "ServiceHealth", {
