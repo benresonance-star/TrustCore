@@ -84,15 +84,15 @@ describe("Trust Core Control Centre", () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
-    expect(await screen.findByRole("heading", { name: "Transfers" })).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "Transfers" }),
+    ).toBeVisible();
     expect(screen.getByText(/Fixture quarantine queue/)).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Create download grant" }),
     );
     expect(await screen.findByText(/Grant ready until/)).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: /Copy Grant/ }),
-    ).toBeVisible();
+    expect(screen.getByRole("button", { name: /Copy Grant/ })).toBeVisible();
     fireEvent.click(
       screen.getAllByRole("button", { name: "View related events" })[0]!,
     );
@@ -124,7 +124,9 @@ describe("Trust Core Control Centre", () => {
     await screen.findByRole("heading", { name: "Workspace overview" });
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     expect(
-      await screen.findByText(/server operator must attach a backup telemetry provider/),
+      await screen.findByText(
+        /server operator must attach a backup telemetry provider/,
+      ),
     ).toBeVisible();
   });
 
@@ -376,9 +378,7 @@ describe("Trust Core Control Centre", () => {
         name: "+ New project (requires Foundation)",
       }),
     ).toBeDisabled();
-    expect(
-      screen.getByText(/Foundation — not Trust Core/),
-    ).toBeVisible();
+    expect(screen.getByText(/Foundation — not Trust Core/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Datasets" }));
     expect(
       screen.getByRole("button", {

@@ -12,7 +12,10 @@ import {
 
 const golden = JSON.parse(
   readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "fixtures/connection-pack.golden.json"),
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "fixtures/connection-pack.golden.json",
+    ),
     "utf8",
   ),
 ) as Record<string, unknown>;

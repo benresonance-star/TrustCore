@@ -7,7 +7,9 @@ import {
 
 describe("remediation helpers", () => {
   it("returns stable copy for known keys", () => {
-    expect(remediationFor("workspace_env")).toContain("VITE_TRUST_WORKSPACE_ID");
+    expect(remediationFor("workspace_env")).toContain(
+      "VITE_TRUST_WORKSPACE_ID",
+    );
     expect(remediationFor("storage_env")).toContain("TRUST_STORAGE_PROVIDER");
     expect(remediationFor("backup_not_configured")).toContain(
       "Backup telemetry",

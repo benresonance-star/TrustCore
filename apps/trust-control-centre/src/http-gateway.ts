@@ -44,9 +44,8 @@ export const httpGateway: ControlCentreGateway = {
       .datasetsContext({ workspaceId })
       .portability.exports.downloadBytes(exportId, reauthenticationProof),
   async listApplications(workspaceId) {
-    return (
-      await client.datasetsContext({ workspaceId }).applications.list()
-    ).items;
+    return (await client.datasetsContext({ workspaceId }).applications.list())
+      .items;
   },
   registerApplication: (workspaceId, input) =>
     client.datasetsContext({ workspaceId }).applications.register({

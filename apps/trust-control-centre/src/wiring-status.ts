@@ -159,10 +159,7 @@ export function getWiringEntry(id: WiringEntryId): WiringEntry {
   return wiringEntries[id];
 }
 
-export function wiringTooltip(
-  id: WiringEntryId,
-  mode: GatewayMode,
-): string {
+export function wiringTooltip(id: WiringEntryId, mode: GatewayMode): string {
   const entry = getWiringEntry(id);
   const level = wiringLevelLabels[entry.level];
   const base = `${level}: ${entry.detail}`;

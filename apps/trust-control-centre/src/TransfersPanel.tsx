@@ -24,9 +24,11 @@ export function TransfersPanel({
 
   useEffect(() => {
     let cancelled = false;
-    void gateway.getQuarantineScanSummary(gateway.workspaceId).then((summary) => {
-      if (!cancelled) setScan(summary);
-    });
+    void gateway
+      .getQuarantineScanSummary(gateway.workspaceId)
+      .then((summary) => {
+        if (!cancelled) setScan(summary);
+      });
     return () => {
       cancelled = true;
     };
@@ -64,14 +66,17 @@ export function TransfersPanel({
         <div>
           <h2>Transfers</h2>
           <small>
-            Create policy-gated download grants. Secrets stay on the API; this UI
-            only requests short-lived transfer URLs.
+            Create policy-gated download grants. Secrets stay on the API; this
+            UI only requests short-lived transfer URLs.
           </small>
         </div>
         <WiringBadge entryId="control.health.transfers" mode={gateway.mode} />
       </div>
 
-      <form className="assignment-form" onSubmit={(event) => void onCreateGrant(event)}>
+      <form
+        className="assignment-form"
+        onSubmit={(event) => void onCreateGrant(event)}
+      >
         <label>
           Object id
           <input
@@ -116,7 +121,11 @@ export function TransfersPanel({
           <div className="heading-action-cluster" style={{ marginTop: 8 }}>
             <CopyIdChip id={grant.grantId} label="Grant" />
             <CopyIdChip id={grant.objectId} label="Object" />
-            <button type="button" className="text-button" onClick={onViewHistory}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={onViewHistory}
+            >
               View related events
             </button>
           </div>

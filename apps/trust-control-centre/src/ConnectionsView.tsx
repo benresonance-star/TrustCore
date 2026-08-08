@@ -11,11 +11,11 @@ import type {
 import { CircleCheckBig, Link2, ShieldAlert } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { labelForCapability } from "./capability-labels";
+import { buildConnectionPack, connectionPackFilename } from "./connection-pack";
 import {
-  buildConnectionPack,
-  connectionPackFilename,
-} from "./connection-pack";
-import { runConnectionProbe, type ConnectionProbeResult } from "./connection-probe";
+  runConnectionProbe,
+  type ConnectionProbeResult,
+} from "./connection-probe";
 import { CopyIdChip } from "./CopyIdChip";
 import type {
   ControlCentreGateway,
@@ -98,11 +98,9 @@ export function ConnectionsView({
     probeOk: probe ? probe.ok : null,
   });
 
-  const canGrant =
-    !wizardMode || applications.length > 0 || !!selectedApp;
+  const canGrant = !wizardMode || applications.length > 0 || !!selectedApp;
   const canProbe = !wizardMode || appGrants.length > 0;
-  const canDownloadPack =
-    !wizardMode || (probe?.ok === true && !!selectedApp);
+  const canDownloadPack = !wizardMode || (probe?.ok === true && !!selectedApp);
 
   useEffect(() => {
     try {
@@ -153,13 +151,16 @@ export function ConnectionsView({
     setRemediation("");
     setNotice("");
     try {
-      const registered = await gateway.registerApplication(gateway.workspaceId, {
-        namespace,
-        name,
-        applicationVersion,
-        schemaPackageIds: [],
-        capabilities,
-      });
+      const registered = await gateway.registerApplication(
+        gateway.workspaceId,
+        {
+          namespace,
+          name,
+          applicationVersion,
+          schemaPackageIds: [],
+          capabilities,
+        },
+      );
       const protocol = createAppProtocolBundle({
         namespace,
         name,
@@ -310,7 +311,9 @@ export function ConnectionsView({
         <div className="panel-heading">
           <div>
             <h2>Workspace readiness</h2>
-            <small>Complete these gates before handing off a connection pack.</small>
+            <small>
+              Complete these gates before handing off a connection pack.
+            </small>
           </div>
           <Link2 size={20} />
         </div>
@@ -333,7 +336,10 @@ export function ConnectionsView({
       </article>
 
       <div className="two-columns">
-        <form className="card panel" onSubmit={(event) => void onRegister(event)}>
+        <form
+          className="card panel"
+          onSubmit={(event) => void onRegister(event)}
+        >
           <h2>1. Register application</h2>
           <label>
             Namespace
@@ -393,7 +399,10 @@ export function ConnectionsView({
           {!showAdvanced && (
             <small>
               Default capabilities:{" "}
-              {capabilities.map((capability) => labelForCapability(capability)).join("; ")}.
+              {capabilities
+                .map((capability) => labelForCapability(capability))
+                .join("; ")}
+              .
             </small>
           )}
           <button className="button primary" type="submit" disabled={!!busy}>
@@ -478,15 +487,17 @@ export function ConnectionsView({
           >
             4. Download connection pack
           </button>
-          <button type="button" className="text-button" onClick={navigateHistory}>
+          <button
+            type="button"
+            className="text-button"
+            onClick={navigateHistory}
+          >
             View related events
           </button>
         </div>
         {probe && (
           <div
-            className={
-              probe.ok ? "status-notice" : "status-notice error"
-            }
+            className={probe.ok ? "status-notice" : "status-notice error"}
             role="status"
           >
             {probe.message}

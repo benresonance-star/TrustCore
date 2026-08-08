@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  platformStatus,
-  platformStatusCounts,
-} from "./wiring-status";
+import { platformStatus, platformStatusCounts } from "./wiring-status";
 
 const STORAGE_KEY = "trust-cc-platform-status-open";
 

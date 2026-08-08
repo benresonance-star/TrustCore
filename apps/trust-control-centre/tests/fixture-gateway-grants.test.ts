@@ -22,9 +22,8 @@ describe("fixture gateway download grants", () => {
   });
 
   it("returns a fixture quarantine summary", async () => {
-    const summary = await fixtureGateway.getQuarantineScanSummary(
-      "workspace-demo",
-    );
+    const summary =
+      await fixtureGateway.getQuarantineScanSummary("workspace-demo");
     expect(summary.available).toBe(true);
     expect(summary.items[0]?.state).toBe("pending");
   });

@@ -18,7 +18,9 @@ describe("CopyIdChip", () => {
       configurable: true,
       value: { writeText },
     });
-    render(<CopyIdChip id="application-1234567890abcdef" label="Application" />);
+    render(
+      <CopyIdChip id="application-1234567890abcdef" label="Application" />,
+    );
     fireEvent.click(
       screen.getByRole("button", {
         name: "Copy Application application-1234567890abcdef",

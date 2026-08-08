@@ -24,8 +24,7 @@ export function CopyIdChip({
     }
   }
 
-  const short =
-    id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
+  const short = id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 
   return (
     <button

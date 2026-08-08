@@ -48,7 +48,10 @@ describe("live Control Centre gateway", () => {
           createdAt: "2026-08-04T00:00:00.000Z",
         });
       }
-      if (path === "/v1/applications" && (!init || !init.method || init.method === "GET")) {
+      if (
+        path === "/v1/applications" &&
+        (!init || !init.method || init.method === "GET")
+      ) {
         return json({
           items: [
             {

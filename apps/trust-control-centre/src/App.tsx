@@ -499,10 +499,7 @@ function HomeView({
         <section>
           <div className="section-heading">
             <h2>Common components</h2>
-            <WiringBadge
-              entryId="control.home.common-components"
-              mode={mode}
-            />
+            <WiringBadge entryId="control.home.common-components" mode={mode} />
           </div>
           <p className="selection-note">
             Foundation — not Trust Core. These tiles do not open Control Centre

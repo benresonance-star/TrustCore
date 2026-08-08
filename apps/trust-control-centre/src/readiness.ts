@@ -32,13 +32,13 @@ export interface ReadinessInput {
   readonly probeOk: boolean | null;
 }
 
-function step(
-  value: ReadinessStep,
-): ReadinessStep {
+function step(value: ReadinessStep): ReadinessStep {
   return value;
 }
 
-export function evaluateReadiness(input: ReadinessInput): readonly ReadinessStep[] {
+export function evaluateReadiness(
+  input: ReadinessInput,
+): readonly ReadinessStep[] {
   const workspaceConfigured = input.workspaceId.trim().length > 0;
   const storageStatus = input.operational?.storage.status;
   const backupStatus = input.operational?.backup.status;
@@ -64,19 +64,20 @@ export function evaluateReadiness(input: ReadinessInput): readonly ReadinessStep
       detail: workspaceConfigured
         ? `Workspace ${input.workspaceId}`
         : "No workspace id is configured for this Control Centre.",
-      ...(workspaceConfigured ? {} : { remediationKey: "workspace_env" as const }),
+      ...(workspaceConfigured
+        ? {}
+        : { remediationKey: "workspace_env" as const }),
     }),
     step({
       id: "storage",
       label: "Object storage healthy",
-      status:
-        !input.operational
-          ? "warning"
-          : storageStatus === "healthy"
-            ? "ok"
-            : storageStatus === "not_configured"
-              ? "blocked"
-              : "warning",
+      status: !input.operational
+        ? "warning"
+        : storageStatus === "healthy"
+          ? "ok"
+          : storageStatus === "not_configured"
+            ? "blocked"
+            : "warning",
       detail: input.operational
         ? input.operational.storage.summary
         : "Storage health has not been loaded yet.",
@@ -89,12 +90,11 @@ export function evaluateReadiness(input: ReadinessInput): readonly ReadinessStep
     step({
       id: "backup",
       label: "Backup telemetry",
-      status:
-        !input.operational
-          ? "warning"
-          : backupStatus === "healthy"
-            ? "ok"
-            : "warning",
+      status: !input.operational
+        ? "warning"
+        : backupStatus === "healthy"
+          ? "ok"
+          : "warning",
       detail: input.operational
         ? input.operational.backup.summary
         : "Backup health has not been loaded yet.",
@@ -130,11 +130,7 @@ export function evaluateReadiness(input: ReadinessInput): readonly ReadinessStep
       id: "probe",
       label: "Connection probe",
       status:
-        input.probeOk === null
-          ? "warning"
-          : input.probeOk
-            ? "ok"
-            : "blocked",
+        input.probeOk === null ? "warning" : input.probeOk ? "ok" : "blocked",
       detail:
         input.probeOk === null
           ? "Probe has not been run yet."

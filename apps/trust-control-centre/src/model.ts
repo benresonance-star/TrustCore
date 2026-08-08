@@ -78,10 +78,7 @@ export interface ControlCentreGateway {
   ): Promise<readonly ApplicationRegistration[]>;
   registerApplication(
     workspaceId: string,
-    input: Omit<
-      RegisterApplicationCommand,
-      "workspaceId" | "idempotencyKey"
-    >,
+    input: Omit<RegisterApplicationCommand, "workspaceId" | "idempotencyKey">,
   ): Promise<ApplicationRegistration>;
   listPolicyAssignments(
     workspaceId: string,
