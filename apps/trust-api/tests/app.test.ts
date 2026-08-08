@@ -1309,6 +1309,13 @@ function bodyFor(
       };
     case "uploads.complete":
       return { workspaceId: "workspace-demo", bytesBase64: "YQ==" };
+    case "blobs.createDownloadGrant":
+      return {
+        workspaceId: "workspace-demo",
+        objectId: "fixture-blob",
+        requestedTtlSeconds: 60,
+        idempotencyKey: "contract-download-grant",
+      };
     case "objects.ingest":
       return {
         workspaceId: "workspace-demo",

@@ -104,6 +104,7 @@ export type TrustAction =
   | "resource:delete"
   | "resource:restore"
   | "object:ingest"
+  | "blob:read"
   | "relation:read"
   | "history:read"
   | "audit:read"
@@ -416,6 +417,24 @@ export interface CreateUploadCommand {
 export interface CompleteUploadCommand {
   workspaceId: string;
   bytesBase64: string;
+}
+export interface CreateDownloadGrantCommand {
+  workspaceId: string;
+  objectId: string;
+  requestedTtlSeconds: number;
+  fileName?: string;
+  idempotencyKey: string;
+}
+export interface DownloadGrant {
+  grantId: string;
+  objectId: string;
+  workspaceId: string;
+  expiresAt: string;
+  transfer: {
+    method: "GET";
+    url: string;
+    headers: Readonly<Record<string, string>>;
+  };
 }
 export interface RevisionCommand {
   workspaceId: string;

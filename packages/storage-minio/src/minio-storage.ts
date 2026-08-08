@@ -10,6 +10,7 @@ import type { ObjectMetadata, ObjectStorage, StoredObject, TemporaryObject } fro
 import { canonicalObjectKey, temporaryObjectKey } from "@trust-core/storage";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
+import type { ByteRange } from "@trust-core/storage";
 
 const TEMPORARY_KEY_PATTERN = /^workspaces\/[A-Za-z0-9_-]+\/temporary\/[A-Za-z0-9_-]+$/;
 
@@ -129,8 +130,12 @@ export class MinioObjectStorage implements ObjectStorage {
     return { ...committed, sha256: input.sha256 };
   }
 
-  async openReadStream(input: { key: string }): Promise<Readable> {
-    const result = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: input.key }));
+  async openReadStream(input: { key: string; range?: ByteRange }): Promise<Readable> {
+    const result = await this.client.send(new GetObjectCommand({
+      Bucket: this.config.bucket,
+      Key: input.key,
+      ...(input.range ? { Range: `bytes=${input.range.start}-${input.range.end}` } : {}),
+    }));
     if (!(result.Body instanceof Readable)) throw new Error("Storage adapter received a non-Node stream");
     return result.Body;
   }

@@ -147,6 +147,11 @@ export const release01Routes = [
     path: "/v1/uploads/{uploadId}/complete",
     operationId: "uploads.complete",
   },
+  {
+    method: "POST",
+    path: "/v1/blobs/download-grants",
+    operationId: "blobs.createDownloadGrant",
+  },
   { method: "POST", path: "/v1/objects/ingest", operationId: "objects.ingest" },
   { method: "GET", path: "/v1/history", operationId: "history.list" },
   { method: "GET", path: "/v1/audit/events", operationId: "audit.list" },
@@ -634,6 +639,27 @@ export const release01Schemas = {
       maxLength: 1400000,
     },
   }),
+  CreateDownloadGrant: object(
+    {
+      workspaceId: id,
+      objectId: id,
+      requestedTtlSeconds: { type: "integer", minimum: 1, maximum: 86400 },
+      fileName: { type: "string", minLength: 1, maxLength: 180 },
+      idempotencyKey: { type: "string", minLength: 1 },
+    },
+    ["workspaceId", "objectId", "requestedTtlSeconds", "idempotencyKey"],
+  ),
+  DownloadGrant: object({
+    grantId: id,
+    objectId: id,
+    workspaceId: id,
+    expiresAt: dateTime,
+    transfer: object({
+      method: { type: "string", enum: ["GET"] },
+      url: { type: "string" },
+      headers: stringMap,
+    }),
+  }),
   Upload: object({
     id,
     workspaceId: id,
@@ -1072,6 +1098,12 @@ export const release01OpenApi = {
       post: operation("uploads.complete", "Upload", {
         body: "CompleteUpload",
         parameters: [pathParameter("uploadId"), ...bodyContextParameters],
+      }),
+    },
+    "/v1/blobs/download-grants": {
+      post: operation("blobs.createDownloadGrant", "DownloadGrant", {
+        body: "CreateDownloadGrant",
+        parameters: bodyContextParameters,
       }),
     },
     "/v1/objects/ingest": {

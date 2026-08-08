@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   ResourceHistoryService,
+  TransferGrantService,
+  GrantDeniedError,
   type ObjectIngestResult,
   type ObjectIngestService,
+  type TransferSigner,
 } from "@trust-core/operations";
 import { isPolicyAction } from "@trust-core/policy";
 import {
+  PostgresBlobCatalog,
   PostgresContractRepository,
   PostgresHistoryRepository,
   PostgresRetentionPolicyRepository,
@@ -18,11 +22,13 @@ import type {
   ApplicationRegistration,
   AuthenticatedActor,
   CompleteUploadCommand,
+  CreateDownloadGrantCommand,
   CreatePolicyAssignmentCommand,
   CreateRetentionPolicyCommand,
   CreateUploadCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
+  DownloadGrant,
   HistorySnapshot,
   PolicyAssignment,
   RecoverableItem,
@@ -50,6 +56,8 @@ export class PostgresCommandProvider implements CommandProvider {
   private readonly contracts: PostgresContractRepository;
   private readonly reports: PostgresVerificationCatalog;
   private readonly retention: PostgresRetentionPolicyRepository;
+  private readonly blobs: PostgresBlobCatalog;
+  private readonly grantService?: TransferGrantService;
   constructor(
     private readonly pool: DatabasePool,
     private readonly verification?: {
@@ -57,6 +65,10 @@ export class PostgresCommandProvider implements CommandProvider {
       structural: StructuralVerificationService;
     },
     private readonly ingest?: ObjectIngestService,
+    grantOptions?: {
+      signer: TransferSigner;
+      maxTtlSeconds: number;
+    },
     private readonly clock: () => Date = () => new Date(),
   ) {
     this.history = new ResourceHistoryService(
@@ -65,6 +77,18 @@ export class PostgresCommandProvider implements CommandProvider {
     this.contracts = new PostgresContractRepository(pool);
     this.reports = new PostgresVerificationCatalog(pool);
     this.retention = new PostgresRetentionPolicyRepository(pool);
+    this.blobs = new PostgresBlobCatalog(pool);
+    this.grantService = grantOptions
+      ? new TransferGrantService(
+          { maxTtlSeconds: grantOptions.maxTtlSeconds },
+          grantOptions.signer,
+          {
+            async record() {
+              // Audit persistence for grants is deferred to the existing audit path.
+            },
+          },
+        )
+      : undefined;
   }
 
   async listWorkspaces(workspaceId: string) {
@@ -454,6 +478,73 @@ export class PostgresCommandProvider implements CommandProvider {
       completedAt: this.clock().toISOString(),
     });
   }
+
+  async createDownloadGrant(
+    actor: AuthenticatedActor,
+    command: CreateDownloadGrantCommand,
+  ): Promise<DownloadGrant> {
+    if (!this.grantService) {
+      throw codedError(
+        "COMMAND_BOUNDARY_UNAVAILABLE",
+        "Download grants require a configured transfer signer.",
+      );
+    }
+    const blob = await this.blobs.findById(
+      command.workspaceId,
+      command.objectId,
+    );
+    if (!blob) {
+      throw codedError("OPERATION_NOT_FOUND", "Blob object was not found.");
+    }
+    const downloadable = blob.verificationState === "verified";
+    try {
+      const grant = await this.grantService.issue({
+        actor,
+        workspaceId: command.workspaceId,
+        operation: "download",
+        target: {
+          workspaceId: command.workspaceId,
+          objectId: blob.id,
+          storageKey: blob.storageKey,
+          mediaType: blob.mediaType,
+          expectedSha256: blob.sha256,
+          expectedByteLength: blob.byteLength,
+          downloadable,
+          quarantineState: downloadable ? undefined : "quarantined",
+        },
+        requestedTtlSeconds: command.requestedTtlSeconds,
+        requestId: command.idempotencyKey,
+        correlationId: command.idempotencyKey,
+        ...(command.fileName ? { fileName: command.fileName } : {}),
+        policyInput: {
+          principal: {
+            id: actor.id,
+            type: actor.principalType ?? "user",
+            roles: actor.roles,
+            workspaceIds: actor.workspaceIds,
+          },
+          scope: { workspaceId: command.workspaceId },
+        },
+      });
+      return {
+        grantId: grant.grantId,
+        objectId: grant.objectId,
+        workspaceId: grant.workspaceId,
+        expiresAt: grant.expiresAt,
+        transfer: {
+          method: "GET",
+          url: grant.transfer.url,
+          headers: grant.transfer.headers,
+        },
+      };
+    } catch (error) {
+      if (error instanceof GrantDeniedError) {
+        throw codedError("PERMISSION_DENIED", error.message);
+      }
+      throw error;
+    }
+  }
+
   async ingestObject(
     actor: AuthenticatedActor,
     command: ObjectIngestCommand,

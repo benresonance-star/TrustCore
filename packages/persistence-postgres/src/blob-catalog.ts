@@ -19,6 +19,19 @@ export class PostgresBlobCatalog implements BlobCatalog {
       return result.rows[0] ? mapBlob(result.rows[0]) : undefined;
     });
   }
+  findById(
+    workspaceId: string,
+    blobId: string,
+  ): Promise<BlobObject | undefined> {
+    return inTransaction(this.pool, async (db) => {
+      await scope(db, workspaceId);
+      const result = await db.query<BlobRow>(
+        `${selectBlob} WHERE workspace_id=$1 AND id=$2`,
+        [workspaceId, blobId],
+      );
+      return result.rows[0] ? mapBlob(result.rows[0]) : undefined;
+    });
+  }
   recordVerified(blob: BlobObject): Promise<BlobObject> {
     return inTransaction(this.pool, async (db) => {
       await scope(db, blob.workspaceId);

@@ -4,15 +4,19 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
+import { StorageError } from "@trust-core/storage";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { S3ObjectStorage } from "../src/index.js";
+import { S3ObjectStorage, mapProviderError } from "../src/index.js";
 
 const mocks = vi.hoisted(() => ({
   clientConfigs: [] as unknown[],
   send: vi.fn(),
-  uploads: [] as Array<{ params: Record<string, unknown>; leavePartsOnError?: boolean }>,
+  uploads: [] as Array<{
+    params: Record<string, unknown>;
+    leavePartsOnError?: boolean;
+  }>,
 }));
 
 vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
@@ -38,7 +42,10 @@ vi.mock("@aws-sdk/lib-storage", () => ({
       leavePartsOnError?: boolean;
     };
 
-    constructor(options: { params: Record<string, unknown>; leavePartsOnError?: boolean }) {
+    constructor(options: {
+      params: Record<string, unknown>;
+      leavePartsOnError?: boolean;
+    }) {
       this.options = options;
       mocks.uploads.push(options);
     }
@@ -93,21 +100,69 @@ describe("S3ObjectStorage configuration", () => {
   });
 
   it("rejects partial credentials and invalid protection settings", () => {
-    expect(() => new S3ObjectStorage({
-      region: "us-east-1",
-      bucket: "bucket",
-      accessKeyId: "incomplete",
-    })).toThrow("both accessKeyId and secretAccessKey");
-    expect(() => new S3ObjectStorage({
-      region: "us-east-1",
-      bucket: "bucket",
-      serverSideEncryption: { algorithm: "aws:kms", keyId: " " },
-    })).toThrow("key id");
-    expect(() => new S3ObjectStorage({
-      region: "us-east-1",
-      bucket: "bucket",
-      objectLockRetention: { mode: "COMPLIANCE", days: 0 },
-    })).toThrow("positive integer");
+    expect(() =>
+      new S3ObjectStorage({
+        region: "us-east-1",
+        bucket: "bucket",
+        accessKeyId: "incomplete",
+      }),
+    ).toThrow(StorageError);
+    expect(() =>
+      new S3ObjectStorage({
+        region: " ",
+        bucket: "bucket",
+      }),
+    ).toThrow(/region/i);
+    expect(() =>
+      new S3ObjectStorage({
+        region: "us-east-1",
+        bucket: " ",
+      }),
+    ).toThrow(/bucket/i);
+    expect(() =>
+      new S3ObjectStorage({
+        region: "us-east-1",
+        bucket: "bucket",
+        serverSideEncryption: { algorithm: "aws:kms", keyId: " " },
+      }),
+    ).toThrow("key id");
+    expect(() =>
+      new S3ObjectStorage({
+        region: "us-east-1",
+        bucket: "bucket",
+        objectLockRetention: { mode: "COMPLIANCE", days: 0 },
+      }),
+    ).toThrow("positive integer");
+  });
+});
+
+describe("mapProviderError", () => {
+  it("maps provider status codes to StorageError without leaking urls", () => {
+    expect(
+      mapProviderError(
+        { $metadata: { httpStatusCode: 404 }, message: "https://evil.example/x" },
+        "fallback",
+      ),
+    ).toMatchObject({ code: "not_found" });
+    expect(
+      mapProviderError({ $metadata: { httpStatusCode: 403 } }, "fallback").code,
+    ).toBe("access_denied");
+    expect(
+      mapProviderError({ $metadata: { httpStatusCode: 409 } }, "fallback").code,
+    ).toBe("conflict");
+    expect(
+      mapProviderError({ $metadata: { httpStatusCode: 429 } }, "fallback").code,
+    ).toBe("throttled");
+    expect(
+      mapProviderError({ $metadata: { httpStatusCode: 503 } }, "fallback").code,
+    ).toBe("transient");
+    const permanent = mapProviderError(
+      new Error("boom https://signed.example/?X-Amz-Signature=abc"),
+      "fallback",
+    );
+    expect(permanent.code).toBe("permanent");
+    expect(permanent.message).not.toContain("https://");
+    expect(permanent.message).not.toContain("X-Amz-Signature");
   });
 });
 
@@ -166,12 +221,15 @@ describe("S3ObjectStorage commands", () => {
             return {
               Body: Readable.from(body),
               ContentType: "text/plain",
-              ETag: "\"temporary-etag\"",
+              ETag: '"temporary-etag"',
             };
           }
           throw { $metadata: { httpStatusCode: 404 } };
         }
-        if (command instanceof CopyObjectCommand || command instanceof DeleteObjectCommand) {
+        if (
+          command instanceof CopyObjectCommand ||
+          command instanceof DeleteObjectCommand
+        ) {
           return {};
         }
         if (command instanceof HeadObjectCommand) {
@@ -186,7 +244,10 @@ describe("S3ObjectStorage commands", () => {
       const storage = new S3ObjectStorage({
         region: "us-east-1",
         bucket: "locked-bucket",
-        serverSideEncryption: { algorithm: "aws:kms", keyId: "alias/trust-core" },
+        serverSideEncryption: {
+          algorithm: "aws:kms",
+          keyId: "alias/trust-core",
+        },
         objectLockRetention: { mode: "COMPLIANCE", days: 30 },
       });
 
@@ -205,7 +266,7 @@ describe("S3ObjectStorage commands", () => {
       expect((copy as CopyObjectCommand).input).toMatchObject({
         Bucket: "locked-bucket",
         IfNoneMatch: "*",
-        CopySourceIfMatch: "\"temporary-etag\"",
+        CopySourceIfMatch: '"temporary-etag"',
         ServerSideEncryption: "aws:kms",
         SSEKMSKeyId: "alias/trust-core",
         ObjectLockMode: "COMPLIANCE",
@@ -219,11 +280,27 @@ describe("S3ObjectStorage commands", () => {
     }
   });
 
+  it("maps not-found head failures to StorageError", async () => {
+    mocks.send.mockRejectedValue({ $metadata: { httpStatusCode: 404 } });
+    const storage = new S3ObjectStorage({
+      region: "us-east-1",
+      bucket: "bucket",
+    });
+    await expect(storage.head({ key: "missing" })).rejects.toMatchObject({
+      code: "not_found",
+    });
+  });
+
   it("refuses to delete canonical keys", async () => {
-    const storage = new S3ObjectStorage({ region: "us-east-1", bucket: "bucket" });
-    await expect(storage.deleteTemporary({
-      key: `workspaces/workspace_1/objects/${"a".repeat(64)}`,
-    })).rejects.toThrow("non-temporary");
+    const storage = new S3ObjectStorage({
+      region: "us-east-1",
+      bucket: "bucket",
+    });
+    await expect(
+      storage.deleteTemporary({
+        key: `workspaces/workspace_1/objects/${"a".repeat(64)}`,
+      }),
+    ).rejects.toThrow("non-temporary");
     expect(mocks.send).not.toHaveBeenCalled();
   });
 });

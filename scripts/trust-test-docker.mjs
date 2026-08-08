@@ -48,6 +48,11 @@ const stageDefinitions = [
     args: [...packageManager.prefix, "--filter", "@trust-core/storage-minio", "test:docker"],
   },
   {
+    name: "s3-storage-contract",
+    file: packageManager.file,
+    args: [...packageManager.prefix, "--filter", "@trust-core/storage-s3", "test:docker"],
+  },
+  {
     name: "live-api-worker-integration",
     file: packageManager.file,
     args: [...packageManager.prefix, "--filter", "@trust-core/api", "test:docker"],

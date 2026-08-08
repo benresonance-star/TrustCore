@@ -7,11 +7,13 @@ import type {
   ControlCentreSnapshot,
   CreatePolicyAssignmentCommand,
   CreateArchiveExportCommand,
+  CreateDownloadGrantCommand,
   CreateUploadCommand,
   CreateImportPlanCommand,
   CreateRetentionPolicyCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
+  DownloadGrant,
   HealthResponse,
   HistorySnapshot,
   PublicErrorCode,
@@ -156,6 +158,10 @@ export interface CommandProvider {
     actor: AuthenticatedActor,
     command: CompleteUploadCommand,
   ): Promise<UploadSession>;
+  createDownloadGrant?(
+    actor: AuthenticatedActor,
+    command: CreateDownloadGrantCommand,
+  ): Promise<DownloadGrant>;
   ingestObject?(
     actor: AuthenticatedActor,
     command: ObjectIngestCommand,
@@ -719,6 +725,23 @@ export function createApi(
         validCompleteUpload,
         { applicationScopeAllowed: true },
       );
+    if (pathname === "/v1/blobs/download-grants" && method === "POST")
+      return commands?.createDownloadGrant
+        ? secured(
+            "blob:read",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.createDownloadGrant!(
+                actor,
+                request.body as CreateDownloadGrantCommand,
+              ),
+            validCreateDownloadGrant,
+            { applicationScopeAllowed: true },
+          )
+        : unavailable(request);
     if (pathname === "/v1/objects/ingest" && method === "POST")
       return secured(
         "object:ingest",
@@ -1282,6 +1305,20 @@ function validCreateUpload(body: unknown): boolean {
 }
 function validCompleteUpload(body: unknown): boolean {
   return validWorkspaceBody(body) && validBase64(body.bytesBase64);
+}
+function validCreateDownloadGrant(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.objectId) &&
+    nonEmpty(body.idempotencyKey) &&
+    Number.isSafeInteger(body.requestedTtlSeconds) &&
+    Number(body.requestedTtlSeconds) >= 1 &&
+    Number(body.requestedTtlSeconds) <= 86400 &&
+    (body.fileName === undefined ||
+      (typeof body.fileName === "string" &&
+        body.fileName.length > 0 &&
+        body.fileName.length <= 180))
+  );
 }
 function validArchiveUpload(body: unknown): boolean {
   return (

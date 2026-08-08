@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@trust-core/core": "workspace:*",
+    "@trust-core/policy": "workspace:*",
     "@trust-core/protocol": "workspace:*",
     "@trust-core/storage": "workspace:*"
   }

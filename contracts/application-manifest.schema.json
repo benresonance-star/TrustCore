@@ -66,6 +66,7 @@
           "resource:read",
           "revision:create",
           "object:ingest",
+          "blob:read",
           "relation:read",
           "history:read",
           "portability:read"

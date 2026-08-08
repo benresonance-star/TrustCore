@@ -33,7 +33,7 @@ import type {
   ImportPlanSummary,
   UploadArchiveCommand,
 } from "@trust-core/protocol";
-import type { MinioObjectStorage } from "@trust-core/storage-minio";
+import type { ObjectStorage } from "@trust-core/storage";
 import type { PortabilityProvider } from "./portability.js";
 import type { ArchiveExportTransfer } from "./portability.js";
 
@@ -57,7 +57,7 @@ export class PostgresPortabilityProvider implements PortabilityProvider {
 
   constructor(
     private readonly pool: DatabasePool,
-    private readonly storage: MinioObjectStorage,
+    private readonly storage: ObjectStorage,
     private readonly storageProvider: string,
     allowLocalUnsignedProfile: boolean,
     private readonly afterImportCheckpoint?: ImportCheckpointEffect,

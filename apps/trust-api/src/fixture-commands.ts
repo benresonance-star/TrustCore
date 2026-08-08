@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { FakeTransferSigner, TransferGrantService } from "@trust-core/operations";
 import type {
   ApplicationRegistration,
   AuthenticatedActor,
+  CreateDownloadGrantCommand,
   DeleteResourceResult,
+  DownloadGrant,
   RetentionPolicyRecord,
   PolicyAssignment,
   RecoverableItem,
@@ -523,6 +526,52 @@ export function createFixtureCommands(
         if (request.session.id === uploadId)
           uploadRequests.set(key, { ...request, session: completed });
       return completed;
+    },
+    async createDownloadGrant(
+      actor,
+      command: CreateDownloadGrantCommand,
+    ): Promise<DownloadGrant> {
+      const grantService = new TransferGrantService(
+        { maxTtlSeconds: 900 },
+        new FakeTransferSigner(),
+        { async record() {} },
+      );
+      const storageKey = `workspaces/${command.workspaceId}/objects/fi/${"f".repeat(64)}`;
+      const grant = await grantService.issue({
+        actor,
+        workspaceId: command.workspaceId,
+        operation: "download",
+        target: {
+          workspaceId: command.workspaceId,
+          objectId: command.objectId,
+          storageKey,
+          downloadable: true,
+        },
+        requestedTtlSeconds: command.requestedTtlSeconds,
+        requestId: command.idempotencyKey,
+        correlationId: command.idempotencyKey,
+        ...(command.fileName ? { fileName: command.fileName } : {}),
+        policyInput: {
+          principal: {
+            id: actor.id,
+            type: actor.principalType ?? "user",
+            roles: actor.roles,
+            workspaceIds: actor.workspaceIds,
+          },
+          scope: { workspaceId: command.workspaceId },
+        },
+      });
+      return {
+        grantId: grant.grantId,
+        objectId: grant.objectId,
+        workspaceId: grant.workspaceId,
+        expiresAt: grant.expiresAt,
+        transfer: {
+          method: "GET",
+          url: grant.transfer.url,
+          headers: grant.transfer.headers,
+        },
+      };
     },
   };
 }

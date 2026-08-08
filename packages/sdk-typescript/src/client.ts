@@ -157,6 +157,24 @@ export interface TrustClient {
     create(input: UploadInput): Promise<UploadSession>;
     get(uploadId: string): Promise<UploadSession>;
   };
+  blobs: {
+    createDownloadGrant(input: {
+      objectId: string;
+      requestedTtlSeconds?: number;
+      fileName?: string;
+      idempotencyKey?: string;
+    }): Promise<{
+      grantId: string;
+      objectId: string;
+      workspaceId: string;
+      expiresAt: string;
+      transfer: {
+        method: "GET";
+        url: string;
+        headers: Readonly<Record<string, string>>;
+      };
+    }>;
+  };
   objects: {
     ingest(
       command: WorkspaceCommand<ObjectIngestCommand>,
@@ -410,6 +428,21 @@ function createClient(
       get: (id) =>
         transport.request(`/v1/uploads/${encodeURIComponent(id)}`, {
           headers: contextHeaders(),
+        }),
+    },
+    blobs: {
+      createDownloadGrant: async (input) =>
+        transport.request("/v1/blobs/download-grants", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: {
+            workspaceId: await workspace(),
+            objectId: input.objectId,
+            requestedTtlSeconds: input.requestedTtlSeconds ?? 60,
+            ...(input.fileName ? { fileName: input.fileName } : {}),
+            idempotencyKey:
+              input.idempotencyKey ?? createIdempotencyKey("download-grant"),
+          },
         }),
     },
     objects: {

@@ -1,1 +1,25 @@
-{"name":"@trust-core/worker","version":"0.1.0","private":true,"type":"module","scripts":{"start":"tsx src/worker.ts","run-once":"tsx src/worker.ts --once","typecheck":"tsc --noEmit"},"dependencies":{"@trust-core/persistence-postgres":"workspace:*","@trust-core/reconciliation":"workspace:*","@trust-core/storage-minio":"workspace:*","pg":"^8.16.0"},"devDependencies":{"@types/node":"^24.0.0","@types/pg":"^8.15.0","tsx":"^4.20.0","typescript":"^5.9.0"}}
+{
+  "name": "@trust-core/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/worker.ts",
+    "run-once": "tsx src/worker.ts --once",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trust-core/persistence-postgres": "workspace:*",
+    "@trust-core/reconciliation": "workspace:*",
+    "@trust-core/storage": "workspace:*",
+    "@trust-core/storage-minio": "workspace:*",
+    "@trust-core/storage-s3": "workspace:*",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
