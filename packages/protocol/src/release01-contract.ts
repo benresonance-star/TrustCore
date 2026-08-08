@@ -1535,13 +1535,13 @@ export const release01OpenApi = {
     },
     "/v1/storage/bindings/{bindingId}/disable": {
       post: operation("storageBindings.disable", "StorageBindingSummary", {
-        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        parameters: [pathParameter("bindingId"), ...readContextParameters],
         mutation: true,
       }),
     },
     "/v1/storage/bindings/{bindingId}/rollback": {
       post: operation("storageBindings.rollback", "StorageBindingSummary", {
-        parameters: [pathParameter("bindingId"), ...bodyContextParameters],
+        parameters: [pathParameter("bindingId"), ...readContextParameters],
         mutation: true,
       }),
     },

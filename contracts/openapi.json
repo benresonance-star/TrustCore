@@ -3164,12 +3164,12 @@
           {
             "name": "x-trust-workspace-id",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string",
               "minLength": 1
             },
-            "description": "Optional when workspaceId is supplied in the request body."
+            "description": "Required workspace context."
           },
           {
             "name": "x-trust-application-id",
@@ -3232,12 +3232,12 @@
           {
             "name": "x-trust-workspace-id",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string",
               "minLength": 1
             },
-            "description": "Optional when workspaceId is supplied in the request body."
+            "description": "Required workspace context."
           },
           {
             "name": "x-trust-application-id",
