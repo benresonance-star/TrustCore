@@ -22,21 +22,21 @@ const entries = {
     label: "Home",
     level: "partial",
     detail:
-      "Recent projects come from gateway.getSnapshot(). “+ New project” and Common components are preview-only with no Trust Core create or app-domain APIs.",
+      "Recent projects come from gateway.getSnapshot(). “+ New project” requires Foundation/API provision; Common components are Foundation — not Trust Core.",
   },
   "section.datasets": {
     id: "section.datasets",
     label: "Datasets",
     level: "partial",
     detail:
-      "Registry and detail panels read Control Centre snapshot data. “Export register” is preview-only; dataset create/edit is not exposed here.",
+      "Registry and detail panels read Control Centre snapshot data. Register export belongs in Portability; dataset create/edit is not exposed here.",
   },
   "section.flow": {
     id: "section.flow",
-    label: "Flow",
+    label: "Flow (help)",
     level: "dummy",
     detail:
-      "Static educational architecture diagram only. Nodes do not call the API or change system state.",
+      "Help/docs diagram only. Nodes do not call the API or change system state. Prefer Connections for setup.",
   },
   "section.health": {
     id: "section.health",
@@ -73,26 +73,33 @@ const entries = {
     detail:
       "Policy list/create/revoke and session sign-in/out are gateway-wired. Passkey/MFA lines are preview copy only.",
   },
+  "section.connections": {
+    id: "section.connections",
+    label: "Connections",
+    level: "live",
+    detail:
+      "Wired to applications.list/register, policy assignment grants, session snapshot probe, and connection-pack download. Application-principal auth is not probed.",
+  },
   "control.home.new-project": {
     id: "control.home.new-project",
     label: "New project",
     level: "dummy",
     detail:
-      "Disabled preview control. No dataset or project create API is called from the Control Centre.",
+      "Requires Foundation or API dataset provision. Control Centre does not create projects or datasets.",
   },
   "control.home.common-components": {
     id: "control.home.common-components",
     label: "Common components",
     level: "dummy",
     detail:
-      "Local UI selection only (Documents, Tasks, Notes, …). These Foundation-style surfaces are not Trust Core Control Centre backends.",
+      "Foundation — not Trust Core. Local UI selection only; Documents/Tasks/Notes are not Control Centre backends.",
   },
   "control.datasets.export-register": {
     id: "control.datasets.export-register",
     label: "Export register",
     level: "dummy",
     detail:
-      "Disabled preview control. Portability exports live under the Portability section, not this register button.",
+      "Requires Portability export flow. This register button does not call an API; use Portability to create archives.",
   },
   "control.health.run-verification": {
     id: "control.health.run-verification",
@@ -107,6 +114,20 @@ const entries = {
     level: "partial",
     detail:
       "Reads gateway health.backup; API often reports not_configured until a backup telemetry provider exists.",
+  },
+  "control.health.transfers": {
+    id: "control.health.transfers",
+    label: "Download grants",
+    level: "live",
+    detail:
+      "Wired to gateway.createDownloadGrant → client.blobs.createDownloadGrant. Does not configure storage credentials in the browser.",
+  },
+  "control.health.quarantine": {
+    id: "control.health.quarantine",
+    label: "Quarantine scan",
+    level: "partial",
+    detail:
+      "Fixture shows a sample quarantine queue. Live mode reports that a public scan-status API is not exposed yet.",
   },
   "control.access.passkey-mfa": {
     id: "control.access.passkey-mfa",
@@ -131,6 +152,7 @@ export const sectionWiringIds = {
   portability: "section.portability",
   "app-protocol": "section.app-protocol",
   access: "section.access",
+  connections: "section.connections",
 } as const satisfies Record<string, WiringEntryId>;
 
 export function getWiringEntry(id: WiringEntryId): WiringEntry {
@@ -197,7 +219,11 @@ export const platformStatus = {
     },
     {
       id: "cc-grants-ui",
-      text: "Control Centre UI for grants, multipart, and scan status",
+      text: "Control Centre UI for blob download grants, multipart, and scan status",
+    },
+    {
+      id: "app-principal-probe",
+      text: "Application-principal connection probe (beyond admin session snapshot)",
     },
     {
       id: "backup-telemetry",

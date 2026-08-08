@@ -1,4 +1,8 @@
-import type { HistorySnapshot, PolicyAssignment } from "@trust-core/protocol";
+import type {
+  ApplicationRegistration,
+  HistorySnapshot,
+  PolicyAssignment,
+} from "@trust-core/protocol";
 import type { ControlCentreGateway, ControlCentreSnapshot } from "./model";
 
 const snapshot: ControlCentreSnapshot = {
@@ -154,6 +158,33 @@ export const fixtureGateway: ControlCentreGateway = {
       bytes: new TextEncoder().encode("fixture preview archive"),
     };
   },
+  async listApplications(workspaceId) {
+    return structuredClone(
+      fixtureApplications.filter((app) => app.workspaceId === workspaceId),
+    );
+  },
+  async registerApplication(workspaceId, input) {
+    const existing = fixtureApplications.find(
+      (app) =>
+        app.workspaceId === workspaceId && app.namespace === input.namespace,
+    );
+    if (existing) return structuredClone(existing);
+    const now = new Date().toISOString();
+    const registered: ApplicationRegistration = {
+      id: `fixture-app-${fixtureApplications.length + 1}`,
+      workspaceId,
+      namespace: input.namespace,
+      name: input.name,
+      applicationVersion: input.applicationVersion,
+      schemaPackageIds: [...input.schemaPackageIds],
+      capabilities: [...input.capabilities],
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    };
+    fixtureApplications = [...fixtureApplications, registered];
+    return structuredClone(registered);
+  },
   async listPolicyAssignments(workspaceId) {
     return structuredClone(
       fixturePolicyAssignments.filter(
@@ -162,13 +193,15 @@ export const fixtureGateway: ControlCentreGateway = {
     );
   },
   async createPolicyAssignment(workspaceId, input) {
-    return {
+    const created: PolicyAssignment = {
       id: `fixture-preview-${Date.now()}`,
       workspaceId,
       ...input,
       createdBy: "fixture-admin",
       createdAt: new Date().toISOString(),
     };
+    fixturePolicyAssignments = [...fixturePolicyAssignments, created];
+    return structuredClone(created);
   },
   async revokePolicyAssignment(workspaceId, assignmentId) {
     const assignment = fixturePolicyAssignments.find(
@@ -176,7 +209,11 @@ export const fixtureGateway: ControlCentreGateway = {
         candidate.workspaceId === workspaceId && candidate.id === assignmentId,
     );
     if (!assignment) throw new Error("Preview assignment was not found.");
-    return { ...assignment, revokedAt: new Date().toISOString() };
+    const revoked = { ...assignment, revokedAt: new Date().toISOString() };
+    fixturePolicyAssignments = fixturePolicyAssignments.map((candidate) =>
+      candidate.id === assignmentId ? revoked : candidate,
+    );
+    return structuredClone(revoked);
   },
   async restoreResource(workspaceId, resourceId) {
     const item = history.recoverable.find(
@@ -293,9 +330,62 @@ export const fixtureGateway: ControlCentreGateway = {
       completedAt: updatedAt,
     };
   },
+  async createDownloadGrant(workspaceId, input) {
+    if (!input.objectId.trim()) {
+      throw Object.assign(new Error("objectId is required"), { status: 400 });
+    }
+    if (input.objectId.startsWith("quarantine:")) {
+      throw Object.assign(
+        new Error("Download refused while object is quarantined."),
+        { status: 409 },
+      );
+    }
+    const expiresAt = new Date(
+      Date.now() + (input.requestedTtlSeconds ?? 300) * 1000,
+    ).toISOString();
+    return {
+      grantId: `fixture-grant-${Date.now()}`,
+      objectId: input.objectId,
+      workspaceId,
+      expiresAt,
+      transfer: {
+        method: "GET",
+        url: `https://fixture.storage.local/${encodeURIComponent(input.objectId)}?expires=${encodeURIComponent(expiresAt)}`,
+        headers: {},
+      },
+    };
+  },
+  async getQuarantineScanSummary(workspaceId) {
+    return {
+      available: true,
+      summary: `Fixture quarantine queue for ${workspaceId}.`,
+      items: [
+        {
+          objectId: "fixture-object-pending-scan",
+          state: "pending",
+          updatedAt: "2026-08-04T02:10:00.000Z",
+        },
+      ],
+    };
+  },
 };
 
-const fixturePolicyAssignments: readonly PolicyAssignment[] = [
+let fixtureApplications: ApplicationRegistration[] = [
+  {
+    id: "fixture-app-wesketch",
+    workspaceId: "workspace-demo",
+    namespace: "app/wesketch",
+    name: "WeSketch",
+    applicationVersion: "1.0.0",
+    schemaPackageIds: ["wesketch-project/1.1"],
+    capabilities: ["dataset:read", "resource:read", "revision:create"],
+    status: "active",
+    createdAt: "2026-08-03T00:00:00.000Z",
+    updatedAt: "2026-08-03T00:00:00.000Z",
+  },
+];
+
+let fixturePolicyAssignments: PolicyAssignment[] = [
   {
     id: "fixture-policy-owner",
     workspaceId: "workspace-demo",

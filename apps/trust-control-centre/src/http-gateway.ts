@@ -43,6 +43,16 @@ export const httpGateway: ControlCentreGateway = {
     client
       .datasetsContext({ workspaceId })
       .portability.exports.downloadBytes(exportId, reauthenticationProof),
+  async listApplications(workspaceId) {
+    return (
+      await client.datasetsContext({ workspaceId }).applications.list()
+    ).items;
+  },
+  registerApplication: (workspaceId, input) =>
+    client.datasetsContext({ workspaceId }).applications.register({
+      ...input,
+      idempotencyKey: client.idempotency.create("register-application"),
+    }),
   async listPolicyAssignments(workspaceId) {
     return (
       await client.datasetsContext({ workspaceId }).policyAssignments.list()
@@ -94,6 +104,23 @@ export const httpGateway: ControlCentreGateway = {
     client
       .datasetsContext({ workspaceId })
       .portability.operations.get(operationId),
+  createDownloadGrant: (workspaceId, input) =>
+    client.datasetsContext({ workspaceId }).blobs.createDownloadGrant({
+      objectId: input.objectId,
+      idempotencyKey: client.idempotency.create("download-grant"),
+      ...(input.requestedTtlSeconds === undefined
+        ? {}
+        : { requestedTtlSeconds: input.requestedTtlSeconds }),
+      ...(input.fileName === undefined ? {} : { fileName: input.fileName }),
+    }),
+  async getQuarantineScanSummary() {
+    return {
+      available: false,
+      summary:
+        "Quarantine scan status is not exposed on a public Control Centre API yet. Scan orchestration runs in Trust API/worker services only.",
+      items: [],
+    };
+  },
 };
 function readCookie(name: string): string | undefined {
   return document.cookie

@@ -31,7 +31,7 @@ describe("Trust Core Control Centre", () => {
       screen.getByRole("heading", { name: "Dataset registry" }),
     ).toBeVisible();
     expect(screen.getAllByText("Synthetic fixture data")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Flow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Flow (help)" }));
     expect(screen.getByRole("heading", { name: "System flow" })).toBeVisible();
     expect(screen.getByRole("button", { name: /Trust API/ })).toBeVisible();
   });
@@ -76,8 +76,56 @@ describe("Trust Core Control Centre", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Run full verification" }),
     );
-    expect(await screen.findByRole("status")).toHaveTextContent("PASSED");
-    expect(screen.getByRole("status")).toHaveTextContent("3,284 objects");
+    expect(await screen.findByText(/PASSED/)).toBeVisible();
+    expect(screen.getByText(/3,284 objects/)).toBeVisible();
+  });
+
+  it("creates a download grant and shows quarantine summary on Health", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Health" }));
+    expect(await screen.findByRole("heading", { name: "Transfers" })).toBeVisible();
+    expect(screen.getByText(/Fixture quarantine queue/)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create download grant" }),
+    );
+    expect(await screen.findByText(/Grant ready until/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Copy Grant/ }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "View related events" })[0]!,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "History and recovery" }),
+    ).toBeVisible();
+  });
+
+  it("shows backup runbook copy when backup is not_configured", async () => {
+    const gateway = {
+      ...fixtureGateway,
+      getOperationalSnapshot: async () => ({
+        storage: {
+          status: "healthy" as const,
+          checkedAt: "2026-08-04T00:00:00.000Z",
+          summary: "Storage healthy",
+          details: {},
+        },
+        backup: {
+          status: "not_configured" as const,
+          checkedAt: "2026-08-04T00:00:00.000Z",
+          summary: "Backup telemetry is not configured.",
+          details: {},
+        },
+        latestVerification: null,
+      }),
+    };
+    render(<App gateway={gateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Health" }));
+    expect(
+      await screen.findByText(/server operator must attach a backup telemetry provider/),
+    ).toBeVisible();
   });
 
   it("uses the configured gateway workspace for live actions", async () => {
@@ -243,9 +291,11 @@ describe("Trust Core Control Centre", () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(nav).getByLabelText(/Partial:.*getSnapshot/)).toBeVisible();
     expect(
-      within(nav).getByLabelText(/Dummy:.*Static educational architecture/),
+      within(nav).getByLabelText(/Partial:.*getSnapshot.*Foundation/),
+    ).toBeVisible();
+    expect(
+      within(nav).getByLabelText(/Dummy:.*Help\/docs diagram only/),
     ).toBeVisible();
     expect(
       within(nav).getByLabelText(
@@ -253,8 +303,88 @@ describe("Trust Core Control Centre", () => {
       ),
     ).toBeVisible();
     expect(
-      screen.getByLabelText(/Dummy:.*No dataset or project create API/),
+      screen.getByLabelText(
+        /Dummy:.*Requires Foundation or API dataset provision/,
+      ),
     ).toBeVisible();
+  });
+
+  it("registers an application, grants access, probes, and downloads a pack", async () => {
+    const createObjectURL = vi.fn(() => "blob:pack");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Connections" }));
+    expect(
+      await screen.findByRole("heading", { name: "Connections" }),
+    ).toBeVisible();
+    expect(screen.getByText("Workspace readiness")).toBeVisible();
+    expect(screen.getByText("WeSketch")).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText("Namespace"), {
+      target: { value: "app/connections-test" },
+    });
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Connections Test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Customize contract" }));
+    expect(screen.getByText(/App can read datasets/)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Register application" }),
+    );
+    expect(
+      await screen.findByText("Registered Connections Test."),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "2. Grant editor access" }),
+    );
+    expect(await screen.findByText(/Granted editor access/)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run connection probe" }),
+    );
+    expect(
+      await screen.findByText(/Probe passed for workspace workspace-demo/),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "4. Download connection pack" }),
+    );
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(
+      await screen.findByText("Connection pack downloaded."),
+    ).toBeVisible();
+    click.mockRestore();
+  });
+
+  it("relabels dummy project and export controls with owning-system copy", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    expect(
+      screen.getByRole("button", {
+        name: "+ New project (requires Foundation)",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/Foundation — not Trust Core/),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Datasets" }));
+    expect(
+      screen.getByRole("button", {
+        name: "Export register (use Portability)",
+      }),
+    ).toBeDisabled();
   });
 
   it("lists implemented and outstanding work in the platform status panel", async () => {

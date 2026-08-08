@@ -6,28 +6,45 @@ export type Section =
   | "history"
   | "portability"
   | "app-protocol"
-  | "access";
+  | "access"
+  | "connections";
 
 export type {
+  ApplicationRegistration,
   ControlCentreSnapshot,
   CreatePolicyAssignmentCommand,
   DatasetSummary,
+  DownloadGrant,
+  RegisterApplicationCommand,
   SystemStatus,
 } from "@trust-core/protocol";
 import type {
   AdminSession,
+  ApplicationRegistration,
   ArchiveCandidate,
   ArchiveExportSummary,
   ControlCentreSnapshot,
   CreatePolicyAssignmentCommand,
+  DownloadGrant,
   HistorySnapshot,
   ImportOperationSummary,
   ImportPlanSummary,
   PolicyAssignment,
+  RegisterApplicationCommand,
   RevisionCommandResult,
   ServiceHealth,
   VerificationRunResult,
 } from "@trust-core/protocol";
+
+export interface QuarantineScanSummary {
+  readonly available: boolean;
+  readonly summary: string;
+  readonly items: readonly {
+    readonly objectId: string;
+    readonly state: string;
+    readonly updatedAt: string;
+  }[];
+}
 
 export interface OperationalSnapshot {
   storage: ServiceHealth;
@@ -56,6 +73,16 @@ export interface ControlCentreGateway {
     exportId: string,
     reauthenticationProof: string,
   ): Promise<ArchiveBinaryDownload>;
+  listApplications(
+    workspaceId: string,
+  ): Promise<readonly ApplicationRegistration[]>;
+  registerApplication(
+    workspaceId: string,
+    input: Omit<
+      RegisterApplicationCommand,
+      "workspaceId" | "idempotencyKey"
+    >,
+  ): Promise<ApplicationRegistration>;
   listPolicyAssignments(
     workspaceId: string,
   ): Promise<readonly PolicyAssignment[]>;
@@ -99,4 +126,13 @@ export interface ControlCentreGateway {
     workspaceId: string,
     operationId: string,
   ): Promise<ImportOperationSummary>;
+  createDownloadGrant(
+    workspaceId: string,
+    input: {
+      objectId: string;
+      requestedTtlSeconds?: number;
+      fileName?: string;
+    },
+  ): Promise<DownloadGrant>;
+  getQuarantineScanSummary(workspaceId: string): Promise<QuarantineScanSummary>;
 }

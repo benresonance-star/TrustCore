@@ -17,6 +17,7 @@ import {
   Home,
   KeyRound,
   Library,
+  Link2,
   Network,
   NotebookPen,
   PackageOpen,
@@ -63,7 +64,10 @@ import type {
   OperationalSnapshot,
   Section,
 } from "./model";
+import { ConnectionsView } from "./ConnectionsView";
 import { PlatformStatusPanel } from "./PlatformStatusPanel";
+import { remediationFor } from "./remediation";
+import { TransfersPanel } from "./TransfersPanel";
 import { WiringBadge } from "./WiringBadge";
 import {
   sectionWiringIds,
@@ -74,8 +78,9 @@ import {
 const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
   [
     { id: "home", label: "Home", Icon: Home },
+    { id: "connections", label: "Connections", Icon: Link2 },
     { id: "datasets", label: "Datasets", Icon: Database },
-    { id: "flow", label: "Flow", Icon: Waypoints },
+    { id: "flow", label: "Flow (help)", Icon: Waypoints },
     { id: "health", label: "Health", Icon: Activity },
     { id: "history", label: "History", Icon: History },
     { id: "portability", label: "Portability", Icon: PackageOpen },
@@ -296,6 +301,14 @@ export function App({
               mode={gateway.mode}
             />
           )}
+          {section === "connections" && (
+            <ConnectionsView
+              gateway={gateway}
+              snapshot={snapshot}
+              operational={operationalSnapshot}
+              navigateHistory={() => setSection("history")}
+            />
+          )}
           {section === "datasets" && (
             <DatasetsView
               datasets={snapshot.datasets}
@@ -313,6 +326,7 @@ export function App({
               operational={operationalSnapshot}
               operationalError={operationalError}
               gateway={gateway}
+              navigateHistory={() => setSection("history")}
             />
           )}
           {section === "history" && (
@@ -428,8 +442,12 @@ function HomeView({
         action={
           <span className="heading-action-cluster">
             <WiringBadge entryId="control.home.new-project" mode={mode} />
-            <button className="button" disabled title="Preview only">
-              + New project (preview)
+            <button
+              className="button"
+              disabled
+              title="Requires Foundation or API dataset provision"
+            >
+              + New project (requires Foundation)
             </button>
           </span>
         }
@@ -486,6 +504,10 @@ function HomeView({
               mode={mode}
             />
           </div>
+          <p className="selection-note">
+            Foundation — not Trust Core. These tiles do not open Control Centre
+            backends.
+          </p>
           <div className="component-grid">
             {components.map(({ label, note, Icon }) => (
               <button
@@ -615,8 +637,12 @@ function DatasetsView({
               entryId="control.datasets.export-register"
               mode={mode}
             />
-            <button className="button" disabled title="Preview only">
-              Export register (preview)
+            <button
+              className="button"
+              disabled
+              title="Use Portability to create archives"
+            >
+              Export register (use Portability)
             </button>
           </span>
         }
@@ -917,11 +943,13 @@ function HealthView({
   operational,
   operationalError,
   gateway,
+  navigateHistory,
 }: {
   snapshot: ControlCentreSnapshot;
   operational: OperationalSnapshot | null;
   operationalError: string;
   gateway: ControlCentreGateway;
+  navigateHistory: () => void;
 }) {
   const [running, setRunning] = useState(false),
     [result, setResult] = useState<string>("");
@@ -1025,6 +1053,11 @@ function HealthView({
                   />
                 }
               />
+              {operational.backup.status === "not_configured" && (
+                <div className="status-notice" role="status">
+                  <small>{remediationFor("backup_not_configured")}</small>
+                </div>
+              )}
             </>
           ) : (
             <div className="empty-state">
@@ -1061,8 +1094,22 @@ function HealthView({
               <small>Run a verification to establish current coverage.</small>
             </div>
           )}
+          {latest && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={navigateHistory}
+            >
+              View related events
+            </button>
+          )}
         </article>
       </div>
+      <TransfersPanel
+        gateway={gateway}
+        storageHealthy={operational?.storage.status === "healthy"}
+        onViewHistory={navigateHistory}
+      />
     </>
   );
 }
