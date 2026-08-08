@@ -143,6 +143,11 @@ export const release01Routes = [
   { method: "POST", path: "/v1/uploads", operationId: "uploads.create" },
   { method: "GET", path: "/v1/uploads/{uploadId}", operationId: "uploads.get" },
   {
+    method: "GET",
+    path: "/v1/uploads/{uploadId}/scan-status",
+    operationId: "uploads.scanStatus",
+  },
+  {
     method: "POST",
     path: "/v1/uploads/{uploadId}/complete",
     operationId: "uploads.complete",
@@ -678,6 +683,37 @@ export const release01Schemas = {
     completedAt: nullable(dateTime),
     blobId: nullable(id),
   }),
+  UploadScanStatus: object({
+    uploadId: id,
+    workspaceId: id,
+    state: {
+      type: "string",
+      enum: [
+        "pending_upload",
+        "uploaded",
+        "scan_queued",
+        "scanning",
+        "accepted",
+        "rejected",
+        "manual_review",
+        "promotion_pending",
+        "promoted",
+        "failed",
+      ],
+    },
+    outcome: {
+      type: "string",
+      enum: [
+        "clean",
+        "malicious",
+        "suspicious",
+        "unsupported",
+        "error",
+        "timeout",
+      ],
+    },
+    updatedAt: dateTime,
+  }, ["uploadId", "workspaceId", "state", "updatedAt"]),
   ObjectIngest: object({
     workspaceId: id,
     idempotencyKey: { type: "string", minLength: 1 },
@@ -1091,6 +1127,11 @@ export const release01OpenApi = {
     },
     "/v1/uploads/{uploadId}": {
       get: operation("uploads.get", "Upload", {
+        parameters: [pathParameter("uploadId"), ...readContextParameters],
+      }),
+    },
+    "/v1/uploads/{uploadId}/scan-status": {
+      get: operation("uploads.scanStatus", "UploadScanStatus", {
         parameters: [pathParameter("uploadId"), ...readContextParameters],
       }),
     },

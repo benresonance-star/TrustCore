@@ -1,17 +1,17 @@
-export const quarantineScanStates = [
-  "pending_upload",
-  "uploaded",
-  "scan_queued",
-  "scanning",
-  "accepted",
-  "rejected",
-  "manual_review",
-  "promotion_pending",
-  "promoted",
-  "failed",
-] as const;
+import type {
+  UploadScanOutcome,
+  UploadScanState,
+  UploadScanStatus,
+} from "@trust-core/protocol";
+import {
+  uploadScanOutcomes,
+  uploadScanStates,
+} from "@trust-core/protocol";
+import type { QuarantineScanStore } from "./quarantine-scan-store.js";
+import { InMemoryQuarantineScanStore } from "./quarantine-scan-store.js";
 
-export type QuarantineScanState = (typeof quarantineScanStates)[number];
+export const quarantineScanStates = uploadScanStates;
+export type QuarantineScanState = UploadScanState;
 
 const transitions: Readonly<
   Record<QuarantineScanState, readonly QuarantineScanState[]>
@@ -56,13 +56,8 @@ export function transitionQuarantine(
   return to;
 }
 
-export type ScanOutcome =
-  | "clean"
-  | "malicious"
-  | "suspicious"
-  | "unsupported"
-  | "error"
-  | "timeout";
+export type ScanOutcome = UploadScanOutcome;
+export const scanOutcomes = uploadScanOutcomes;
 
 export interface MalwareScanner {
   submit(input: {
@@ -75,6 +70,7 @@ export interface MalwareScanner {
 
 export interface ScanCallback {
   scanJobId: string;
+  workspaceId: string;
   outcome: ScanOutcome;
   engine?: string;
   authentic: boolean;
@@ -87,13 +83,61 @@ export interface QuarantineScanRecord {
   storageKey: string;
   state: QuarantineScanState;
   outcome?: ScanOutcome;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const forbiddenPublicKeys = [
+  "scanJobId",
+  "storageKey",
+  "bucket",
+  "provider",
+  "engine",
+  "url",
+  "callback",
+] as const;
+
+export function toUploadScanStatus(
+  record: QuarantineScanRecord,
+): UploadScanStatus {
+  const status: UploadScanStatus = {
+    uploadId: record.uploadId,
+    workspaceId: record.workspaceId,
+    state: record.state,
+    updatedAt: record.updatedAt,
+  };
+  if (record.outcome !== undefined) status.outcome = record.outcome;
+  for (const key of forbiddenPublicKeys)
+    if (Object.prototype.hasOwnProperty.call(status, key))
+      throw new Error(`Public scan status must not expose ${key}`);
+  return status;
+}
+
+function outcomeState(outcome: ScanOutcome): QuarantineScanState {
+  switch (outcome) {
+    case "clean":
+      return "accepted";
+    case "malicious":
+      return "rejected";
+    case "suspicious":
+      return "manual_review";
+    case "unsupported":
+    case "error":
+    case "timeout":
+      return "failed";
+    default:
+      return "failed";
+  }
 }
 
 export class QuarantineScanOrchestrator {
-  private readonly jobs = new Map<string, QuarantineScanRecord>();
   private readonly processedCallbacks = new Set<string>();
 
-  constructor(private readonly scanner: MalwareScanner) {}
+  constructor(
+    private readonly scanner: MalwareScanner,
+    private readonly store: QuarantineScanStore = new InMemoryQuarantineScanStore(),
+    private readonly clock: () => Date = () => new Date(),
+  ) {}
 
   async queueUploaded(input: {
     scanJobId: string;
@@ -101,17 +145,31 @@ export class QuarantineScanOrchestrator {
     uploadId: string;
     storageKey: string;
   }): Promise<QuarantineScanRecord> {
-    const existing = this.jobs.get(input.scanJobId);
+    const existing = await this.store.getByScanJobId(
+      input.workspaceId,
+      input.scanJobId,
+    );
     if (existing) return { ...existing };
-    const record: QuarantineScanRecord = {
+    const now = this.clock().toISOString();
+    let record: QuarantineScanRecord = {
       ...input,
       state: "uploaded",
+      createdAt: now,
+      updatedAt: now,
     };
-    record.state = transitionQuarantine(record.state, "scan_queued");
-    this.jobs.set(input.scanJobId, record);
-    record.state = transitionQuarantine(record.state, "scanning");
+    record = {
+      ...record,
+      state: transitionQuarantine(record.state, "scan_queued"),
+      updatedAt: this.clock().toISOString(),
+    };
+    await this.store.save(record);
+    record = {
+      ...record,
+      state: transitionQuarantine(record.state, "scanning"),
+      updatedAt: this.clock().toISOString(),
+    };
     await this.scanner.submit(input);
-    this.jobs.set(input.scanJobId, { ...record });
+    await this.store.save(record);
     return { ...record };
   }
 
@@ -119,46 +177,54 @@ export class QuarantineScanOrchestrator {
     if (!callback.authentic) {
       throw new Error("Scan callback failed authenticity verification");
     }
-    const record = this.jobs.get(callback.scanJobId);
+    const record = await this.store.getByScanJobId(
+      callback.workspaceId,
+      callback.scanJobId,
+    );
     if (!record) {
+      throw new Error("Unknown scan job");
+    }
+    if (record.workspaceId !== callback.workspaceId) {
       throw new Error("Unknown scan job");
     }
     const callbackKey = `${callback.scanJobId}:${callback.outcome}`;
     if (this.processedCallbacks.has(callbackKey)) {
       return { ...record };
     }
+    if (
+      record.outcome === callback.outcome &&
+      record.state === outcomeState(callback.outcome)
+    ) {
+      this.processedCallbacks.add(callbackKey);
+      return { ...record };
+    }
     if (record.state !== "scanning") {
       throw new InvalidQuarantineTransition(record.state, "accepted");
     }
-    let next: QuarantineScanState;
-    switch (callback.outcome) {
-      case "clean":
-        next = "accepted";
-        break;
-      case "malicious":
-        next = "rejected";
-        break;
-      case "suspicious":
-        next = "manual_review";
-        break;
-      case "unsupported":
-      case "error":
-      case "timeout":
-        next = "failed";
-        break;
-      default:
-        next = "failed";
-    }
-    record.state = transitionQuarantine(record.state, next);
-    record.outcome = callback.outcome;
+    const next = outcomeState(callback.outcome);
+    const updated: QuarantineScanRecord = {
+      ...record,
+      state: transitionQuarantine(record.state, next),
+      outcome: callback.outcome,
+      updatedAt: this.clock().toISOString(),
+    };
     this.processedCallbacks.add(callbackKey);
-    this.jobs.set(record.scanJobId, { ...record });
-    return { ...record };
+    await this.store.save(updated);
+    return { ...updated };
   }
 
-  get(scanJobId: string): QuarantineScanRecord | undefined {
-    const record = this.jobs.get(scanJobId);
-    return record ? { ...record } : undefined;
+  async get(
+    workspaceId: string,
+    scanJobId: string,
+  ): Promise<QuarantineScanRecord | undefined> {
+    return this.store.getByScanJobId(workspaceId, scanJobId);
+  }
+
+  async getByUploadId(
+    workspaceId: string,
+    uploadId: string,
+  ): Promise<QuarantineScanRecord | undefined> {
+    return this.store.getByUploadId(workspaceId, uploadId);
   }
 }
 

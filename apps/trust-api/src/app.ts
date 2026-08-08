@@ -28,6 +28,7 @@ import type {
   ExecuteImportCommand,
   TrustAction,
   UploadSession,
+  UploadScanStatus,
   UploadArchiveCommand,
   UpdateRetentionPolicyCommand,
   VerificationRunResult,
@@ -153,6 +154,11 @@ export interface CommandProvider {
     uploadId: string,
     actor: AuthenticatedActor,
   ): Promise<UploadSession | undefined>;
+  getUploadScanStatus(
+    workspaceId: string,
+    uploadId: string,
+    actor: AuthenticatedActor,
+  ): Promise<UploadScanStatus | undefined>;
   completeUpload(
     uploadId: string,
     actor: AuthenticatedActor,
@@ -260,6 +266,10 @@ export function createApi(
     );
     const operationMatch = match(pathname, /^\/v1\/operations\/([^/]+)$/);
     const uploadMatch = match(pathname, /^\/v1\/uploads\/([^/]+)$/);
+    const uploadScanStatusMatch = match(
+      pathname,
+      /^\/v1\/uploads\/([^/]+)\/scan-status$/,
+    );
     const uploadCompleteMatch = match(
       pathname,
       /^\/v1\/uploads\/([^/]+)\/complete$/,
@@ -703,6 +713,26 @@ export function createApi(
         async (workspaceId, actor) =>
           found(
             await commands!.getUpload(workspaceId, uploadMatch, actor),
+            "OPERATION_NOT_FOUND",
+            "The requested upload session was not found.",
+          ),
+        undefined,
+        { applicationScopeAllowed: true },
+      );
+    if (uploadScanStatusMatch && method === "GET")
+      return secured(
+        "object:ingest",
+        method,
+        request,
+        commands,
+        access,
+        async (workspaceId, actor) =>
+          found(
+            await commands!.getUploadScanStatus(
+              workspaceId,
+              uploadScanStatusMatch,
+              actor,
+            ),
             "OPERATION_NOT_FOUND",
             "The requested upload session was not found.",
           ),

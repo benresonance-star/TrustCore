@@ -210,6 +210,15 @@ function interfaceMethods(
       },
     ],
     [
+      "object:ingest",
+      {
+        purpose: "Read upload quarantine scan status",
+        sdk: "client.uploads.getScanStatus(uploadId)",
+        http: "GET /v1/uploads/{uploadId}/scan-status",
+        required: false,
+      },
+    ],
+    [
       "blob:read",
       {
         purpose: "Issue a short-lived download transfer grant",

@@ -355,6 +355,14 @@ export const fixtureGateway: ControlCentreGateway = {
       },
     };
   },
+  async getUploadScanStatus(workspaceId, uploadId) {
+    return {
+      uploadId,
+      workspaceId,
+      state: "scanning",
+      updatedAt: "2026-08-04T02:10:00.000Z",
+    };
+  },
   async getQuarantineScanSummary(workspaceId) {
     return {
       available: true,

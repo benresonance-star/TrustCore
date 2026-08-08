@@ -27,4 +27,19 @@ describe("fixture gateway download grants", () => {
     expect(summary.available).toBe(true);
     expect(summary.items[0]?.state).toBe("pending");
   });
+
+  it("returns per-upload scan status", async () => {
+    const status = await fixtureGateway.getUploadScanStatus(
+      "workspace-demo",
+      "fixture-upload-1",
+    );
+    expect(status).toEqual({
+      uploadId: "fixture-upload-1",
+      workspaceId: "workspace-demo",
+      state: "scanning",
+      updatedAt: "2026-08-04T02:10:00.000Z",
+    });
+    expect(status).not.toHaveProperty("storageKey");
+    expect(status).not.toHaveProperty("scanJobId");
+  });
 });

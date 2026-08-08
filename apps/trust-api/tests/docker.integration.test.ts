@@ -13,6 +13,8 @@ import {
   weSketchSchema,
 } from "@trust-core/fixtures-wesketch";
 import {
+  PostgresContractRepository,
+  PostgresQuarantineScanStore,
   PostgresTrustRepository,
   deterministicUuid,
   runMigrations,
@@ -668,6 +670,98 @@ describe.runIf(enabled)("Release 0.1 live API Docker integration", () => {
       }
     }
   }, 180_000);
+
+  it("proves durable upload scan-status persistence through public API and SDK", async () => {
+    // Evidence scope: durable PostgreSQL persistence, workspace-scoped lookup,
+    // application authorization, provider-neutral response mapping, API/SDK
+    // retrieval, and updatedAt transition behaviour. This does not prove
+    // automatic upload-to-scanner orchestration.
+    const contracts = new PostgresContractRepository(owner);
+    const scans = new PostgresQuarantineScanStore(owner);
+    const upload = await contracts.createUploadSession({
+      workspaceId,
+      actorId: "docker-admin",
+      principalType: "user",
+      idempotencyKey: `scan-status-${runId}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "c".repeat(64),
+      expiresInSeconds: 600,
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      now: new Date().toISOString(),
+    });
+    const createdAt = "2026-08-08T07:00:00.000Z";
+    const scanningAt = "2026-08-08T07:01:00.000Z";
+    const acceptedAt = "2026-08-08T07:02:00.000Z";
+    await scans.save({
+      scanJobId: `docker-scan-${runId}`,
+      workspaceId,
+      uploadId: upload.id,
+      storageKey: `workspaces/${workspaceId}/temporary/docker-scan`,
+      state: "scanning",
+      createdAt,
+      updatedAt: scanningAt,
+    });
+    await scans.save({
+      scanJobId: `docker-scan-${runId}`,
+      workspaceId,
+      uploadId: upload.id,
+      storageKey: `workspaces/${workspaceId}/temporary/docker-scan`,
+      state: "accepted",
+      outcome: "clean",
+      createdAt,
+      updatedAt: acceptedAt,
+    });
+    const persisted = await scans.getByUploadId(workspaceId, upload.id);
+    expect(persisted).toMatchObject({
+      state: "accepted",
+      outcome: "clean",
+      updatedAt: acceptedAt,
+      createdAt,
+    });
+    expect(
+      await scans.getByUploadId(syntheticWorkspaceId, upload.id),
+    ).toBeUndefined();
+
+    const server = await startServer();
+    try {
+      const api = await authorizedGet(
+        `/v1/uploads/${upload.id}/scan-status`,
+        workspaceId,
+      );
+      expect(api.status).toBe(200);
+      expect(api.body).toEqual({
+        uploadId: upload.id,
+        workspaceId,
+        state: "accepted",
+        outcome: "clean",
+        updatedAt: acceptedAt,
+      });
+      expect(api.body).not.toHaveProperty("scanJobId");
+      expect(api.body).not.toHaveProperty("storageKey");
+      expect(JSON.stringify(api.body)).not.toContain("temporary/docker-scan");
+
+      const client = createTrustClient({
+        baseUrl,
+        workspaceId,
+        accessToken: adminToken,
+      });
+      await expect(client.uploads.getScanStatus(upload.id)).resolves.toEqual(
+        api.body,
+      );
+
+      expect(
+        (
+          await authorizedGet(
+            `/v1/uploads/${upload.id}/scan-status`,
+            syntheticWorkspaceId,
+          )
+        ).status,
+      ).toBe(404);
+    } finally {
+      await stopServer(server);
+    }
+  }, 60_000);
 });
 
 async function startServer(

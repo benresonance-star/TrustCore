@@ -134,7 +134,7 @@ const entries = {
     label: "Quarantine scan",
     level: "partial",
     detail:
-      "Fixture shows a sample quarantine queue. Live mode reports that a public scan-status API is not exposed yet.",
+      "Per-upload scan status uses gateway.getUploadScanStatus. Workspace-wide quarantine summary remains fixture/partial until a public list endpoint exists.",
   },
   "control.access.passkey-mfa": {
     id: "control.access.passkey-mfa",

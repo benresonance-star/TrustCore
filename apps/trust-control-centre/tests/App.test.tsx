@@ -88,6 +88,8 @@ describe("Trust Core Control Centre", () => {
       await screen.findByRole("heading", { name: "Transfers" }),
     ).toBeVisible();
     expect(screen.getByText(/Fixture quarantine queue/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Get scan status" }));
+    expect(await screen.findByText(/scanning/)).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Create download grant" }),
     );

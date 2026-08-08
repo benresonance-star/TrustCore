@@ -14,6 +14,7 @@ import {
   PostgresOutboxStore,
   PostgresPortabilityExportReader,
   PostgresPortabilityStore,
+  PostgresQuarantineScanStore,
   PostgresRetentionPolicyRepository,
   PostgresTrustRepository,
   PostgresVerificationCatalog,
@@ -86,6 +87,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       "0011_portability_persistence.sql",
       "0012_portability_correctness.sql",
       "0013_retention_and_blob_encryption.sql",
+      "0014_quarantine_scan_jobs.sql",
     ]);
     await expect(runMigrations(pool, migrationsDirectory)).resolves.toEqual([]);
     const protectedTables = await owner.query<{
@@ -167,6 +169,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
       ).resolves.toEqual([
         "0012_portability_correctness.sql",
         "0013_retention_and_blob_encryption.sql",
+        "0014_quarantine_scan_jobs.sql",
       ]);
       const primaryKey = await upgradeOwner.query<{ columns: string[] }>(
         "SELECT array_agg(a.attname ORDER BY key.ordinality)::text[] AS columns FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=key.attnum WHERE c.conrelid='portability_archives'::regclass AND c.contype='p' GROUP BY c.oid",
@@ -1324,6 +1327,60 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     } finally {
       await app.end();
     }
+  });
+
+  it("persists quarantine scan state with workspace-scoped lookup", async () => {
+    const fixture = await createFixture();
+    const contracts = new PostgresContractRepository(pool);
+    const scans = new PostgresQuarantineScanStore(pool);
+    const upload = await contracts.createUploadSession({
+      workspaceId: fixture.workspaceA,
+      actorId: "application.scan",
+      principalType: "application",
+      idempotencyKey: `scan-upload-${randomUUID()}`,
+      mediaType: "text/plain",
+      expectedByteLength: 1,
+      expectedSha256: "a".repeat(64),
+      expiresInSeconds: 3600,
+      expiresAt: "2026-08-08T01:00:00.000Z",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    const createdAt = "2026-08-08T00:00:00.000Z";
+    const scanningAt = "2026-08-08T00:01:00.000Z";
+    await scans.save({
+      scanJobId: `scan-job-${randomUUID()}`,
+      workspaceId: fixture.workspaceA,
+      uploadId: upload.id,
+      storageKey: `workspaces/${fixture.workspaceA}/temporary/scan`,
+      state: "scanning",
+      createdAt,
+      updatedAt: scanningAt,
+    });
+    const loaded = await scans.getByUploadId(fixture.workspaceA, upload.id);
+    expect(loaded).toMatchObject({
+      uploadId: upload.id,
+      workspaceId: fixture.workspaceA,
+      state: "scanning",
+      updatedAt: scanningAt,
+    });
+    expect(loaded).not.toHaveProperty("engine");
+    expect(
+      await scans.getByUploadId(fixture.workspaceB, upload.id),
+    ).toBeUndefined();
+    const acceptedAt = "2026-08-08T00:02:00.000Z";
+    await scans.save({
+      ...loaded!,
+      state: "accepted",
+      outcome: "clean",
+      updatedAt: acceptedAt,
+    });
+    const accepted = await scans.getByUploadId(fixture.workspaceA, upload.id);
+    expect(accepted).toMatchObject({
+      state: "accepted",
+      outcome: "clean",
+      updatedAt: acceptedAt,
+      createdAt,
+    });
   });
 });
 
