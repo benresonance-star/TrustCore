@@ -365,7 +365,6 @@ describe("Trust Core Control Centre", () => {
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Connections Test" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Customize contract" }));
     expect(screen.getByText(/App can read datasets/)).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Register application" }),

@@ -4,6 +4,7 @@ import { S3ObjectStorage } from "@trust-core/storage-s3";
 import {
   createObjectStorageFromEnv,
   createStorageRuntimeFromEnv,
+  isStorageBindingRoutingEnabled,
   resolveProvider,
 } from "../src/storage-factory.js";
 
@@ -11,6 +12,13 @@ describe("storage-factory", () => {
   it("defaults to minio and returns undefined when minio env is incomplete", () => {
     expect(resolveProvider(undefined)).toBe("minio");
     expect(createObjectStorageFromEnv({})).toBeUndefined();
+  });
+
+  it("keeps binding routing off unless TRUST_STORAGE_BINDING_ROUTING is enabled", () => {
+    expect(isStorageBindingRoutingEnabled({})).toBe(false);
+    expect(isStorageBindingRoutingEnabled({ TRUST_STORAGE_BINDING_ROUTING: "on" })).toBe(
+      true,
+    );
   });
 
   it("constructs MinIO when complete local env is present", () => {

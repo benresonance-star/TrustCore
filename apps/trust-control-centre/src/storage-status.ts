@@ -81,6 +81,26 @@ export function remediationKeyForIssueClass(
   }
 }
 
+/** Remediation for app/tenant bindings — never points at platform host env. */
+export function remediationKeyForBindingIssueClass(
+  issueClass: StorageIssueClass | null | undefined,
+): RemediationKey {
+  switch (issueClass) {
+    case "wrong_region":
+      return "storage_binding_wrong_region";
+    case "not_configured":
+    case "auth":
+    case "permission":
+    case "not_found":
+    case "network":
+    case "provider_outage":
+    case "internal":
+      return "storage_binding_attention";
+    default:
+      return "storage_binding_attention";
+  }
+}
+
 export function remediationKeyForHealth(
   health: ServiceHealth | null | undefined,
 ): RemediationKey {

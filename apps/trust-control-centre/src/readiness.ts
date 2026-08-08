@@ -11,6 +11,7 @@ export type ReadinessStepId =
   | "backup"
   | "applications"
   | "access_grant"
+  | "binding_rollup"
   | "probe";
 
 export interface ReadinessStep {
@@ -30,6 +31,7 @@ export interface ReadinessInput {
   readonly applicationCount: number;
   readonly applicationGrantCount: number;
   readonly probeOk: boolean | null;
+  readonly bindingAttentionTotal?: number | null;
 }
 
 function step(value: ReadinessStep): ReadinessStep {
@@ -125,6 +127,25 @@ export function evaluateReadiness(
       ...(input.applicationGrantCount > 0
         ? {}
         : { remediationKey: "grant_access" as const }),
+    }),
+    step({
+      id: "binding_rollup",
+      label: "App storage bindings",
+      status:
+        input.bindingAttentionTotal == null
+          ? "warning"
+          : input.bindingAttentionTotal > 0
+            ? "warning"
+            : "ok",
+      detail:
+        input.bindingAttentionTotal == null
+          ? "App/tenant binding rollup has not been loaded yet. Platform storage health does not imply tenant BYOB is Connected."
+          : input.bindingAttentionTotal > 0
+            ? `${input.bindingAttentionTotal} app/tenant binding(s) need attention. Open Apps & Tenants.`
+            : "No app/tenant binding attention items.",
+      ...(input.bindingAttentionTotal != null && input.bindingAttentionTotal > 0
+        ? { remediationKey: "storage_binding_attention" as const }
+        : {}),
     }),
     step({
       id: "probe",

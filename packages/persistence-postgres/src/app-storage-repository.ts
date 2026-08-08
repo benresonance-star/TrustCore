@@ -110,6 +110,56 @@ export class PostgresAppStorageRepository {
     });
   }
 
+  getTenant(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): Promise<ApplicationTenant | undefined> {
+    return this.scoped(workspaceId, async (db) => {
+      const result = await db.query<TenantRow>(
+        `${selectTenant} WHERE workspace_id=$1 AND application_id=$2 AND id=$3`,
+        [workspaceId, applicationId, tenantId],
+      );
+      return result.rows[0] ? mapTenant(result.rows[0]) : undefined;
+    });
+  }
+
+  updateTenant(input: {
+    workspaceId: string;
+    applicationId: string;
+    tenantId: string;
+    displayName?: string;
+    status?: ApplicationTenant["status"];
+    expectedUpdatedAt: string;
+    updatedAt: string;
+  }): Promise<ApplicationTenant> {
+    return this.scoped(input.workspaceId, async (db) => {
+      const result = await db.query<TenantRow>(
+        `UPDATE application_tenants
+         SET display_name=COALESCE($5, display_name),
+             status=COALESCE($6, status),
+             updated_at=$7
+         WHERE workspace_id=$1 AND application_id=$2 AND id=$3 AND updated_at=$4
+         RETURNING *`,
+        [
+          input.workspaceId,
+          input.applicationId,
+          input.tenantId,
+          input.expectedUpdatedAt,
+          input.displayName ?? null,
+          input.status ?? null,
+          input.updatedAt,
+        ],
+      );
+      if (!result.rows[0]) {
+        throw Object.assign(new Error("Application tenant update conflict."), {
+          code: "CONFLICT",
+        });
+      }
+      return mapTenant(result.rows[0]);
+    });
+  }
+
   listProfiles(workspaceId: string): Promise<AppStorageProfileRow[]> {
     return this.scoped(workspaceId, async (db) => {
       const result = await db.query<ProfileRow>(
@@ -120,11 +170,28 @@ export class PostgresAppStorageRepository {
     });
   }
 
-  listBindings(workspaceId: string): Promise<AppStorageBindingRow[]> {
+  listBindings(
+    workspaceId: string,
+    filter?: { applicationId?: string; applicationTenantId?: string | null },
+  ): Promise<AppStorageBindingRow[]> {
     return this.scoped(workspaceId, async (db) => {
+      const clauses = ["workspace_id=$1"];
+      const params: unknown[] = [workspaceId];
+      if (filter?.applicationId != null) {
+        params.push(filter.applicationId);
+        clauses.push(`application_id=$${params.length}`);
+      }
+      if (filter && "applicationTenantId" in filter) {
+        if (filter.applicationTenantId == null) {
+          clauses.push("application_tenant_id IS NULL");
+        } else {
+          params.push(filter.applicationTenantId);
+          clauses.push(`application_tenant_id=$${params.length}`);
+        }
+      }
       const result = await db.query<BindingRow>(
-        `${selectBinding} WHERE workspace_id=$1`,
-        [workspaceId],
+        `${selectBinding} WHERE ${clauses.join(" AND ")} ORDER BY created_at`,
+        params,
       );
       return result.rows.map(mapBinding);
     });
@@ -322,6 +389,40 @@ export class PostgresAppStorageRepository {
           [workspaceId, profileId],
         );
       }
+    });
+  }
+
+  countStickyBlobs(workspaceId: string, bindingId: string): Promise<number> {
+    return this.scoped(workspaceId, async (db) => {
+      const result = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM blob_objects
+         WHERE workspace_id=$1 AND storage_binding_id=$2`,
+        [workspaceId, bindingId],
+      );
+      return Number(result.rows[0]?.count ?? 0);
+    });
+  }
+
+  updateStickyBindings(input: {
+    workspaceId: string;
+    targetBindingId: string;
+    targetGeneration: number;
+    objectIds: readonly string[];
+  }): Promise<number> {
+    if (input.objectIds.length === 0) return Promise.resolve(0);
+    return this.scoped(input.workspaceId, async (db) => {
+      const result = await db.query(
+        `UPDATE blob_objects
+         SET storage_binding_id=$2, storage_binding_generation=$3
+         WHERE workspace_id=$1 AND id = ANY($4::uuid[])`,
+        [
+          input.workspaceId,
+          input.targetBindingId,
+          input.targetGeneration,
+          [...input.objectIds],
+        ],
+      );
+      return result.rowCount ?? 0;
     });
   }
 

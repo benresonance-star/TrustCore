@@ -6,6 +6,7 @@ import type { ServiceHealth } from "@trust-core/protocol";
 import { StorageProviderView } from "../src/StorageProviderView";
 import {
   mapScanStateToLifecycleLabel,
+  remediationKeyForBindingIssueClass,
   remediationKeyForIssueClass,
   storageOperatorStatus,
 } from "../src/storage-status";
@@ -84,6 +85,12 @@ describe("storage-status helpers", () => {
     expect(remediationKeyForIssueClass("network")).toBe("storage_network");
     expect(remediationKeyForIssueClass("wrong_region")).toBe(
       "storage_wrong_region",
+    );
+    expect(remediationKeyForBindingIssueClass("wrong_region")).toBe(
+      "storage_binding_wrong_region",
+    );
+    expect(remediationKeyForBindingIssueClass("auth")).toBe(
+      "storage_binding_attention",
     );
   });
 

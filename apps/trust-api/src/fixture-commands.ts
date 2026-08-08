@@ -120,7 +120,9 @@ export function createFixtureCommands(
     workspaceId: workspace.id,
     applicationId: applications[0]!.id,
   });
-  const appStorageCommands = createAppStorageCommandMethods(appStorage);
+  const appStorageCommands = createAppStorageCommandMethods(appStorage, {
+    allowSyntheticConnectedProbe: true,
+  });
   const policyAssignments: readonly PolicyAssignment[] = [
     {
       id: "fixture-policy-admin",

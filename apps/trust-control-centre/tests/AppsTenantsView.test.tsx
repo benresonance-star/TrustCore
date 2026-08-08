@@ -27,11 +27,23 @@ describe("AppsTenantsView", () => {
     expect(screen.getByText("Tenant 2")).toBeVisible();
     expect(screen.getByText(/wrong_region/)).toBeVisible();
     expect(screen.getByText(/upgrade_recognised/i)).toBeVisible();
-    expect(screen.getByText(/Fixture tenant and binding data/i)).toBeVisible();
+    expect(screen.getByText(/Synthetic binding data/i)).toBeVisible();
     expect(screen.getByText(/Storage needs attention/i)).toBeVisible();
+    expect(screen.getByText(/App-default object store/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: /Snapshot app scope/i })).toBeDisabled();
+    fireEvent.click(screen.getByText("Tenant 2"));
+    expect(
+      screen.getByText(/correct the binding region/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/do not change the platform host TRUST_STORAGE_REGION/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Snapshot this tenant/i }),
+    ).toBeDisabled();
   });
 
-  it("live mode shows honesty banner without fixture attention", () => {
+  it("live mode shows loading honesty without fixture attention", () => {
     render(
       <AppsTenantsView
         applications={[]}
@@ -42,7 +54,7 @@ describe("AppsTenantsView", () => {
       />,
     );
     expect(
-      screen.getByText(/Live gateway — binding UI not wired yet/i),
+      screen.getByText(/Loading binding data from Trust API/i),
     ).toBeVisible();
     expect(screen.queryByText(/Storage needs attention/i)).toBeNull();
     expect(screen.queryByText(/wrong_region/)).toBeNull();
@@ -70,10 +82,18 @@ describe("ADR-016 platform status catalog", () => {
     expect(implemented).toContain("adr-016-api");
     expect(implemented).toContain("adr-016-schema");
     expect(implemented).toContain("adr-016-postgres-repo");
+    expect(implemented).toContain("cc-apps-gateway");
+    expect(implemented).toContain("cc-apps-live-strip");
+    expect(implemented).toContain("adr-016-tenant-crud");
+    expect(implemented).toContain("binding-routing-managed");
     const outstanding = platformStatus.outstanding.map((item) => item.id);
-    expect(outstanding).toContain("cc-apps-gateway");
-    expect(outstanding).toContain("cc-apps-live-strip");
+    expect(outstanding).not.toContain("cc-apps-gateway");
+    expect(outstanding).not.toContain("cc-apps-live-strip");
     expect(outstanding).toContain("sts-assumerole-hardening");
     expect(outstanding).toContain("byob-data-plane");
+    const byob = platformStatus.outstanding.find(
+      (item) => item.id === "byob-data-plane",
+    );
+    expect(byob?.text).toMatch(/STS AssumeRole/i);
   });
 });

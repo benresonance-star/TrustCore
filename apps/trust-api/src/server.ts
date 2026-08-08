@@ -99,6 +99,12 @@ const commandProvider = pool
         },
         prober: storageRuntime.prober,
       },
+      storage
+        ? {
+            platformStorage: storage,
+            ...(grantOptions ? { platformSigner: grantOptions.signer } : {}),
+          }
+        : undefined,
     )
   : createFixtureCommands();
 const portability =
@@ -295,6 +301,10 @@ createServer(async (request, response) => {
       return;
     }
     const body = await readJsonBody(request);
+    const query: Record<string, string | undefined> = {};
+    for (const [key, value] of requestUrl.searchParams.entries()) {
+      query[key] = value;
+    }
     const result = await route(request.method ?? "GET", pathname, {
       headers: {
         authorization: header(request.headers.authorization),
@@ -310,6 +320,7 @@ createServer(async (request, response) => {
         ),
       },
       body,
+      query,
     });
     if (result.body instanceof Uint8Array)
       sendBinary(response, result.status, result.body, result.headers);

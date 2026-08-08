@@ -48,6 +48,34 @@ User source connectors (Drive/OneDrive/…) remain separate per ADR-015.
     digest-equal copy + epoch cutover + rollback window.
 12. **SourceConnector** remains deferred (ADR-015).
 
+## Addendum — Primary-path completion and multi-option deferral
+
+1. **Primary slice first:** One primary binding per app-default and per
+   tenant scope (unique indexes from migration 0015). Multi-option
+   (`binding_role` ∈ primary | archive | replica) is deferred until the
+   primary CRUD, binding-aware data plane, and Control Centre live path
+   ship.
+2. **Tenant lifecycle:** create → update `displayName` → suspend → close
+   (soft-delete). `externalTenantKey` is immutable. Suspended/closed
+   tenants fail-closed for new writes; sticky blob reads remain valid.
+3. **Binding lifecycle:** upsert / get / list / disable / delete (delete
+   guarded when Connected or sticky blobs exist). `generation` bumps on
+   profile-changing upsert and rollback; mutate APIs accept optional
+   `expectedGeneration` for optimistic concurrency.
+4. **Operator surfaces:** Connections registers apps and grants access;
+   Apps & Tenants manages tenants and BYOB bindings; Storage diagnoses
+   the platform host store only. Platform-healthy must not imply all
+   tenant bindings are Connected.
+5. **Credentials:** Prefer STS AssumeRole + ExternalId +
+   `ExpectedBucketOwner`. Never return secrets to the browser. Connected
+   requires a live Tier-A probe on the Postgres path.
+6. **Audit + idempotency:** Tenant and binding mutations require
+   `storage:manage`, an idempotency key where create/upsert applies, and
+   audit events without secret material.
+7. **Non-goals:** Trust Core does not apply AWS Backup, S3 Versioning, or
+   Lifecycle rules; profiles may store opaque `lifecyclePolicyRef` /
+   storage-class intent later. Archive copy workers are a follow-on.
+
 ## Consequences
 
 - Control Centre gains Apps & Tenants; platform Storage page stays host-default

@@ -92,7 +92,7 @@ const entries = {
     label: "Canonical objects",
     level: "partial",
     detail:
-      "Storage diagnostics and download grants. Public multipart upload remains outstanding; open Storage for provider connection checks.",
+      "Platform storage diagnostics and download grants. With TRUST_STORAGE_BINDING_ROUTING, application-principal ingest can follow managed bindings and sticky downloads; public multipart and BYOB STS remain outstanding.",
   },
   "flow.node.audit": {
     id: "flow.node.audit",
@@ -127,7 +127,7 @@ const entries = {
     label: "Apps & Tenants",
     level: "partial",
     detail:
-      "Application tenants and storage bindings (ADR-016). Fixture API routes and durable Postgres persistence (migration 0015 + SQL repo) are in place. Control Centre live gateway rollup/tenants fetch remains outstanding. Live dual-account STS AssumeRole hardening and BYOB data-plane routing remain Partial. Source connectors deferred (ADR-015).",
+      "Application tenants and storage bindings (ADR-016). Live gateway loads tenants, effective storage, and binding rollup. Managed binding HeadBucket probe can grant Connected. TRUST_STORAGE_BINDING_ROUTING (default off) routes application-principal ingest/download via primary binding + sticky blob_objects; BYOB STS AssumeRole and Source connectors (ADR-015) remain outstanding.",
   },
   "section.history": {
     id: "section.history",
@@ -141,7 +141,7 @@ const entries = {
     label: "Portability",
     level: "live",
     detail:
-      "Wired to gateway export, archive upload, import plan, and execute flows. Fixture mode keeps operations in memory; live mode hits Trust API.",
+      "Wired to gateway export, archive upload, import plan, and execute flows. Exports are workspace-scoped; app/tenant filter knobs in Apps & Tenants are not applied yet. Fixture mode keeps operations in memory; live mode hits Trust API.",
   },
   "section.app-protocol": {
     id: "section.app-protocol",
@@ -314,6 +314,22 @@ export const platformStatus = {
       id: "adr-016-postgres-repo",
       text: "Durable Postgres repository for application-tenant storage bindings",
     },
+    {
+      id: "cc-apps-gateway",
+      text: "Control Centre gateway wiring for tenants / effective storage / binding rollup",
+    },
+    {
+      id: "cc-apps-live-strip",
+      text: "Home storage attention strip from live /v1/storage/bindings/rollup",
+    },
+    {
+      id: "adr-016-tenant-crud",
+      text: "Application tenant get/update/suspend/close + binding list/get/delete APIs",
+    },
+    {
+      id: "binding-routing-managed",
+      text: "TRUST_STORAGE_BINDING_ROUTING (default off): managed/platform_iam ingest+sticky download + HeadBucket binding probe",
+    },
   ],
   outstanding: [
     {
@@ -325,20 +341,12 @@ export const platformStatus = {
       text: "Control Centre UI for multipart upload and workspace quarantine summary",
     },
     {
-      id: "cc-apps-gateway",
-      text: "Control Centre gateway wiring for tenants/bindings/rollup (Apps & Tenants UI still fixture-backed for bindings)",
-    },
-    {
-      id: "cc-apps-live-strip",
-      text: "Home storage attention strip from live /v1/storage/bindings/rollup",
-    },
-    {
       id: "sts-assumerole-hardening",
       text: "Live dual-account STS AssumeRole hardening for BYOB binding probes",
     },
     {
       id: "byob-data-plane",
-      text: "Ingest/worker resolve per storage binding (platform ObjectStorage only today)",
+      text: "BYOB STS AssumeRole data-plane + live cross-account probe (managed platform_iam routing behind TRUST_STORAGE_BINDING_ROUTING is implemented; default off)",
     },
     {
       id: "user-drive-connectors",

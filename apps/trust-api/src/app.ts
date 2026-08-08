@@ -14,6 +14,7 @@ import type {
   CreateImportPlanCommand,
   CreateRetentionPolicyCommand,
   CreateApplicationTenantCommand,
+  CloseApplicationTenantCommand,
   CutoverStorageMigrateCommand,
   DeleteResourceCommand,
   DeleteResourceResult,
@@ -36,10 +37,12 @@ import type {
   ExecuteImportCommand,
   StorageBindingRollup,
   StorageBindingSummary,
+  SuspendApplicationTenantCommand,
   TrustAction,
   UploadSession,
   UploadScanStatus,
   UploadArchiveCommand,
+  UpdateApplicationTenantCommand,
   UpdateRetentionPolicyCommand,
   UpsertStorageBindingCommand,
   VerificationRunResult,
@@ -56,6 +59,8 @@ export interface ObjectIngestCommand {
   idempotencyKey: string;
   mediaType: string;
   bytesBase64: string;
+  /** Optional application-tenant scope for binding routing (server-validated). */
+  applicationTenantId?: string;
 }
 export interface SnapshotProvider {
   getSnapshot(): Promise<ControlCentreSnapshot>;
@@ -72,6 +77,7 @@ export interface ApiResult {
 export interface ApiRequest {
   headers?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
+  query?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface CommandProvider {
@@ -191,9 +197,29 @@ export interface CommandProvider {
     workspaceId: string,
     applicationId: string,
   ): Promise<unknown>;
+  getApplicationTenant?(
+    workspaceId: string,
+    applicationId: string,
+    tenantId: string,
+  ): Promise<ApplicationTenant>;
   createApplicationTenant?(
     actor: AuthenticatedActor,
     command: CreateApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  updateApplicationTenant?(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: UpdateApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  suspendApplicationTenant?(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: SuspendApplicationTenantCommand,
+  ): Promise<ApplicationTenant>;
+  closeApplicationTenant?(
+    actor: AuthenticatedActor,
+    tenantId: string,
+    command: CloseApplicationTenantCommand,
   ): Promise<ApplicationTenant>;
   getEffectiveStorage?(
     workspaceId: string,
@@ -201,10 +227,23 @@ export interface CommandProvider {
     applicationTenantId?: string,
   ): Promise<EffectiveStorageSummary>;
   getStorageBindingRollup?(workspaceId: string): Promise<StorageBindingRollup>;
+  listStorageBindings?(
+    workspaceId: string,
+    query?: { applicationId?: string; applicationTenantId?: string | null },
+  ): Promise<{ items: StorageBindingSummary[] }>;
+  getStorageBinding?(
+    workspaceId: string,
+    bindingId: string,
+  ): Promise<StorageBindingSummary>;
   upsertStorageBinding?(
     actor: AuthenticatedActor,
     command: UpsertStorageBindingCommand,
   ): Promise<unknown>;
+  deleteStorageBinding?(
+    actor: AuthenticatedActor,
+    bindingId: string,
+    workspaceId: string,
+  ): Promise<StorageBindingSummary>;
   probeStorageBinding?(
     actor: AuthenticatedActor,
     command: ProbeStorageBindingCommand,
@@ -390,12 +429,25 @@ export function createApi(
       pathname,
       /^\/v1\/applications\/([^/]+)\/tenants$/,
     );
+    const applicationTenantParts = pathname.match(
+      /^\/v1\/applications\/([^/]+)\/tenants\/([^/]+)$/,
+    );
+    const applicationTenantSuspendParts = pathname.match(
+      /^\/v1\/applications\/([^/]+)\/tenants\/([^/]+)\/suspend$/,
+    );
+    const applicationTenantCloseParts = pathname.match(
+      /^\/v1\/applications\/([^/]+)\/tenants\/([^/]+)\/close$/,
+    );
     const applicationTenantStorageParts = pathname.match(
       /^\/v1\/applications\/([^/]+)\/tenants\/([^/]+)\/storage$/,
     );
     const applicationStorageMatch = match(
       pathname,
       /^\/v1\/applications\/([^/]+)\/storage$/,
+    );
+    const storageBindingIdMatch = match(
+      pathname,
+      /^\/v1\/storage\/bindings\/([^/]+)$/,
     );
     const bindingProbeMatch = match(
       pathname,
@@ -448,6 +500,86 @@ export function createApi(
             validCreateApplicationTenant,
           )
         : unavailable(request);
+    if (applicationTenantParts && method === "GET")
+      return commands?.getApplicationTenant
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) =>
+              commands!.getApplicationTenant!(
+                workspaceId,
+                decodeURIComponent(applicationTenantParts[1]!),
+                decodeURIComponent(applicationTenantParts[2]!),
+              ),
+          )
+        : unavailable(request);
+    if (applicationTenantParts && method === "PUT")
+      return commands?.updateApplicationTenant
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.updateApplicationTenant!(
+                actor,
+                decodeURIComponent(applicationTenantParts[2]!),
+                {
+                  ...(request.body as UpdateApplicationTenantCommand),
+                  applicationId: decodeURIComponent(applicationTenantParts[1]!),
+                },
+              ),
+            validUpdateApplicationTenant,
+          )
+        : unavailable(request);
+    if (applicationTenantSuspendParts && method === "POST")
+      return commands?.suspendApplicationTenant
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.suspendApplicationTenant!(
+                actor,
+                decodeURIComponent(applicationTenantSuspendParts[2]!),
+                {
+                  ...(request.body as SuspendApplicationTenantCommand),
+                  applicationId: decodeURIComponent(
+                    applicationTenantSuspendParts[1]!,
+                  ),
+                },
+              ),
+            validTenantStatusCommand,
+          )
+        : unavailable(request);
+    if (applicationTenantCloseParts && method === "POST")
+      return commands?.closeApplicationTenant
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (_workspaceId, actor) =>
+              commands!.closeApplicationTenant!(
+                actor,
+                decodeURIComponent(applicationTenantCloseParts[2]!),
+                {
+                  ...(request.body as CloseApplicationTenantCommand),
+                  applicationId: decodeURIComponent(
+                    applicationTenantCloseParts[1]!,
+                  ),
+                },
+              ),
+            validTenantStatusCommand,
+          )
+        : unavailable(request);
     if (applicationStorageMatch && method === "GET")
       return commands?.getEffectiveStorage
         ? secured(
@@ -490,6 +622,30 @@ export function createApi(
             (workspaceId) => commands!.getStorageBindingRollup!(workspaceId),
           )
         : unavailable(request);
+    if (pathname === "/v1/storage/bindings" && method === "GET")
+      return commands?.listStorageBindings
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) => {
+              const applicationId = request.query?.applicationId;
+              const rawTenant = request.query?.applicationTenantId;
+              return commands!.listStorageBindings!(workspaceId, {
+                ...(typeof applicationId === "string"
+                  ? { applicationId }
+                  : {}),
+                ...(rawTenant === "null"
+                  ? { applicationTenantId: null }
+                  : typeof rawTenant === "string"
+                    ? { applicationTenantId: rawTenant }
+                    : {}),
+              });
+            },
+          )
+        : unavailable(request);
     if (pathname === "/v1/storage/bindings" && method === "POST")
       return commands?.upsertStorageBinding
         ? secured(
@@ -504,6 +660,34 @@ export function createApi(
                 request.body as UpsertStorageBindingCommand,
               ),
             validUpsertStorageBinding,
+          )
+        : unavailable(request);
+    if (storageBindingIdMatch && method === "GET")
+      return commands?.getStorageBinding
+        ? secured(
+            "workspace:read",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId) =>
+              commands!.getStorageBinding!(workspaceId, storageBindingIdMatch),
+          )
+        : unavailable(request);
+    if (storageBindingIdMatch && method === "DELETE")
+      return commands?.deleteStorageBinding
+        ? secured(
+            "storage:manage",
+            method,
+            request,
+            commands,
+            access,
+            (workspaceId, actor) =>
+              commands!.deleteStorageBinding!(
+                actor,
+                storageBindingIdMatch,
+                workspaceId,
+              ),
           )
         : unavailable(request);
     if (bindingProbeMatch && method === "POST")
@@ -1390,6 +1574,29 @@ async function secured(
         "The retention policy changed before this update.",
         request,
       );
+    if (code === "CONFLICT")
+      return failure(
+        409,
+        "CONFLICT",
+        "The resource changed before this command could be applied.",
+        request,
+      );
+    if (code === "RESOURCE_NOT_FOUND")
+      return failure(
+        404,
+        "RESOURCE_NOT_FOUND",
+        "The requested resource was not found.",
+        request,
+      );
+    if (code === "COMMAND_REJECTED")
+      return failure(
+        422,
+        "COMMAND_REJECTED",
+        error instanceof Error
+          ? error.message
+          : "The command was rejected.",
+        request,
+      );
     if (code === "INVALID_COMMAND")
       return failure(
         400,
@@ -1625,6 +1832,21 @@ function validCreateApplicationTenant(body: unknown): boolean {
     validWorkspaceBody(body) &&
     nonEmpty(body.externalTenantKey) &&
     nonEmpty(body.displayName) &&
+    nonEmpty(body.idempotencyKey)
+  );
+}
+function validUpdateApplicationTenant(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.displayName) &&
+    nonEmpty(body.expectedUpdatedAt) &&
+    nonEmpty(body.idempotencyKey)
+  );
+}
+function validTenantStatusCommand(body: unknown): boolean {
+  return (
+    validWorkspaceBody(body) &&
+    nonEmpty(body.expectedUpdatedAt) &&
     nonEmpty(body.idempotencyKey)
   );
 }

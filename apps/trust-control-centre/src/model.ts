@@ -24,11 +24,13 @@ export type {
 import type {
   AdminSession,
   ApplicationRegistration,
+  ApplicationTenant,
   ArchiveCandidate,
   ArchiveExportSummary,
   ControlCentreSnapshot,
   CreatePolicyAssignmentCommand,
   DownloadGrant,
+  EffectiveStorageSummary,
   HistorySnapshot,
   ImportOperationSummary,
   ImportPlanSummary,
@@ -36,6 +38,7 @@ import type {
   RegisterApplicationCommand,
   RevisionCommandResult,
   ServiceHealth,
+  StorageBindingRollup,
   UploadScanStatus,
   VerificationRunResult,
 } from "@trust-core/protocol";
@@ -83,6 +86,16 @@ export interface ControlCentreGateway {
   listApplications(
     workspaceId: string,
   ): Promise<readonly ApplicationRegistration[]>;
+  listApplicationTenants(
+    workspaceId: string,
+    applicationId: string,
+  ): Promise<readonly ApplicationTenant[]>;
+  getEffectiveStorage(
+    workspaceId: string,
+    applicationId: string,
+    applicationTenantId?: string,
+  ): Promise<EffectiveStorageSummary>;
+  getStorageBindingRollup(workspaceId: string): Promise<StorageBindingRollup>;
   registerApplication(
     workspaceId: string,
     input: Omit<RegisterApplicationCommand, "workspaceId" | "idempotencyKey">,

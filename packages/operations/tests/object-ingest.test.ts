@@ -263,4 +263,32 @@ describe("immutable object ingestion", () => {
     }
     expect(catalog.actorTypes).toEqual(["application", "user"]);
   });
+
+  it("stamps sticky binding metadata when provided on ingest", async () => {
+    const storage = new MemoryStorage();
+    const catalog = new MemoryCatalog();
+    const operations = new MemoryOperations();
+    const service = new ObjectIngestService(
+      storage,
+      catalog,
+      operations,
+      "test",
+      () => "2026-08-04T00:00:00.000Z",
+      () => "00000000-0000-4000-8000-000000000099",
+    );
+    const result = await service.ingest({
+      workspaceId: "workspace",
+      actorId: "actor",
+      principalType: "application",
+      idempotencyKey: "sticky",
+      bytes: Buffer.from("sticky-bytes"),
+      mediaType: "text/plain",
+      storageBindingId: "33333333-3333-3333-3333-333333333333",
+      storageBindingGeneration: 7,
+    });
+    expect(result.blob.storageBindingId).toBe(
+      "33333333-3333-3333-3333-333333333333",
+    );
+    expect(result.blob.storageBindingGeneration).toBe(7);
+  });
 });

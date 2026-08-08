@@ -1,5 +1,5 @@
 import { HardDrive, ShieldAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ApplicationRegistration,
   ApplicationTenant,
@@ -15,10 +15,35 @@ import {
   foundationStorageRollup,
   foundationTenants,
 } from "./foundation-storage-fixture";
+import { remediationFor } from "./remediation";
+import { remediationKeyForBindingIssueClass } from "./storage-status";
 
 function statusClass(status: string): string {
   if (status === "connected") return "verified";
   return "review";
+}
+
+function humanStatus(status: string): string {
+  switch (status) {
+    case "connected":
+      return "Connected";
+    case "configured":
+      return "Configured";
+    case "needs_attention":
+      return "Needs attention";
+    case "not_configured":
+      return "Not set up";
+    case "disabled":
+      return "Disabled";
+    case "migrating":
+      return "Migrating";
+    case "draft":
+      return "Draft";
+    case "awaiting_customer_role":
+      return "Awaiting customer role";
+    default:
+      return status;
+  }
 }
 
 function formatBytes(value: number | null | undefined): string {
@@ -32,12 +57,27 @@ function formatBytes(value: number | null | undefined): string {
 export function AppsTenantsView({
   applications,
   mode,
+  gateway,
+  rollup: rollupProp,
   onOpenConnections,
   onOpenStorage,
   onOpenPortability,
 }: {
   applications: readonly ApplicationRegistration[];
   mode: GatewayMode;
+  gateway?: {
+    listApplicationTenants: (
+      workspaceId: string,
+      applicationId: string,
+    ) => Promise<readonly ApplicationTenant[]>;
+    getEffectiveStorage: (
+      workspaceId: string,
+      applicationId: string,
+      applicationTenantId?: string,
+    ) => Promise<EffectiveStorageSummary>;
+    workspaceId: string;
+  };
+  rollup?: StorageBindingRollup | null;
   onOpenConnections: () => void;
   onOpenStorage: () => void;
   onOpenPortability: (scope?: {
@@ -68,21 +108,91 @@ export function AppsTenantsView({
     apps[0]?.id ?? FOUNDATION_APP_ID,
   );
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(
-    foundationTenants[1]?.id ?? null,
+    mode === "fixture" ? (foundationTenants[1]?.id ?? null) : null,
   );
+  const [liveTenants, setLiveTenants] = useState<ApplicationTenant[]>([]);
+  const [tenantEffectiveById, setTenantEffectiveById] = useState<
+    Record<string, EffectiveStorageSummary>
+  >({});
+  const [liveAppEffective, setLiveAppEffective] =
+    useState<EffectiveStorageSummary | null>(null);
+  const [liveLoadedAt, setLiveLoadedAt] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const rollup: StorageBindingRollup | null =
-    mode === "fixture" ? foundationStorageRollup() : null;
-  const isFoundation =
+    rollupProp !== undefined
+      ? rollupProp
+      : mode === "fixture"
+        ? foundationStorageRollup()
+        : null;
+  const isFoundationFixture =
     mode === "fixture" && selectedAppId === FOUNDATION_APP_ID;
-  const tenants: ApplicationTenant[] = isFoundation ? foundationTenants : [];
-  const appEffective: EffectiveStorageSummary | null = isFoundation
+  const tenants: ApplicationTenant[] = isFoundationFixture
+    ? foundationTenants
+    : liveTenants;
+  const appEffective: EffectiveStorageSummary | null = isFoundationFixture
     ? foundationEffectiveAppDefault()
-    : null;
-  const tenantEffective =
-    isFoundation && selectedTenantId
+    : liveAppEffective;
+  const tenantEffective = selectedTenantId
+    ? isFoundationFixture
       ? foundationEffectiveForTenant(selectedTenantId)
-      : null;
+      : (tenantEffectiveById[selectedTenantId] ?? null)
+    : null;
+
+  useEffect(() => {
+    if (!apps.some((a) => a.id === selectedAppId) && apps[0]) {
+      setSelectedAppId(apps[0].id);
+    }
+  }, [apps, selectedAppId]);
+
+  useEffect(() => {
+    if (mode === "fixture" || !gateway?.workspaceId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [tenantList, appEff] = await Promise.all([
+          gateway.listApplicationTenants(gateway.workspaceId, selectedAppId),
+          gateway.getEffectiveStorage(gateway.workspaceId, selectedAppId),
+        ]);
+        if (cancelled) return;
+        setLiveTenants([...tenantList]);
+        setLiveAppEffective(appEff);
+        const effectiveEntries = await Promise.all(
+          tenantList.map(async (tenant) => {
+            const summary = await gateway.getEffectiveStorage(
+              gateway.workspaceId,
+              selectedAppId,
+              tenant.id,
+            );
+            return [tenant.id, summary] as const;
+          }),
+        );
+        if (cancelled) return;
+        setTenantEffectiveById(Object.fromEntries(effectiveEntries));
+        setLiveLoadedAt(new Date().toISOString());
+        setLiveError(null);
+        if (
+          selectedTenantId &&
+          !tenantList.some((tenant) => tenant.id === selectedTenantId)
+        ) {
+          setSelectedTenantId(tenantList[0]?.id ?? null);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setLiveError(
+          error instanceof Error ? error.message : "Failed to load bindings",
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gateway, mode, selectedAppId, selectedTenantId]);
+
+  function effectiveForTenant(tenantId: string): EffectiveStorageSummary | null {
+    if (isFoundationFixture) return foundationEffectiveForTenant(tenantId);
+    return tenantEffectiveById[tenantId] ?? null;
+  }
 
   return (
     <section className="stack">
@@ -91,7 +201,7 @@ export function AppsTenantsView({
           <p className="eyebrow">Connected applications</p>
           <h1>Apps &amp; Tenants</h1>
           <p className="lede">
-            Review app-global and per-tenant canonical object stores. Secrets
+            Review app-default and per-tenant canonical object stores. Secrets
             stay on the API host; this screen diagnoses bindings and plan sync.
           </p>
         </div>
@@ -112,11 +222,11 @@ export function AppsTenantsView({
         <div className="status-notice" role="status">
           <HardDrive size={18} aria-hidden />
           <div>
-            <strong>Fixture tenant and binding data.</strong>
+            <strong>Synthetic binding data — preview only.</strong>
             <small>
               {" "}
-              Rollup, tenants, and effective storage are synthetic until the
-              Control Centre gateway calls Trust API binding routes.
+              Rollup, tenants, and effective storage come from the fixture
+              gateway.
             </small>
           </div>
         </div>
@@ -124,32 +234,32 @@ export function AppsTenantsView({
         <div className="status-notice" role="status">
           <HardDrive size={18} aria-hidden />
           <div>
-            <strong>Live gateway — binding UI not wired yet.</strong>
-            <small>
-              {" "}
-              Application list may come from Connections; tenant, binding, and
-              rollup data are not loaded from the API in this build.
-            </small>
+            <strong>
+              {liveLoadedAt
+                ? `Loaded from Trust API at ${liveLoadedAt}.`
+                : liveError
+                  ? "Live binding load failed."
+                  : "Loading binding data from Trust API…"}
+            </strong>
+            {liveError ? <small> {liveError}</small> : null}
           </div>
         </div>
       )}
 
-      {mode === "fixture" && rollup && rollup.attentionTotal > 0 ? (
+      {rollup && rollup.attentionTotal > 0 ? (
         <div className="status-notice error" role="alert">
           <ShieldAlert size={18} aria-hidden />
           <div>
             <strong>Storage needs attention</strong>
             <small>
-              Platform: {rollup.platformStatus}. Foundation:{" "}
-              {rollup.applications[0]?.attention ?? 0} of{" "}
-              {(rollup.applications[0]?.connected ?? 0) +
-                (rollup.applications[0]?.attention ?? 0) +
-                (rollup.applications[0]?.configured ?? 0)}{" "}
-              tenants need attention
-              {rollup.applications[0]?.topIssues[0]
-                ? ` (Tenant ${rollup.applications[0].topIssues[0].externalTenantKey}: ${rollup.applications[0].topIssues[0].issueClass})`
-                : ""}
-              .
+              Platform: {rollup.platformStatus}.{" "}
+              {rollup.applications[0]
+                ? `${rollup.applications[0].applicationName}: ${rollup.applications[0].attention} of ${(rollup.applications[0].connected ?? 0) + (rollup.applications[0].attention ?? 0) + (rollup.applications[0].configured ?? 0)} tenants need attention${
+                    rollup.applications[0].topIssues[0]
+                      ? ` (Tenant ${rollup.applications[0].topIssues[0].externalTenantKey}: ${rollup.applications[0].topIssues[0].issueClass})`
+                      : ""
+                  }.`
+                : null}
             </small>
           </div>
         </div>
@@ -180,7 +290,7 @@ export function AppsTenantsView({
                     onClick={() => {
                       setSelectedAppId(app.id);
                       setSelectedTenantId(
-                        app.id === FOUNDATION_APP_ID
+                        mode === "fixture" && app.id === FOUNDATION_APP_ID
                           ? (foundationTenants[0]?.id ?? null)
                           : null,
                       );
@@ -204,11 +314,11 @@ export function AppsTenantsView({
 
         <div className="card panel">
           <div className="panel-heading">
-            <h2>App storage (global)</h2>
+            <h2>App-default object store</h2>
             <span
               className={statusClass(appEffective?.status ?? "not_configured")}
             >
-              {appEffective?.status ?? "not_configured"}
+              {humanStatus(appEffective?.status ?? "not_configured")}
             </span>
           </div>
           {appEffective ? (
@@ -224,7 +334,7 @@ export function AppsTenantsView({
                 className="text-button"
                 onClick={onOpenStorage}
               >
-                Open platform Storage
+                Open platform Storage (host)
               </button>
             </p>
           )}
@@ -232,14 +342,20 @@ export function AppsTenantsView({
             <button
               type="button"
               className="button"
-              onClick={() =>
-                onOpenPortability({ applicationId: selectedAppId })
-              }
+              disabled
+              title="Portability export is workspace-scoped today; app/tenant filters are not applied yet."
             >
-              Snapshot (Portability)
+              Snapshot app scope
             </button>
             <button type="button" className="button" onClick={onOpenStorage}>
-              Platform Storage
+              Open platform Storage (host)
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => onOpenPortability()}
+            >
+              Open Portability (workspace)
             </button>
           </div>
         </div>
@@ -268,7 +384,7 @@ export function AppsTenantsView({
             </thead>
             <tbody>
               {tenants.map((tenant) => {
-                const eff = foundationEffectiveForTenant(tenant.id);
+                const eff = effectiveForTenant(tenant.id);
                 return (
                   <tr
                     key={tenant.id}
@@ -288,21 +404,21 @@ export function AppsTenantsView({
                       </button>
                     </td>
                     <td>{tenant.displayName}</td>
-                    <td>{eff.provider ?? "—"}</td>
-                    <td>{eff.tier ?? "—"}</td>
+                    <td>{eff?.provider ?? "—"}</td>
+                    <td>{eff?.tier ?? "—"}</td>
                     <td>
-                      {eff.inheritedFrom === "none"
+                      {eff?.inheritedFrom === "none"
                         ? "Override"
-                        : eff.inheritedFrom === "app"
+                        : eff?.inheritedFrom === "app"
                           ? "App default"
                           : "Platform"}
                     </td>
                     <td>
-                      <span className={statusClass(eff.status)}>
-                        {eff.status}
+                      <span className={statusClass(eff?.status ?? "not_configured")}>
+                        {humanStatus(eff?.status ?? "not_configured")}
                       </span>
                     </td>
-                    <td>{eff.planSyncState}</td>
+                    <td>{eff?.planSyncState ?? "—"}</td>
                   </tr>
                 );
               })}
@@ -316,7 +432,7 @@ export function AppsTenantsView({
           <div className="panel-heading">
             <h2>Tenant detail</h2>
             <span className={statusClass(tenantEffective.status)}>
-              {tenantEffective.status}
+              {humanStatus(tenantEffective.status)}
             </span>
           </div>
           <p className="muted">
@@ -335,27 +451,29 @@ export function AppsTenantsView({
           ) : null}
           {tenantEffective.status === "needs_attention" ? (
             <p className="readiness-remediation">
-              {tenantEffective.binding?.lastProbeSummary}
+              {tenantEffective.binding?.lastIssueClass
+                ? remediationFor(
+                    remediationKeyForBindingIssueClass(
+                      tenantEffective.binding.lastIssueClass,
+                    ),
+                  )
+                : tenantEffective.binding?.lastProbeSummary}
             </p>
           ) : null}
           <div className="button-row">
             <button
               type="button"
-              className="button primary"
-              onClick={() =>
-                onOpenPortability({
-                  applicationId: selectedAppId,
-                  applicationTenantId: selectedTenantId,
-                })
-              }
+              className="button"
+              disabled
+              title="Portability export is workspace-scoped today; app/tenant filters are not applied yet."
             >
-              Snapshot tenant
+              Snapshot this tenant
             </button>
             <button
               type="button"
               className="button"
               disabled
-              title="Phase 6 live migrate"
+              title="Unavailable until migrate API ships"
             >
               Change plan / migrate
             </button>
@@ -461,7 +579,7 @@ export function StorageAttentionStrip({
           </button>
           {rollup.platformStatus !== "healthy" ? (
             <button type="button" className="button" onClick={onOpenStorage}>
-              Open platform Storage
+              Open platform Storage (host)
             </button>
           ) : null}
         </div>

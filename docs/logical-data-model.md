@@ -165,6 +165,14 @@ Foundation Tenant ID `1`). It is **not** a Trust Workspace. Stable identity is
 `(workspaceId, applicationId, externalTenantKey)`. Display names may change;
 external keys are immutable after create.
 
+Lifecycle: `active` → `suspended` → `closed` (soft-delete). Closed/suspended
+tenants reject new writes; sticky blob reads still resolve via
+`storage_binding_id`. Hard-delete is not the default API (guarded separately).
+
+Operator API: list / get / create / update / suspend / close under the owning
+application. Control Centre **Apps & Tenants** owns this surface; **Connections**
+only registers the application.
+
 ### StorageProfile and StorageBinding
 
 Non-secret object-store metadata (`StorageProfile`) and a binding that attaches
@@ -172,6 +180,11 @@ that profile to an application default (`applicationTenantId` null) or a tenant
 override. Effective resolution: tenant override → app default → platform host
 storage. See ADR-016. Bytes remain content-addressed; catalog rows record sticky
 `storage_binding_id` at commit.
+
+Primary path (current): at most one binding per app-default and per tenant.
+Operator API: upsert / get / list / probe / plan / disable / rollback / delete /
+migrate cutover. Multi-option roles (archive / replica) are deferred; until then
+the platform **Storage** page remains host-default diagnostics only.
 
 ### PolicyAssignment and PolicyScope
 
