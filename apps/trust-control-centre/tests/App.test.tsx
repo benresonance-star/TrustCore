@@ -238,4 +238,45 @@ describe("Trust Core Control Centre", () => {
       screen.getByText(/Do not access Trust Core PostgreSQL/),
     ).toBeVisible();
   });
+
+  it("shows wiring badges on nav items with fixture-aware tooltips", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByLabelText(/Partial:.*getSnapshot/)).toBeVisible();
+    expect(
+      within(nav).getByLabelText(/Dummy:.*Static educational architecture/),
+    ).toBeVisible();
+    expect(
+      within(nav).getByLabelText(
+        /Live:.*getHistory.*Currently serving fixture gateway data/,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByLabelText(/Dummy:.*No dataset or project create API/),
+    ).toBeVisible();
+  });
+
+  it("lists implemented and outstanding work in the platform status panel", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    const panel = screen.getByRole("region", { name: "Platform status" });
+    expect(
+      within(panel).getByRole("button", { name: /Platform status/ }),
+    ).toBeVisible();
+    expect(within(panel).getByText(/Implemented \d+/)).toBeVisible();
+    expect(within(panel).getByText(/Outstanding \d+/)).toBeVisible();
+    expect(
+      within(panel).getByRole("heading", { name: "Implemented to date" }),
+    ).toBeVisible();
+    expect(
+      within(panel).getByRole("heading", { name: "Outstanding" }),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText(/S3 adapter with shared contracts/),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText(/Public multipart upload API/),
+    ).toBeVisible();
+  });
 });

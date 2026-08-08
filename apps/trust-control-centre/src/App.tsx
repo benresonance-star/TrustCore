@@ -63,6 +63,13 @@ import type {
   OperationalSnapshot,
   Section,
 } from "./model";
+import { PlatformStatusPanel } from "./PlatformStatusPanel";
+import { WiringBadge } from "./WiringBadge";
+import {
+  sectionWiringIds,
+  type GatewayMode,
+  type WiringEntryId,
+} from "./wiring-status";
 
 const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
   [
@@ -233,13 +240,21 @@ export function App({
               type="button"
               className={section === id ? "nav-item active" : "nav-item"}
               onClick={() => setSection(id)}
+              aria-label={label}
               aria-current={section === id ? "page" : undefined}
             >
               <Icon size={17} />
-              <span>{label}</span>
+              <span className="nav-item-copy">
+                <span>{label}</span>
+                <WiringBadge
+                  entryId={sectionWiringIds[id]}
+                  mode={gateway.mode}
+                />
+              </span>
             </button>
           ))}
         </nav>
+        <PlatformStatusPanel />
         <div className="operator">
           <span className="avatar">TC</span>
           <div>
@@ -278,6 +293,7 @@ export function App({
               snapshot={snapshot}
               openDataset={openDataset}
               navigate={setSection}
+              mode={gateway.mode}
             />
           )}
           {section === "datasets" && (
@@ -290,7 +306,7 @@ export function App({
               mode={gateway.mode}
             />
           )}
-          {section === "flow" && <FlowView />}
+          {section === "flow" && <FlowView mode={gateway.mode} />}
           {section === "health" && (
             <HealthView
               snapshot={snapshot}
@@ -303,7 +319,9 @@ export function App({
             <HistoryView gateway={gateway} workspaceId={gateway.workspaceId} />
           )}
           {section === "portability" && <PortabilityView gateway={gateway} />}
-          {section === "app-protocol" && <AppProtocolView />}
+          {section === "app-protocol" && (
+            <AppProtocolView mode={gateway.mode} />
+          )}
           {section === "access" && <AccessView gateway={gateway} />}
         </div>
       </main>
@@ -334,15 +352,24 @@ function PageHeading({
   title,
   subtitle,
   action,
+  wiringId,
+  mode,
 }: {
   title: string;
   subtitle: string;
   action?: ReactNode;
+  wiringId?: WiringEntryId;
+  mode?: GatewayMode;
 }) {
   return (
     <div className="page-heading">
       <div>
-        <h1>{title}</h1>
+        <div className="heading-title-row">
+          <h1>{title}</h1>
+          {wiringId && mode ? (
+            <WiringBadge entryId={wiringId} mode={mode} />
+          ) : null}
+        </div>
         <p>{subtitle}</p>
       </div>
       {action}
@@ -372,10 +399,12 @@ function HomeView({
   snapshot,
   openDataset,
   navigate,
+  mode,
 }: {
   snapshot: ControlCentreSnapshot;
   openDataset: (id: string) => void;
   navigate: (section: Section) => void;
+  mode: GatewayMode;
 }) {
   const recent = recentDatasets(snapshot.datasets);
   const components = [
@@ -394,10 +423,15 @@ function HomeView({
       <PageHeading
         title="Workspace overview"
         subtitle="Your projects and shared system components."
+        wiringId="section.home"
+        mode={mode}
         action={
-          <button className="button" disabled title="Preview only">
-            + New project (preview)
-          </button>
+          <span className="heading-action-cluster">
+            <WiringBadge entryId="control.home.new-project" mode={mode} />
+            <button className="button" disabled title="Preview only">
+              + New project (preview)
+            </button>
+          </span>
         }
       />
       <section>
@@ -447,6 +481,10 @@ function HomeView({
         <section>
           <div className="section-heading">
             <h2>Common components</h2>
+            <WiringBadge
+              entryId="control.home.common-components"
+              mode={mode}
+            />
           </div>
           <div className="component-grid">
             {components.map(({ label, note, Icon }) => (
@@ -569,10 +607,18 @@ function DatasetsView({
       <PageHeading
         title="Dataset registry"
         subtitle="Canonical stores, recovery state and controlled access."
+        wiringId="section.datasets"
+        mode={mode}
         action={
-          <button className="button" disabled title="Preview only">
-            Export register (preview)
-          </button>
+          <span className="heading-action-cluster">
+            <WiringBadge
+              entryId="control.datasets.export-register"
+              mode={mode}
+            />
+            <button className="button" disabled title="Preview only">
+              Export register (preview)
+            </button>
+          </span>
         }
       />
       <div className="metrics">
@@ -800,7 +846,7 @@ const flowNodes = [
   },
 ] as const;
 
-function FlowView() {
+function FlowView({ mode }: { mode: GatewayMode }) {
   const [selected, setSelected] = useState("gateway");
   const item = flowNodes.find((node) => node.id === selected)!;
   const SelectedIcon = item.Icon;
@@ -809,6 +855,8 @@ function FlowView() {
       <PageHeading
         title="System flow"
         subtitle="How apps write, protect, recover and derive meaning from trusted data."
+        wiringId="section.flow"
+        mode={mode}
       />
       <div className="flow-canvas">
         <svg
@@ -906,14 +954,22 @@ function HealthView({
       <PageHeading
         title="System health"
         subtitle="Storage, backup, integrity and synchronisation across every adapter."
+        wiringId="section.health"
+        mode={gateway.mode}
         action={
-          <button
-            className="button"
-            disabled={running}
-            onClick={() => void verify()}
-          >
-            {running ? "Verifying bytes…" : "Run full verification"}
-          </button>
+          <span className="heading-action-cluster">
+            <WiringBadge
+              entryId="control.health.run-verification"
+              mode={gateway.mode}
+            />
+            <button
+              className="button"
+              disabled={running}
+              onClick={() => void verify()}
+            >
+              {running ? "Verifying bytes…" : "Run full verification"}
+            </button>
+          </span>
         }
       />
       {result && (
@@ -962,6 +1018,12 @@ function HealthView({
                 label="Backup service"
                 status={operational.backup.status}
                 summary={operational.backup.summary}
+                badge={
+                  <WiringBadge
+                    entryId="control.health.backup"
+                    mode={gateway.mode}
+                  />
+                }
               />
             </>
           ) : (
@@ -1008,15 +1070,20 @@ function ServiceStatus({
   label,
   status,
   summary,
+  badge,
 }: {
   label: string;
   status: "healthy" | "degraded" | "not_configured";
   summary: string;
+  badge?: ReactNode;
 }) {
   return (
     <div className="adapter">
       <div>
-        <strong>{label}</strong>
+        <strong className="heading-title-row">
+          {label}
+          {badge}
+        </strong>
         <span className={status === "healthy" ? "verified" : "review"}>
           <i />
           {status.replaceAll("_", " ")}
@@ -1106,6 +1173,8 @@ function HistoryView({
         <PageHeading
           title="History and recovery"
           subtitle="Privileged recovery actions require an administrator session."
+          wiringId="section.history"
+          mode={gateway.mode}
         />
         <form
           className="card sign-in-card"
@@ -1151,6 +1220,8 @@ function HistoryView({
       <PageHeading
         title="History and recovery"
         subtitle="Immutable changes, deleted items and verified restoration points."
+        wiringId="section.history"
+        mode={gateway.mode}
         action={<button className="button">Export audit</button>}
       />
       {notice && (
@@ -1309,6 +1380,8 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
       <PageHeading
         title="Portability"
         subtitle="Inspect, verify and plan a controlled workspace transfer."
+        wiringId="section.portability"
+        mode={gateway.mode}
         action={
           <button
             className="button"
@@ -1624,7 +1697,7 @@ function PortabilityView({ gateway }: { gateway: ControlCentreGateway }) {
   );
 }
 
-function AppProtocolView() {
+function AppProtocolView({ mode }: { mode: GatewayMode }) {
   const [namespace, setNamespace] = useState("app/foundation");
   const [name, setName] = useState("Foundation");
   const [applicationVersion, setApplicationVersion] = useState("1.0.0");
@@ -1697,6 +1770,8 @@ function AppProtocolView() {
       <PageHeading
         title="App protocol"
         subtitle="Define how an application interfaces with Trust Core, then generate its TCAP/1 manifest, method surface and implementation brief."
+        wiringId="section.app-protocol"
+        mode={mode}
         action={<span className="status-pill healthy">TCAP/1.0</span>}
       />
       <div className="protocol-layout">
@@ -1944,6 +2019,8 @@ function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
       <PageHeading
         title="Access control"
         subtitle="Sign-in, roles and least-privilege workspace assignments."
+        wiringId="section.access"
+        mode={gateway.mode}
         action={
           <button
             className="button"
@@ -2094,7 +2171,13 @@ function AccessView({ gateway }: { gateway: ControlCentreGateway }) {
                 <dd>Organisation identity</dd>
               </div>
               <div>
-                <dt>Assurance</dt>
+                <dt className="heading-title-row">
+                  Assurance
+                  <WiringBadge
+                    entryId="control.access.passkey-mfa"
+                    mode={gateway.mode}
+                  />
+                </dt>
                 <dd>
                   {fixture
                     ? "Passkey / MFA preview"
