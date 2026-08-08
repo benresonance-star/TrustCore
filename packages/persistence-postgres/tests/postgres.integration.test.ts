@@ -153,7 +153,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
     }
   });
 
-  it("upgrades an applied 0011 database through migrations 0012 and 0013", async () => {
+  it("upgrades an applied 0011 database through later migrations", async () => {
     const database = `trust_upgrade_${randomUUID().replaceAll("-", "")}`;
     const through0011 = await mkdtemp(join(tmpdir(), "trust-core-0011-"));
     const url = new URL(bootstrapUrl);
@@ -178,6 +178,7 @@ describe.runIf(enabled)("PostgreSQL Docker integration", () => {
         "0012_portability_correctness.sql",
         "0013_retention_and_blob_encryption.sql",
         "0014_quarantine_scan_jobs.sql",
+        "0015_application_tenants_storage_bindings.sql",
       ]);
       const primaryKey = await upgradeOwner.query<{ columns: string[] }>(
         "SELECT array_agg(a.attname ORDER BY key.ordinality)::text[] AS columns FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS key(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=key.attnum WHERE c.conrelid='portability_archives'::regclass AND c.contype='p' GROUP BY c.oid",
