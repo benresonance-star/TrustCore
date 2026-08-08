@@ -18,6 +18,7 @@ import type {
   HistorySnapshot,
   PublicErrorCode,
   PolicyAssignment,
+  ProbeStorageCommand,
   RegisterApplicationCommand,
   RestoreResourceCommand,
   RevokePolicyAssignmentCommand,
@@ -144,6 +145,10 @@ export interface CommandProvider {
     operationId: string,
   ): Promise<unknown | undefined>;
   getStorageHealth(workspaceId: string): Promise<unknown>;
+  probeStorageHealth?(
+    actor: AuthenticatedActor,
+    command: ProbeStorageCommand,
+  ): Promise<unknown>;
   getBackupHealth(workspaceId: string): Promise<unknown>;
   createUpload(
     actor: AuthenticatedActor,
@@ -682,6 +687,34 @@ export function createApi(
         access,
         (workspaceId) => commands!.getStorageHealth(workspaceId),
       );
+    if (pathname === "/v1/health/storage/probe" && method === "POST") {
+      const tier =
+        record(request.body) && request.body.tier === "ingest"
+          ? "ingest"
+          : "connectivity";
+      return secured(
+        tier === "ingest" ? "storage:probe_ingest" : "health:read",
+        method,
+        request,
+        commands,
+        access,
+        (_workspaceId, actor) => {
+          if (!commands!.probeStorageHealth) {
+            return Promise.reject(
+              Object.assign(
+                new Error("Storage probe is not available in this mode."),
+                { code: "COMMAND_BOUNDARY_UNAVAILABLE" },
+              ),
+            );
+          }
+          return commands!.probeStorageHealth(
+            actor,
+            request.body as ProbeStorageCommand,
+          );
+        },
+        validProbeStorage,
+      );
+    }
     if (pathname === "/v1/health/backup" && method === "GET")
       return secured(
         "health:read",
@@ -1308,6 +1341,11 @@ function validVerification(body: unknown): boolean {
     default:
       return false;
   }
+}
+function validProbeStorage(body: unknown): boolean {
+  if (!validWorkspaceBody(body)) return false;
+  if (body.tier === undefined) return true;
+  return body.tier === "connectivity" || body.tier === "ingest";
 }
 function validObjectIngest(body: unknown): boolean {
   return (

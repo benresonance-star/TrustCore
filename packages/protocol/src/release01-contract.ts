@@ -181,6 +181,11 @@ export const release01Routes = [
     operationId: "operations.get",
   },
   { method: "GET", path: "/v1/health/storage", operationId: "storage.health" },
+  {
+    method: "POST",
+    path: "/v1/health/storage/probe",
+    operationId: "storage.probe",
+  },
   { method: "GET", path: "/v1/health/backup", operationId: "backup.health" },
   {
     method: "POST",
@@ -872,12 +877,101 @@ export const release01Schemas = {
     updatedAt: dateTime,
     completedAt: nullable(dateTime),
   }),
+  StorageConsoleLink: object({
+    id: { type: "string" },
+    label: { type: "string" },
+    url: { type: "string", format: "uri" },
+  }),
+  StorageProbeResult: object(
+    {
+      probeId: id,
+      tier: { type: "string", enum: ["connectivity", "ingest"] },
+      ok: { type: "boolean" },
+      latencyMs: { type: "integer", minimum: 0 },
+      issueClass: nullable({
+        type: "string",
+        enum: [
+          "not_configured",
+          "auth",
+          "permission",
+          "not_found",
+          "wrong_region",
+          "network",
+          "provider_outage",
+          "internal",
+        ],
+      }),
+      issueCode: nullable({ type: "string" }),
+      checkedAt: dateTime,
+      summary: { type: "string" },
+      billingHint: { type: "string" },
+      bucketRegion: nullable({ type: "string" }),
+      regionMatch: nullable({ type: "boolean" }),
+    },
+    [
+      "probeId",
+      "tier",
+      "ok",
+      "latencyMs",
+      "issueClass",
+      "issueCode",
+      "checkedAt",
+      "summary",
+    ],
+  ),
+  StorageHealthDetails: object(
+    {
+      provider: { type: "string", enum: ["minio", "s3"] },
+      region: { type: "string" },
+      bucket: { type: "string" },
+      credentialMode: {
+        type: "string",
+        enum: ["iam_role", "static_keys_configured", "missing"],
+      },
+      endpointHost: nullable({ type: "string" }),
+      transferSignerConfigured: { type: "boolean" },
+      objectStorageConfigured: { type: "boolean" },
+      cataloguedObjects: { type: "integer", minimum: 0 },
+      failedVerificationObjects: { type: "integer", minimum: 0 },
+      consoleLinks: array(ref("StorageConsoleLink")),
+      probe: nullable(ref("StorageProbeResult")),
+      minimalIamActions: array({ type: "string" }),
+      scannerConfigured: { type: "boolean" },
+    },
+    [
+      "provider",
+      "region",
+      "bucket",
+      "credentialMode",
+      "endpointHost",
+      "transferSignerConfigured",
+      "objectStorageConfigured",
+      "cataloguedObjects",
+      "failedVerificationObjects",
+      "consoleLinks",
+      "probe",
+    ],
+  ),
   ServiceHealth: object({
     status: { type: "string", enum: ["healthy", "degraded", "not_configured"] },
     checkedAt: dateTime,
     summary: { type: "string" },
-    details: stringMap,
+    details: {
+      description:
+        "For storage.health / storage.probe, prefer StorageHealthDetails. Other health endpoints may use opaque maps.",
+      anyOf: [ref("StorageHealthDetails"), stringMap],
+    },
   }),
+  ProbeStorage: object(
+    {
+      workspaceId: id,
+      tier: {
+        type: "string",
+        enum: ["connectivity", "ingest"],
+      },
+    },
+    ["workspaceId"],
+  ),
   ControlCentreSnapshot: object({
     status: stringMap,
     datasets: array(stringMap),
@@ -1187,6 +1281,13 @@ export const release01OpenApi = {
     "/v1/health/storage": {
       get: operation("storage.health", "ServiceHealth", {
         parameters: readContextParameters,
+      }),
+    },
+    "/v1/health/storage/probe": {
+      post: operation("storage.probe", "ServiceHealth", {
+        body: "ProbeStorage",
+        parameters: bodyContextParameters,
+        mutation: true,
       }),
     },
     "/v1/health/backup": {

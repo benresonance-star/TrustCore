@@ -21,6 +21,61 @@ configuration documented in `.env.example` and
 storage identity. Do not give either container migration-owner, backup,
 replication or key-administration credentials.
 
+### Minimal object-storage IAM (Amazon S3)
+
+Credentials stay on the API/worker host (env, instance profile, or IRSA). Control
+Centre diagnoses connectivity and deep-links to the provider console; it never
+accepts storage secrets.
+
+Grant the API/worker role only the actions needed for Trust Core object
+lifecycle. Prefer **resource ARNs** scoped to one bucket and the workspace
+prefix (adjust names):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BucketConnectivity",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::YOUR_BUCKET"]
+    },
+    {
+      "Sid": "ObjectLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": ["arn:aws:s3:::YOUR_BUCKET/workspaces/*"]
+    },
+    {
+      "Sid": "MultipartList",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucketMultipartUploads"],
+      "Resource": ["arn:aws:s3:::YOUR_BUCKET"]
+    }
+  ]
+}
+```
+
+Notes:
+
+- Connectivity probes use **`HeadBucket`**, which requires `s3:ListBucket` on
+  the bucket ARN. AWS recommends HeadBucket over `GetBucketLocation` for region
+  discovery; Trust Core compares `x-amz-bucket-region` to `TRUST_STORAGE_REGION`.
+- Optional: set `TRUST_STORAGE_EXPECTED_BUCKET_OWNER` to the AWS account id to
+  send `ExpectedBucketOwner` on HeadBucket.
+- Optional: set `TRUST_STORAGE_SESSION_TOKEN` when using temporary static keys.
+- When SSE-KMS is enabled, also allow `kms:Encrypt`, `kms:Decrypt`, and
+  `kms:GenerateDataKey` on the CMK used by the bucket.
+- Tier B “Test upload path” requires owner/admin (`storage:probe_ingest`); it
+  writes and deletes a temporary object under `workspaces/.../temporary/`.
+
 Configure the static Control Centre with:
 
 ```text

@@ -146,7 +146,7 @@ describe("platformStatusCounts", () => {
     ).length;
     const counts = platformStatusCounts();
     expect(counts.implemented).toBe(8);
-    expect(counts.outstanding).toBe(8);
+    expect(counts.outstanding).toBe(10);
     expect(counts.partial).toBeLessThan(allPartial);
     expect(
       Object.values(wiringEntries).some((entry) =>

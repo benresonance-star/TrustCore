@@ -1669,6 +1669,11 @@ function bodyFor(
     case "portability.operations.get":
     case "portability.exports.download":
       return undefined;
+    case "storage.probe":
+      return {
+        workspaceId: "workspace-demo",
+        tier: "connectivity",
+      };
     default:
       return assertNever(operationId);
   }

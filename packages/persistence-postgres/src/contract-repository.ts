@@ -424,6 +424,58 @@ export class PostgresContractRepository {
     });
   }
 
+  recordStorageProbe(input: {
+    workspaceId: string;
+    actor: AuthenticatedActor;
+    requestId: string;
+    occurredAt: string;
+    metadata: Readonly<Record<string, unknown>>;
+  }): Promise<void> {
+    return this.scoped(input.workspaceId, async (db) => {
+      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        input.workspaceId,
+      ]);
+      const previous = await db.query<{ event_hash: string }>(
+        "SELECT event_hash FROM audit_events WHERE workspace_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",
+        [input.workspaceId],
+      );
+      const event = appendAuditEvent(
+        {
+          id: randomUUID(),
+          workspaceId: input.workspaceId,
+          actorType: input.actor.principalType ?? "user",
+          actorId: input.actor.id,
+          action: "storage.health.probed",
+          subjectKind: "workspace",
+          subjectId: input.workspaceId,
+          timestamp: input.occurredAt,
+          requestId: input.requestId,
+          correlationId: input.requestId,
+          metadata: input.metadata,
+        },
+        previous.rows[0]?.event_hash ?? "",
+      );
+      await db.query(
+        "INSERT INTO audit_events (id,workspace_id,actor_type,actor_id,action,subject_kind,subject_id,occurred_at,request_id,correlation_id,previous_event_hash,event_hash,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)",
+        [
+          event.id,
+          event.workspaceId,
+          event.actorType,
+          event.actorId,
+          event.action,
+          event.subjectKind,
+          event.subjectId,
+          event.timestamp,
+          event.requestId,
+          event.correlationId,
+          event.previousEventHash,
+          event.eventHash,
+          JSON.stringify(event.metadata),
+        ],
+      );
+    });
+  }
+
   listRelations(
     workspaceId: string,
     query: RelationQuery = {},

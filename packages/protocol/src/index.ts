@@ -112,6 +112,7 @@ export type TrustAction =
   | "retention:manage"
   | "access:manage"
   | "health:read"
+  | "storage:probe_ingest"
   | "portability:read"
   | "portability:export"
   | "portability:plan"
@@ -428,6 +429,73 @@ export interface ServiceHealth {
   checkedAt: string;
   summary: string;
   details: Readonly<Record<string, unknown>>;
+}
+
+/** Canonical object-store provider names for health/diagnostics. */
+export type StorageProviderName = "minio" | "s3";
+
+export type StorageCredentialMode =
+  | "iam_role"
+  | "static_keys_configured"
+  | "missing";
+
+export type StorageIssueClass =
+  | "not_configured"
+  | "auth"
+  | "permission"
+  | "not_found"
+  | "wrong_region"
+  | "network"
+  | "provider_outage"
+  | "internal";
+
+/** Tier A = connectivity; Tier B = temp put+delete ingest path. */
+export type StorageProbeTier = "connectivity" | "ingest";
+
+export interface StorageConsoleLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
+export interface StorageProbeResult {
+  probeId: string;
+  tier: StorageProbeTier;
+  ok: boolean;
+  latencyMs: number;
+  issueClass: StorageIssueClass | null;
+  issueCode: string | null;
+  checkedAt: string;
+  summary: string;
+  billingHint?: string;
+  /** Region reported by HeadBucket (`x-amz-bucket-region`), when available. */
+  bucketRegion?: string | null;
+  /** False when configured region disagrees with HeadBucket. */
+  regionMatch?: boolean | null;
+}
+
+/** Typed storage health details embedded in ServiceHealth.details. */
+export interface StorageHealthDetails {
+  provider: StorageProviderName;
+  region: string;
+  bucket: string;
+  credentialMode: StorageCredentialMode;
+  endpointHost: string | null;
+  transferSignerConfigured: boolean;
+  objectStorageConfigured: boolean;
+  cataloguedObjects: number;
+  failedVerificationObjects: number;
+  consoleLinks: readonly StorageConsoleLink[];
+  probe: StorageProbeResult | null;
+  /** Minimal IAM actions for Connect checklist (documentation only). */
+  minimalIamActions?: readonly string[];
+  /** True only when TRUST_SCANNER=fake (or a future vendor) is active. */
+  scannerConfigured?: boolean;
+}
+
+export interface ProbeStorageCommand {
+  workspaceId: string;
+  tier?: StorageProbeTier;
 }
 export interface RegisterApplicationCommand {
   workspaceId: string;

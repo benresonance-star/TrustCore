@@ -3,6 +3,7 @@ export type Section =
   | "datasets"
   | "flow"
   | "health"
+  | "storage"
   | "history"
   | "portability"
   | "app-protocol"
@@ -64,6 +65,9 @@ export interface ControlCentreGateway {
   readonly workspaceId: string;
   getSnapshot(): Promise<ControlCentreSnapshot>;
   getOperationalSnapshot(): Promise<OperationalSnapshot>;
+  probeStorage(input?: {
+    tier?: "connectivity" | "ingest";
+  }): Promise<ServiceHealth>;
   getHistory(workspaceId: string): Promise<HistorySnapshot>;
   createArchiveExport(
     workspaceId: string,

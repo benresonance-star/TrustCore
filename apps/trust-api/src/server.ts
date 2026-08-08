@@ -39,7 +39,7 @@ import { PostgresCommandProvider } from "./postgres-commands.js";
 import { fixtureProvider } from "./fixture-provider.js";
 import { FixturePortabilityProvider } from "./portability.js";
 import { PostgresPortabilityProvider } from "./postgres-portability.js";
-import { createObjectStorageFromEnv } from "./storage-factory.js";
+import { createStorageRuntimeFromEnv } from "./storage-factory.js";
 import { S3TransferSigner } from "@trust-core/storage-s3";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -56,7 +56,8 @@ const snapshots = repository
   ? { getSnapshot: () => repository.getSnapshot(workspaceId) }
   : fixtureProvider;
 const schemas = repository ?? fixtureProvider;
-const storage = createStorage();
+const storageRuntime = createStorage();
+const storage = storageRuntime.storage;
 const verificationCatalog = pool
   ? new PostgresVerificationCatalog(pool)
   : undefined;
@@ -82,12 +83,22 @@ const ingest =
         afterIngestEffect,
       )
     : undefined;
+const grantOptions = createGrantOptions();
 const commandProvider = pool
   ? new PostgresCommandProvider(
       pool,
       verification,
       ingest,
-      createGrantOptions(),
+      grantOptions,
+      () => new Date(),
+      {
+        storage,
+        config: {
+          ...storageRuntime.config,
+          transferSignerConfigured: Boolean(grantOptions),
+        },
+        prober: storageRuntime.prober,
+      },
     )
   : createFixtureCommands();
 const portability =
@@ -481,7 +492,9 @@ function createOidc(): OidcIdentityService | undefined {
   });
 }
 function createStorage() {
-  return createObjectStorageFromEnv(process.env);
+  return createStorageRuntimeFromEnv(process.env, {
+    transferSignerConfigured: Boolean(process.env.TRUST_STORAGE_BUCKET),
+  });
 }
 
 function createGrantOptions():
@@ -501,6 +514,7 @@ function createGrantOptions():
   const endpoint = process.env.TRUST_STORAGE_ENDPOINT;
   const accessKeyId = process.env.TRUST_STORAGE_ACCESS_KEY;
   const secretAccessKey = process.env.TRUST_STORAGE_SECRET_KEY;
+  const sessionToken = process.env.TRUST_STORAGE_SESSION_TOKEN;
   if ((accessKeyId === undefined) !== (secretAccessKey === undefined)) {
     throw new Error(
       "Transfer signer static credentials require both TRUST_STORAGE_ACCESS_KEY and TRUST_STORAGE_SECRET_KEY",
@@ -515,7 +529,11 @@ function createGrantOptions():
       forcePathStyle: process.env.TRUST_STORAGE_FORCE_PATH_STYLE !== "false",
       ...(endpoint ? { endpoint } : {}),
       ...(accessKeyId && secretAccessKey
-        ? { accessKeyId, secretAccessKey }
+        ? {
+            accessKeyId,
+            secretAccessKey,
+            ...(sessionToken ? { sessionToken } : {}),
+          }
         : {}),
     }),
   };

@@ -3,6 +3,7 @@ import { MinioObjectStorage } from "@trust-core/storage-minio";
 import { S3ObjectStorage } from "@trust-core/storage-s3";
 import {
   createObjectStorageFromEnv,
+  createStorageRuntimeFromEnv,
   resolveProvider,
 } from "../src/storage-factory.js";
 
@@ -41,6 +42,20 @@ describe("storage-factory", () => {
       TRUST_STORAGE_REGION: "eu-west-1",
     });
     expect(storage).toBeInstanceOf(S3ObjectStorage);
+  });
+
+  it("projects session token and expected owner into runtime config", () => {
+    const runtime = createStorageRuntimeFromEnv({
+      TRUST_STORAGE_PROVIDER: "s3",
+      TRUST_STORAGE_BUCKET: "bucket",
+      TRUST_STORAGE_REGION: "eu-west-1",
+      TRUST_STORAGE_ACCESS_KEY: "AKIAEXAMPLE",
+      TRUST_STORAGE_SECRET_KEY: "secret",
+      TRUST_STORAGE_SESSION_TOKEN: "session",
+      TRUST_STORAGE_EXPECTED_BUCKET_OWNER: "123456789012",
+    });
+    expect(runtime.config.expectedBucketOwner).toBe("123456789012");
+    expect(runtime.prober).toBeDefined();
   });
 
   it("rejects unknown providers", () => {

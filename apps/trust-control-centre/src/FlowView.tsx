@@ -80,13 +80,13 @@ export function FlowView({
         </ul>
         <p className="flow-legend-note">
           Badge = Control Centre implementation for this node, not backend
-          existence. Hover a node for process details.
+          existence. Select a node for process details.
         </p>
       </section>
 
       <section
         className="flow-canvas"
-        aria-label="System topology. Hover a node for process description; select for analysis."
+        aria-label="System topology. Select a node for process analysis."
       >
         <p className="flow-canvas-eyebrow">Trust data path</p>
         <svg
@@ -142,15 +142,6 @@ export function FlowView({
               <span id={descriptionId} className="sr-only">
                 {node.description}
               </span>
-              <div className="flow-node-popover" role="tooltip">
-                <strong>{node.label}</strong>
-                <p>{node.description}</p>
-                <ul>
-                  {node.features.slice(0, 3).map((feature) => (
-                    <li key={feature}>{feature}</li>
-                  ))}
-                </ul>
-              </div>
             </button>
           );
         })}

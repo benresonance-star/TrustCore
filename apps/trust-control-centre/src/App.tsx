@@ -63,6 +63,10 @@ import { ConnectionsView } from "./ConnectionsView";
 import { FlowView } from "./FlowView";
 import { PlatformStatusView } from "./PlatformStatusView";
 import { remediationFor } from "./remediation";
+import {
+  StorageProviderView,
+  describeProbeError,
+} from "./StorageProviderView";
 import { TransfersPanel } from "./TransfersPanel";
 import { WiringBadge } from "./WiringBadge";
 import {
@@ -78,6 +82,7 @@ const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
     { id: "datasets", label: "Datasets", Icon: Database },
     { id: "flow", label: "System overview", Icon: Waypoints },
     { id: "health", label: "Health", Icon: Activity },
+    { id: "storage", label: "Storage", Icon: HardDrive },
     { id: "history", label: "History", Icon: History },
     { id: "portability", label: "Portability", Icon: PackageOpen },
     { id: "app-protocol", label: "App protocol", Icon: PlugZap },
@@ -109,6 +114,10 @@ export function App({
   const [appAuthRequired, setAppAuthRequired] = useState(false);
   const [appToken, setAppToken] = useState("");
   const [appError, setAppError] = useState("");
+  const [storageProbing, setStorageProbing] = useState(false);
+  const [storageProbeError, setStorageProbeError] = useState<string | null>(
+    null,
+  );
 
   const loadSnapshot = useCallback(async () => {
     if (gateway.mode === "live" && !gateway.workspaceId) {
@@ -146,6 +155,36 @@ export function App({
         );
     }
   }, [gateway]);
+
+  const probeStorage = useCallback(
+    async (tier: "connectivity" | "ingest") => {
+      setStorageProbing(true);
+      setStorageProbeError(null);
+      try {
+        const result = await gateway.probeStorage({ tier });
+        setOperationalSnapshot((current) =>
+          current
+            ? { ...current, storage: result }
+            : {
+                storage: result,
+                backup: {
+                  status: "not_configured",
+                  checkedAt: result.checkedAt,
+                  summary: "Backup health not loaded.",
+                  details: {},
+                },
+                latestVerification: null,
+              },
+        );
+      } catch (error) {
+        setStorageProbeError(describeProbeError(error));
+      } finally {
+        setStorageProbing(false);
+      }
+    },
+    [gateway],
+  );
+
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
@@ -369,6 +408,16 @@ export function App({
               operationalError={operationalError}
               gateway={gateway}
               navigateHistory={() => setSection("history")}
+              navigateStorage={() => setSection("storage")}
+            />
+          )}
+          {section === "storage" && (
+            <StorageProviderView
+              health={operationalSnapshot?.storage ?? null}
+              mode={gateway.mode}
+              probing={storageProbing}
+              probeError={storageProbeError}
+              onProbe={probeStorage}
             />
           )}
           {section === "history" && (
@@ -854,12 +903,14 @@ function HealthView({
   operationalError,
   gateway,
   navigateHistory,
+  navigateStorage,
 }: {
   snapshot: ControlCentreSnapshot;
   operational: OperationalSnapshot | null;
   operationalError: string;
   gateway: ControlCentreGateway;
   navigateHistory: () => void;
+  navigateStorage: () => void;
 }) {
   const [running, setRunning] = useState(false),
     [result, setResult] = useState<string>("");
@@ -952,6 +1003,13 @@ function HealthView({
                 status={operational.storage.status}
                 summary={operational.storage.summary}
               />
+              <button
+                type="button"
+                className="text-button"
+                onClick={navigateStorage}
+              >
+                Open storage diagnostics
+              </button>
               <ServiceStatus
                 label="Backup service"
                 status={operational.backup.status}

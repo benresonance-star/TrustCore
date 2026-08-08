@@ -33,6 +33,7 @@ export const httpGateway: ControlCentreGateway = {
       latestVerification: verifications.items[0] ?? null,
     };
   },
+  probeStorage: (input) => client.health.probeStorage(input),
   getHistory: (workspaceId) => client.history.list({ workspaceId }),
   createArchiveExport: (workspaceId, datasetIds, reauthenticationProof) =>
     client.datasetsContext({ workspaceId }).portability.exports.create({

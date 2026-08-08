@@ -92,7 +92,7 @@ const entries = {
     label: "Canonical objects",
     level: "partial",
     detail:
-      "Storage health and download grants surface in Health. Public multipart upload and storage admin UI remain outstanding.",
+      "Storage diagnostics and download grants. Public multipart upload remains outstanding; open Storage for provider connection checks.",
   },
   "flow.node.audit": {
     id: "flow.node.audit",
@@ -113,7 +113,14 @@ const entries = {
     label: "Health",
     level: "partial",
     detail:
-      "Metrics use snapshot plus gateway.getOperationalSnapshot and runVerification. Backup telemetry is often not_configured; no storage-provider admin UI.",
+      "Metrics use snapshot plus gateway.getOperationalSnapshot and runVerification. Storage diagnostics live under Storage; backup telemetry is often not_configured.",
+  },
+  "section.storage": {
+    id: "section.storage",
+    label: "Storage",
+    level: "partial",
+    detail:
+      "Operator diagnostics for the platform blob store: health details, Test connection (probe), and allowlisted provider console links. Credentials stay on the API host — no secrets in the browser.",
   },
   "section.history": {
     id: "section.history",
@@ -225,6 +232,7 @@ export const sectionWiringIds = {
   datasets: "section.datasets",
   flow: "section.flow",
   health: "section.health",
+  storage: "section.storage",
   history: "section.history",
   portability: "section.portability",
   "app-protocol": "section.app-protocol",
@@ -294,7 +302,15 @@ export const platformStatus = {
     },
     {
       id: "cc-grants-ui",
-      text: "Control Centre UI for blob download grants, multipart, and scan status",
+      text: "Control Centre UI for multipart upload and workspace quarantine summary",
+    },
+    {
+      id: "user-drive-connectors",
+      text: "User cloud-drive connectors (Google/Microsoft/Apple/local) — deferred; see ADR-015",
+    },
+    {
+      id: "storage-ops-niceties",
+      text: "Storage ops niceties deferred: pause-ingest, worker config-drift UI, probe metrics, clock-skew diagnostic",
     },
     {
       id: "app-principal-probe",

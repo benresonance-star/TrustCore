@@ -452,7 +452,50 @@ export function createFixtureCommands(
         status: "not_configured",
         checkedAt: clock().toISOString(),
         summary: "Fixture mode has no object storage.",
-        details: { objectStorageConfigured: false },
+        details: {
+          provider: "minio",
+          region: "us-east-1",
+          bucket: "",
+          credentialMode: "missing",
+          endpointHost: null,
+          transferSignerConfigured: false,
+          objectStorageConfigured: false,
+          cataloguedObjects: 0,
+          failedVerificationObjects: 0,
+          consoleLinks: [],
+          probe: null,
+        },
+      };
+    },
+    async probeStorageHealth(_actor, command) {
+      const probeId = "fixture-probe";
+      const checkedAt = clock().toISOString();
+      return {
+        status: "not_configured",
+        checkedAt,
+        summary: "Storage is not set up on the server.",
+        details: {
+          provider: "minio",
+          region: "us-east-1",
+          bucket: "",
+          credentialMode: "missing",
+          endpointHost: null,
+          transferSignerConfigured: false,
+          objectStorageConfigured: false,
+          cataloguedObjects: 0,
+          failedVerificationObjects: 0,
+          consoleLinks: [],
+          probe: {
+            probeId,
+            tier: command.tier === "ingest" ? "ingest" : "connectivity",
+            ok: false,
+            latencyMs: 1,
+            issueClass: "not_configured",
+            issueCode: "not_configured",
+            checkedAt,
+            summary: "Storage is not set up on the server.",
+          },
+        },
       };
     },
     async getBackupHealth() {

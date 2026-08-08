@@ -8,7 +8,7 @@ import { fixtureGateway } from "../src/fixture-gateway";
 afterEach(cleanup);
 
 describe("FlowView", () => {
-  it("renders legend, inspector structure, hover popovers, and workspace signals", async () => {
+  it("renders legend, inspector structure, and workspace signals", async () => {
     const snapshot = await fixtureGateway.getSnapshot();
     const operational = await fixtureGateway.getOperationalSnapshot();
     const navigate = vi.fn();
@@ -40,14 +40,7 @@ describe("FlowView", () => {
     expect(
       screen.getByRole("heading", { name: "Workspace signals" }),
     ).toBeVisible();
-
-    const tooltips = screen.getAllByRole("tooltip");
-    expect(tooltips.length).toBe(10);
-    expect(
-      tooltips.some((node) =>
-        node.textContent?.includes("HTTP gateway for snapshot"),
-      ),
-    ).toBe(true);
+    expect(screen.queryByRole("tooltip")).toBeNull();
 
     expect(
       screen.getByRole("button", {

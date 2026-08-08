@@ -14,6 +14,18 @@ import { fixtureGateway } from "../src/fixture-gateway";
 afterEach(cleanup);
 
 describe("Trust Core Control Centre", () => {
+  it("opens Storage diagnostics from nav", async () => {
+    render(<App gateway={fixtureGateway} />);
+    await screen.findByRole("heading", { name: "Workspace overview" });
+    fireEvent.click(screen.getByRole("button", { name: "Storage" }));
+    expect(screen.getByRole("heading", { name: "Storage" })).toBeVisible();
+    expect(screen.getByText("Connected")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    expect(
+      await screen.findByText(/Fixture provider connectivity succeeded/i),
+    ).toBeVisible();
+  });
+
   it("opens on the project and component home", async () => {
     render(<App gateway={fixtureGateway} />);
     expect(

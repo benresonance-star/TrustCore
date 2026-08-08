@@ -152,6 +152,9 @@ export interface TrustClient {
   health: {
     get(): Promise<HealthResponse>;
     storage(): Promise<ServiceHealth>;
+    probeStorage(input?: {
+      tier?: "connectivity" | "ingest";
+    }): Promise<ServiceHealth>;
     backup(): Promise<ServiceHealth>;
   };
   uploads: {
@@ -421,6 +424,15 @@ function createClient(
       get: () => transport.request("/health", { public: true }),
       storage: () =>
         transport.request("/v1/health/storage", { headers: contextHeaders() }),
+      probeStorage: async (input = {}) =>
+        transport.request("/v1/health/storage/probe", {
+          method: "POST",
+          headers: contextHeaders(),
+          body: {
+            workspaceId: await workspace(),
+            ...(input.tier ? { tier: input.tier } : {}),
+          },
+        }),
       backup: () =>
         transport.request("/v1/health/backup", { headers: contextHeaders() }),
     },

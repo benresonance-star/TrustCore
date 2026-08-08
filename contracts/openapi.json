@@ -2432,6 +2432,75 @@
         }
       }
     },
+    "/v1/health/storage/probe": {
+      "post": {
+        "operationId": "storage.probe",
+        "parameters": [
+          {
+            "name": "x-trust-workspace-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional when workspaceId is supplied in the request body."
+          },
+          {
+            "name": "x-trust-application-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "x-trust-dataset-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeStorage"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceHealth"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/v1/health/backup": {
       "get": {
         "operationId": "backup.health",
@@ -5626,6 +5695,210 @@
         ],
         "additionalProperties": false
       },
+      "StorageConsoleLink": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "StorageProbeResult": {
+        "type": "object",
+        "properties": {
+          "probeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "connectivity",
+              "ingest"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "latencyMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "issueClass": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "not_configured",
+                  "auth",
+                  "permission",
+                  "not_found",
+                  "wrong_region",
+                  "network",
+                  "provider_outage",
+                  "internal"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issueCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "billingHint": {
+            "type": "string"
+          },
+          "bucketRegion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "regionMatch": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "probeId",
+          "tier",
+          "ok",
+          "latencyMs",
+          "issueClass",
+          "issueCode",
+          "checkedAt",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "StorageHealthDetails": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "minio",
+              "s3"
+            ]
+          },
+          "region": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "credentialMode": {
+            "type": "string",
+            "enum": [
+              "iam_role",
+              "static_keys_configured",
+              "missing"
+            ]
+          },
+          "endpointHost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transferSignerConfigured": {
+            "type": "boolean"
+          },
+          "objectStorageConfigured": {
+            "type": "boolean"
+          },
+          "cataloguedObjects": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedVerificationObjects": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "consoleLinks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageConsoleLink"
+            }
+          },
+          "probe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageProbeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minimalIamActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scannerConfigured": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "region",
+          "bucket",
+          "credentialMode",
+          "endpointHost",
+          "transferSignerConfigured",
+          "objectStorageConfigured",
+          "cataloguedObjects",
+          "failedVerificationObjects",
+          "consoleLinks",
+          "probe"
+        ],
+        "additionalProperties": false
+      },
       "ServiceHealth": {
         "type": "object",
         "properties": {
@@ -5645,8 +5918,16 @@
             "type": "string"
           },
           "details": {
-            "type": "object",
-            "additionalProperties": true
+            "description": "For storage.health / storage.probe, prefer StorageHealthDetails. Other health endpoints may use opaque maps.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageHealthDetails"
+              },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ]
           }
         },
         "required": [
@@ -5654,6 +5935,26 @@
           "checkedAt",
           "summary",
           "details"
+        ],
+        "additionalProperties": false
+      },
+      "ProbeStorage": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "connectivity",
+              "ingest"
+            ]
+          }
+        },
+        "required": [
+          "workspaceId"
         ],
         "additionalProperties": false
       },

@@ -3,10 +3,13 @@ import {
   ResourceHistoryService,
   TransferGrantService,
   GrantDeniedError,
+  QuarantineScanOrchestrator,
+  FakeMalwareScanner,
   toUploadScanStatus,
   type ObjectIngestResult,
   type ObjectIngestService,
   type TransferSigner,
+  type QuarantineScanRecord,
 } from "@trust-core/operations";
 import { isPolicyAction } from "@trust-core/policy";
 import {
@@ -33,6 +36,7 @@ import type {
   DownloadGrant,
   HistorySnapshot,
   PolicyAssignment,
+  ProbeStorageCommand,
   RecoverableItem,
   RegisterApplicationCommand,
   RestoreResourceCommand,
@@ -41,18 +45,37 @@ import type {
   RevisionCommandResult,
   RunVerificationCommand,
   ServiceHealth,
+  StorageHealthDetails,
+  StorageProbeTier,
   TrustEventSummary,
   UpdateRetentionPolicyCommand,
   UploadScanStatus,
   VerificationRunResult,
 } from "@trust-core/protocol";
+import type { ObjectStorage } from "@trust-core/storage";
 import type {
   BlobVerificationService,
   StructuralVerificationService,
 } from "@trust-core/verification";
 import type { CommandProvider, ObjectIngestCommand } from "./app.js";
+import {
+  ProbeRateLimiter,
+  StorageHealthCache,
+  assertNoSecretFields,
+  isFakeScannerEnabled,
+  runStorageProbe,
+  toStorageHealthDetails,
+  type SafeStorageConfig,
+  type StorageBucketProber,
+} from "./storage-diagnostics.js";
 
 const maxUploadBytes = 750_000;
+
+export type StorageDiagnosticsOptions = {
+  storage?: ObjectStorage;
+  config: SafeStorageConfig;
+  prober?: StorageBucketProber;
+};
 
 export class PostgresCommandProvider implements CommandProvider {
   private readonly history: ResourceHistoryService;
@@ -62,6 +85,9 @@ export class PostgresCommandProvider implements CommandProvider {
   private readonly blobs: PostgresBlobCatalog;
   private readonly scans: PostgresQuarantineScanStore;
   private readonly grantService?: TransferGrantService;
+  private readonly healthCache = new StorageHealthCache();
+  private readonly probeLimiter = new ProbeRateLimiter();
+  private readonly scanOrchestrator: QuarantineScanOrchestrator;
   constructor(
     private readonly pool: DatabasePool,
     private readonly verification?: {
@@ -74,6 +100,7 @@ export class PostgresCommandProvider implements CommandProvider {
       maxTtlSeconds: number;
     },
     private readonly clock: () => Date = () => new Date(),
+    private readonly storageDiagnostics?: StorageDiagnosticsOptions,
   ) {
     this.history = new ResourceHistoryService(
       new PostgresHistoryRepository(pool),
@@ -83,6 +110,11 @@ export class PostgresCommandProvider implements CommandProvider {
     this.retention = new PostgresRetentionPolicyRepository(pool);
     this.blobs = new PostgresBlobCatalog(pool);
     this.scans = new PostgresQuarantineScanStore(pool);
+    this.scanOrchestrator = new QuarantineScanOrchestrator(
+      new FakeMalwareScanner(),
+      this.scans,
+      this.clock,
+    );
     this.grantService = grantOptions
       ? new TransferGrantService(
           { maxTtlSeconds: grantOptions.maxTtlSeconds },
@@ -383,6 +415,208 @@ export class PostgresCommandProvider implements CommandProvider {
   }
 
   async getStorageHealth(workspaceId: string): Promise<ServiceHealth> {
+    const catalog = await this.loadCatalogCounts(workspaceId);
+    const cached = this.healthCache.get();
+    if (cached) {
+      const details: StorageHealthDetails = {
+        ...cached.details,
+        cataloguedObjects: catalog.objects,
+        failedVerificationObjects: catalog.failed,
+      };
+      assertNoSecretFields(details as unknown as Record<string, unknown>);
+      return {
+        status: this.deriveStorageStatus(details, catalog),
+        checkedAt: this.clock().toISOString(),
+        summary: this.deriveStorageSummary(details, catalog),
+        details: details as unknown as Readonly<Record<string, unknown>>,
+      };
+    }
+
+    const config = this.resolveSafeConfig();
+    const details = toStorageHealthDetails(config, null, {
+      cataloguedObjects: catalog.objects,
+      failedVerificationObjects: catalog.failed,
+    });
+    assertNoSecretFields(details as unknown as Record<string, unknown>);
+
+    return {
+      status: this.deriveStorageStatus(details, catalog),
+      checkedAt: this.clock().toISOString(),
+      summary: this.deriveStorageSummary(details, catalog),
+      details: details as unknown as Readonly<Record<string, unknown>>,
+    };
+  }
+
+  async probeStorageHealth(
+    actor: AuthenticatedActor,
+    command: ProbeStorageCommand,
+  ): Promise<ServiceHealth> {
+    const tier: StorageProbeTier =
+      command.tier === "ingest" ? "ingest" : "connectivity";
+    const rateKey = command.workspaceId;
+    if (!this.probeLimiter.tryAcquire(rateKey)) {
+      const latest = this.healthCache.getLatest();
+      if (latest?.details.probe) {
+        const catalog = await this.loadCatalogCounts(command.workspaceId);
+        const details: StorageHealthDetails = {
+          ...latest.details,
+          cataloguedObjects: catalog.objects,
+          failedVerificationObjects: catalog.failed,
+        };
+        return {
+          status: this.deriveStorageStatus(details, catalog),
+          checkedAt: this.clock().toISOString(),
+          summary: `${latest.summary} (coalesced; probe rate-limited)`,
+          details: details as unknown as Readonly<Record<string, unknown>>,
+        };
+      }
+      const recentlyProbed = await this.hasRecentStorageProbe(
+        command.workspaceId,
+      );
+      if (recentlyProbed) {
+        throw codedError(
+          "COMMAND_REJECTED",
+          "Storage probe rate limit reached. Wait a few seconds and retry.",
+        );
+      }
+      throw codedError(
+        "COMMAND_REJECTED",
+        "Storage probe rate limit reached. Wait a few seconds and retry.",
+      );
+    }
+
+    if (await this.hasRecentStorageProbe(command.workspaceId)) {
+      const latest = this.healthCache.getLatest();
+      if (latest?.details.probe) {
+        const catalog = await this.loadCatalogCounts(command.workspaceId);
+        const details: StorageHealthDetails = {
+          ...latest.details,
+          cataloguedObjects: catalog.objects,
+          failedVerificationObjects: catalog.failed,
+        };
+        return {
+          status: this.deriveStorageStatus(details, catalog),
+          checkedAt: this.clock().toISOString(),
+          summary: `${latest.summary} (coalesced; recent probe reused)`,
+          details: details as unknown as Readonly<Record<string, unknown>>,
+        };
+      }
+    }
+
+    const catalog = await this.loadCatalogCounts(command.workspaceId);
+    const config = this.resolveSafeConfig();
+    const probe = await runStorageProbe({
+      tier,
+      config,
+      prober: this.storageDiagnostics?.prober,
+      storage: this.storageDiagnostics?.storage,
+      workspaceId: command.workspaceId,
+      now: this.clock,
+    });
+
+    const details = toStorageHealthDetails(config, probe, {
+      cataloguedObjects: catalog.objects,
+      failedVerificationObjects: catalog.failed,
+    });
+    assertNoSecretFields(details as unknown as Record<string, unknown>);
+
+    const status = this.deriveStorageStatus(details, catalog);
+    const summary = probe.summary;
+
+    this.healthCache.set({ details, status, summary });
+
+    const requestId = randomUUID();
+    await this.contracts.recordStorageProbe({
+      workspaceId: command.workspaceId,
+      actor,
+      requestId,
+      occurredAt: this.clock().toISOString(),
+      metadata: {
+        probeId: probe.probeId,
+        tier: probe.tier,
+        ok: probe.ok,
+        issueClass: probe.issueClass,
+        issueCode: probe.issueCode,
+        latencyMs: probe.latencyMs,
+        bucketRegion: probe.bucketRegion ?? null,
+        regionMatch: probe.regionMatch ?? null,
+        ...(probe.billingHint ? { billingHint: probe.billingHint } : {}),
+      },
+    });
+
+    return {
+      status,
+      checkedAt: probe.checkedAt,
+      summary,
+      details: details as unknown as Readonly<Record<string, unknown>>,
+    };
+  }
+
+  private deriveStorageStatus(
+    details: StorageHealthDetails,
+    catalog: { objects: number; failed: number },
+  ): ServiceHealth["status"] {
+    if (!details.objectStorageConfigured) return "not_configured";
+    if (catalog.failed > 0) return "degraded";
+    if (details.probe && !details.probe.ok) return "degraded";
+    if (details.probe?.ok) return "healthy";
+    // Configured but not live-verified yet — do not claim healthy/Connected.
+    return "degraded";
+  }
+
+  private deriveStorageSummary(
+    details: StorageHealthDetails,
+    catalog: { objects: number; failed: number },
+  ): string {
+    if (!details.objectStorageConfigured) {
+      return "Object storage is not configured for this API process.";
+    }
+    if (catalog.failed > 0) {
+      return "Object storage is configured, but some objects failed verification.";
+    }
+    if (details.probe && !details.probe.ok) {
+      return details.probe.summary;
+    }
+    if (details.probe?.ok) {
+      return details.probe.summary;
+    }
+    return "Object storage is configured on the API host but not live-verified. Run Test connection.";
+  }
+
+  private async hasRecentStorageProbe(workspaceId: string): Promise<boolean> {
+    const result = await inTransaction(this.pool, async (db) => {
+      await db.query("SELECT set_config('trust.workspace_id',$1,true)", [
+        workspaceId,
+      ]);
+      return db.query<{ ok: number }>(
+        `SELECT 1::int AS ok
+         FROM audit_events
+         WHERE workspace_id=$1
+           AND action='storage.health.probed'
+           AND occurred_at > NOW() - INTERVAL '5 seconds'
+         LIMIT 1`,
+        [workspaceId],
+      );
+    });
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private resolveSafeConfig(): SafeStorageConfig {
+    if (this.storageDiagnostics?.config) return this.storageDiagnostics.config;
+    return {
+      provider: "minio",
+      region: "us-east-1",
+      bucket: "",
+      credentialMode: "missing",
+      endpointHost: null,
+      consoleUrl: null,
+      transferSignerConfigured: Boolean(this.grantService),
+      objectStorageConfigured: Boolean(this.ingest),
+      expectedBucketOwner: null,
+    };
+  }
+
+  private async loadCatalogCounts(workspaceId: string) {
     const counts = await inTransaction(this.pool, async (db) => {
       await db.query("SELECT set_config('trust.workspace_id',$1,true)", [
         workspaceId,
@@ -392,20 +626,9 @@ export class PostgresCommandProvider implements CommandProvider {
         [workspaceId],
       );
     });
-    const row = counts.rows[0] ?? { objects: 0, failed: 0 };
-    return {
-      status: this.ingest && row.failed === 0 ? "healthy" : "degraded",
-      checkedAt: this.clock().toISOString(),
-      summary: this.ingest
-        ? "Immutable object ingest is configured."
-        : "Object storage is not configured for this API process.",
-      details: {
-        cataloguedObjects: row.objects,
-        failedVerificationObjects: row.failed,
-        objectStorageConfigured: Boolean(this.ingest),
-      },
-    };
+    return counts.rows[0] ?? { objects: 0, failed: 0 };
   }
+
   async getBackupHealth(_workspaceId: string): Promise<ServiceHealth> {
     return {
       status: "not_configured",
@@ -488,6 +711,11 @@ export class PostgresCommandProvider implements CommandProvider {
       mediaType: session.mediaType,
       bytes,
     });
+    await this.queueScanAfterIngest({
+      workspaceId: command.workspaceId,
+      uploadId,
+      storageKey: result.blob.storageKey,
+    });
     return this.contracts.completeUploadSession({
       workspaceId: command.workspaceId,
       uploadId,
@@ -495,6 +723,46 @@ export class PostgresCommandProvider implements CommandProvider {
       blobId: result.blob.id,
       ingestOperationId: result.operationId,
       completedAt: this.clock().toISOString(),
+    });
+  }
+
+  private async queueScanAfterIngest(input: {
+    workspaceId: string;
+    uploadId: string;
+    storageKey: string;
+  }): Promise<void> {
+    const scanJobId = randomUUID();
+    let record = await this.scanOrchestrator.queueUploaded({
+      scanJobId,
+      workspaceId: input.workspaceId,
+      uploadId: input.uploadId,
+      storageKey: input.storageKey,
+    });
+    if (!isFakeScannerEnabled()) return;
+    record = await this.scanOrchestrator.handleCallback({
+      scanJobId,
+      workspaceId: input.workspaceId,
+      outcome: "clean",
+      authentic: true,
+      engine: "fake",
+    });
+    await this.advanceFakePromotion(record);
+  }
+
+  private async advanceFakePromotion(
+    record: QuarantineScanRecord,
+  ): Promise<void> {
+    if (record.state !== "accepted") return;
+    const pending: QuarantineScanRecord = {
+      ...record,
+      state: "promotion_pending",
+      updatedAt: this.clock().toISOString(),
+    };
+    await this.scans.save(pending);
+    await this.scans.save({
+      ...pending,
+      state: "promoted",
+      updatedAt: this.clock().toISOString(),
     });
   }
 

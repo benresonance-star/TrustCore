@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { CopyIdChip } from "./CopyIdChip";
 import type { ControlCentreGateway, QuarantineScanSummary } from "./model";
 import { formatGatewayError, remediationFor } from "./remediation";
+import { mapScanStateToLifecycleLabel } from "./storage-status";
 import { WiringBadge } from "./WiringBadge";
 
 export function TransfersPanel({
@@ -90,7 +91,9 @@ export function TransfersPanel({
           <h2>Transfers</h2>
           <small>
             Create policy-gated download grants. Secrets stay on the API; this
-            UI only requests short-lived transfer URLs.
+            UI only requests short-lived transfer URLs. Scan status is metadata
+            on objects already stored by ingest — it is not a separate hold of
+            bytes before commit.
           </small>
         </div>
         <WiringBadge entryId="control.health.transfers" mode={gateway.mode} />
@@ -159,8 +162,9 @@ export function TransfersPanel({
         <div>
           <h2>Quarantine / scan</h2>
           <small>
-            Look up read-only scan status for a known upload id. No promotion or
-            override controls.
+            Scan state is metadata after canonical ingest — bytes are already in
+            object storage. Look up read-only status for a known upload id. No
+            promotion or override controls.
           </small>
         </div>
         <WiringBadge entryId="control.health.quarantine" mode={gateway.mode} />
@@ -190,7 +194,7 @@ export function TransfersPanel({
       {uploadScan && (
         <div className="status-notice" role="status">
           <strong>
-            {uploadScan.state}
+            {mapScanStateToLifecycleLabel(uploadScan.state)} · {uploadScan.state}
             {uploadScan.outcome ? ` · ${uploadScan.outcome}` : ""}
           </strong>
           <small>
