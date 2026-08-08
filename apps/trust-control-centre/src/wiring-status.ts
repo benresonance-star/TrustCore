@@ -80,6 +80,13 @@ const entries = {
     detail:
       "Wired to applications.list/register, policy assignment grants, session snapshot probe, and connection-pack download. Application-principal auth is not probed.",
   },
+  "section.platform-status": {
+    id: "section.platform-status",
+    label: "Platform status",
+    level: "live",
+    detail:
+      "Catalog-driven status page from wiring-status.ts. Lists implemented and outstanding platform work; does not call the API.",
+  },
   "control.home.new-project": {
     id: "control.home.new-project",
     label: "New project",
@@ -153,6 +160,7 @@ export const sectionWiringIds = {
   "app-protocol": "section.app-protocol",
   access: "section.access",
   connections: "section.connections",
+  "platform-status": "section.platform-status",
 } as const satisfies Record<string, WiringEntryId>;
 
 export function getWiringEntry(id: WiringEntryId): WiringEntry {

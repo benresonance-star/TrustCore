@@ -18,6 +18,7 @@ import {
   KeyRound,
   Library,
   Link2,
+  ClipboardList,
   Network,
   NotebookPen,
   PackageOpen,
@@ -65,7 +66,7 @@ import type {
   Section,
 } from "./model";
 import { ConnectionsView } from "./ConnectionsView";
-import { PlatformStatusPanel } from "./PlatformStatusPanel";
+import { PlatformStatusView } from "./PlatformStatusView";
 import { remediationFor } from "./remediation";
 import { TransfersPanel } from "./TransfersPanel";
 import { WiringBadge } from "./WiringBadge";
@@ -86,6 +87,7 @@ const navigation: readonly { id: Section; label: string; Icon: typeof Home }[] =
     { id: "portability", label: "Portability", Icon: PackageOpen },
     { id: "app-protocol", label: "App protocol", Icon: PlugZap },
     { id: "access", label: "Access", Icon: KeyRound },
+    { id: "platform-status", label: "Platform status", Icon: ClipboardList },
   ];
 
 const defaultGateway =
@@ -259,7 +261,6 @@ export function App({
             </button>
           ))}
         </nav>
-        <PlatformStatusPanel />
         <div className="operator">
           <span className="avatar">TC</span>
           <div>
@@ -308,6 +309,9 @@ export function App({
               operational={operationalSnapshot}
               navigateHistory={() => setSection("history")}
             />
+          )}
+          {section === "platform-status" && (
+            <PlatformStatusView mode={gateway.mode} />
           )}
           {section === "datasets" && (
             <DatasetsView
