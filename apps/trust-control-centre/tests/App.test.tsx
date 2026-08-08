@@ -387,26 +387,20 @@ describe("Trust Core Control Centre", () => {
     ).toBeDisabled();
   });
 
-  it("lists implemented and outstanding work in the platform status panel", async () => {
+  it("opens Platform status as a main page section", async () => {
     render(<App gateway={fixtureGateway} />);
     await screen.findByRole("heading", { name: "Workspace overview" });
-    const panel = screen.getByRole("region", { name: "Platform status" });
+    fireEvent.click(screen.getByRole("button", { name: "Platform status" }));
     expect(
-      within(panel).getByRole("button", { name: /Platform status/ }),
+      await screen.findByRole("heading", { name: "Platform status" }),
     ).toBeVisible();
-    expect(within(panel).getByText(/Implemented \d+/)).toBeVisible();
-    expect(within(panel).getByText(/Outstanding \d+/)).toBeVisible();
+    expect(screen.getByText(/Implemented \d+/)).toBeVisible();
+    expect(screen.getByText(/Outstanding \d+/)).toBeVisible();
     expect(
-      within(panel).getByRole("heading", { name: "Implemented to date" }),
+      screen.getByRole("heading", { name: "Implemented to date" }),
     ).toBeVisible();
-    expect(
-      within(panel).getByRole("heading", { name: "Outstanding" }),
-    ).toBeVisible();
-    expect(
-      within(panel).getByText(/S3 adapter with shared contracts/),
-    ).toBeVisible();
-    expect(
-      within(panel).getByText(/Public multipart upload API/),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Outstanding" })).toBeVisible();
+    expect(screen.getByText(/S3 adapter with shared contracts/)).toBeVisible();
+    expect(screen.getByText(/Public multipart upload API/)).toBeVisible();
   });
 });

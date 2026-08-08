@@ -155,58 +155,31 @@ nav {
   gap: 8px;
   flex-wrap: wrap;
 }
-.platform-status {
-  margin: 0 4px;
-  padding: 10px 8px;
+.platform-status-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
-  display: grid;
-  gap: 8px;
-}
-.platform-status-toggle {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  width: 100%;
-  display: grid;
-  gap: 4px;
-  text-align: left;
-  cursor: pointer;
-}
-.platform-status-title {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-.platform-status-counts {
-  font-size: 11px;
+  background: var(--soft);
   color: var(--muted);
-  line-height: 1.35;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
-.platform-status-body {
+.platform-status-page .panel {
+  padding: 18px;
+}
+.platform-status-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
   display: grid;
   gap: 10px;
-  padding-top: 4px;
-  border-top: 1px solid var(--line);
 }
-.platform-status-body h3 {
-  margin: 0 0 4px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.platform-status-body ul {
-  margin: 0;
-  padding-left: 14px;
-  display: grid;
-  gap: 4px;
-}
-.platform-status-body li {
-  font-size: 11px;
-  line-height: 1.35;
+.platform-status-list li {
+  font-size: 14px;
+  line-height: 1.45;
   color: var(--ink);
 }
 .copy-id-chip {
@@ -1416,9 +1389,6 @@ tbody tr.selected {
     justify-content: center;
   }
   .nav-item-copy {
-    display: none;
-  }
-  .platform-status {
     display: none;
   }
   .operator {

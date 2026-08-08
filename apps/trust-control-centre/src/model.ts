@@ -7,7 +7,8 @@ export type Section =
   | "portability"
   | "app-protocol"
   | "access"
-  | "connections";
+  | "connections"
+  | "platform-status";
 
 export type {
   ApplicationRegistration,
