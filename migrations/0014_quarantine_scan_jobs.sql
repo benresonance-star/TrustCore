@@ -1,9 +1,13 @@
 BEGIN;
 
+ALTER TABLE upload_sessions
+  ADD CONSTRAINT upload_sessions_workspace_id_id_unique
+  UNIQUE (workspace_id, id);
+
 CREATE TABLE quarantine_scan_jobs (
   id text PRIMARY KEY CHECK (length(btrim(id)) > 0),
-  workspace_id uuid NOT NULL REFERENCES workspaces(id),
-  upload_id uuid NOT NULL REFERENCES upload_sessions(id),
+  workspace_id uuid NOT NULL,
+  upload_id uuid NOT NULL,
   storage_key text NOT NULL CHECK (length(btrim(storage_key)) > 0),
   state text NOT NULL CHECK (state IN (
     'pending_upload',
@@ -29,11 +33,10 @@ CREATE TABLE quarantine_scan_jobs (
   ),
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
-  UNIQUE (workspace_id, upload_id)
+  UNIQUE (workspace_id, upload_id),
+  FOREIGN KEY (workspace_id, upload_id)
+    REFERENCES upload_sessions (workspace_id, id)
 );
-
-CREATE INDEX quarantine_scan_jobs_upload_idx
-  ON quarantine_scan_jobs(workspace_id, upload_id);
 
 ALTER TABLE quarantine_scan_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quarantine_scan_jobs FORCE ROW LEVEL SECURITY;

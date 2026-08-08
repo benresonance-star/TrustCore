@@ -1,5 +1,14 @@
 import type { QuarantineScanRecord } from "./quarantine-scan.js";
 
+export class QuarantineScanConflictError extends Error {
+  readonly code = "QUARANTINE_SCAN_CONFLICT";
+
+  constructor(message = "Quarantine scan identity conflict.") {
+    super(message);
+    this.name = "QuarantineScanConflictError";
+  }
+}
+
 export interface QuarantineScanStore {
   getByUploadId(
     workspaceId: string,
@@ -10,6 +19,53 @@ export interface QuarantineScanStore {
     scanJobId: string,
   ): Promise<QuarantineScanRecord | undefined>;
   save(record: QuarantineScanRecord): Promise<void>;
+}
+
+export type QuarantineScanSaveAction = "insert" | "update";
+
+export function resolveQuarantineScanSave(
+  existingByJobId: QuarantineScanRecord | undefined,
+  existingByUpload: QuarantineScanRecord | undefined,
+  incoming: QuarantineScanRecord,
+): QuarantineScanSaveAction {
+  if (existingByJobId) {
+    if (
+      existingByJobId.workspaceId !== incoming.workspaceId ||
+      existingByJobId.uploadId !== incoming.uploadId
+    ) {
+      throw new QuarantineScanConflictError(
+        "Scan job id is already bound to a different workspace or upload.",
+      );
+    }
+    if (
+      existingByJobId.storageKey !== incoming.storageKey ||
+      existingByJobId.createdAt !== incoming.createdAt
+    ) {
+      throw new QuarantineScanConflictError(
+        "Scan record storage key and createdAt are immutable.",
+      );
+    }
+    return "update";
+  }
+
+  if (existingByUpload) {
+    if (existingByUpload.scanJobId !== incoming.scanJobId) {
+      throw new QuarantineScanConflictError(
+        "Upload already has a quarantine scan with a different scan job id.",
+      );
+    }
+    if (
+      existingByUpload.storageKey !== incoming.storageKey ||
+      existingByUpload.createdAt !== incoming.createdAt
+    ) {
+      throw new QuarantineScanConflictError(
+        "Scan record storage key and createdAt are immutable.",
+      );
+    }
+    return "update";
+  }
+
+  return "insert";
 }
 
 export class InMemoryQuarantineScanStore implements QuarantineScanStore {
@@ -35,6 +91,12 @@ export class InMemoryQuarantineScanStore implements QuarantineScanStore {
   }
 
   async save(record: QuarantineScanRecord): Promise<void> {
+    const existingByJobId = this.byJobId.get(record.scanJobId);
+    const existingByUpload = await this.getByUploadId(
+      record.workspaceId,
+      record.uploadId,
+    );
+    resolveQuarantineScanSave(existingByJobId, existingByUpload, record);
     this.byJobId.set(record.scanJobId, clone(record));
   }
 }
